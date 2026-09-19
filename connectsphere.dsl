@@ -23,10 +23,6 @@ workspace "ConnectSphere" "Event Planning & Venue Booking System" {
     }
 
     // EXTERNAL SYSTEMS (things you do NOT build)
-    idp = softwareSystem "Identity Provider" "Authenticates internal staff and external users." {
-      tags "External System"
-    }
-
     emailSms = softwareSystem "Email / SMS Gateway" "Delivers notification emails and SMS messages to users." {
       tags "External System"
     }
@@ -39,14 +35,10 @@ workspace "ConnectSphere" "Event Planning & Venue Booking System" {
     attendee -> webApp "Views events and manages registrations using"
 
     // RELATIONSHIPS – WITHIN CONNECTSPHERE
-    webApp -> api "Makes REST API calls to" "JSON / HTTPS"
-    api -> db "Reads from and writes to" "SQL / TCP"
+    webApp -> api "Makes REST API calls, authenticates, and manages session cookies via" "JSON / HTTPS"
+    api -> db "Reads from and writes to (users, sessions, events, audit history)" "SQL / TCP"
     notifier -> db "Reads upcoming events and pending notifications from" "SQL / TCP"
     notifier -> emailSms "Sends emails/SMS for status changes, bookings and registration events via" "SMTP / HTTPS"
-
-    // RELATIONSHIPS – AUTH
-    webApp -> idp "Redirects users for sign-in; validates identity with" "OIDC / HTTPS"
-    api -> idp "Validates access tokens from" "OIDC / HTTPS"
 
   }
 

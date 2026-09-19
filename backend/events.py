@@ -8,9 +8,13 @@ from .assignment import NoCoordinatorAvailable, assign_coordinator_on_submission
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User
-from .status import DRAFT, SUBMITTED
+from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+
+class ReviewAction(BaseModel):
+    reason: Optional[str] = None
 
 
 class EventCreate(BaseModel):
@@ -142,6 +146,13 @@ def submit_event(
             detail="You are not authorized to submit this event request",
         )
 
+    # Allow submitting newly created drafts or resubmitting returned requests
+    if event.status not in [DRAFT, RETURNED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot submit an event request with status '{event.status}'",
+        )
+
     # Re-check mandatory fields and rules
     if not event.title or not event.title.strip():
         raise HTTPException(
@@ -157,14 +168,16 @@ def submit_event(
     prev_status = event.status
     event.status = SUBMITTED
 
-    try:
-        assign_coordinator_on_submission(event, db)
-    except NoCoordinatorAvailable as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+    # Only assign a coordinator if one is not already assigned
+    if not event.assigned_coordinator_id:
+        try:
+            assign_coordinator_on_submission(event, db)
+        except NoCoordinatorAvailable as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
 
     status_history = EventStatusHistory(
         event_id=event.id,
@@ -182,6 +195,134 @@ def submit_event(
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "submitted_at": event.submitted_at,
+    }
+
+
+@router.post("/{event_id}/return")
+def return_event_for_clarification(
+    event_id: int,
+    action: Optional[ReviewAction] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role.lower() != "coordinator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only coordinators can return event requests for clarification",
+        )
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    prev_status = event.status
+    event.status = RETURNED
+    reason_text = (action.reason if action and action.reason else "Returned to organiser for clarification")
+
+    status_history = EventStatusHistory(
+        event_id=event.id,
+        previous_status=prev_status,
+        new_status=RETURNED,
+        actor_id=current_user.id,
+        reason=reason_text,
+    )
+    db.add(status_history)
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "id": event.id,
+        "status": event.status,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+        "clarification_reason": reason_text,
+    }
+
+
+@router.post("/{event_id}/approve")
+def approve_event(
+    event_id: int,
+    action: Optional[ReviewAction] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role.lower() != "coordinator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only coordinators can approve event requests",
+        )
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    prev_status = event.status
+    event.status = APPROVED
+    reason_text = (action.reason if action and action.reason else "Event request approved by coordinator")
+
+    status_history = EventStatusHistory(
+        event_id=event.id,
+        previous_status=prev_status,
+        new_status=APPROVED,
+        actor_id=current_user.id,
+        reason=reason_text,
+    )
+    db.add(status_history)
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "id": event.id,
+        "status": event.status,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+    }
+
+
+@router.post("/{event_id}/reject")
+def reject_event(
+    event_id: int,
+    action: Optional[ReviewAction] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role.lower() != "coordinator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only coordinators can reject event requests",
+        )
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    prev_status = event.status
+    event.status = REJECTED
+    reason_text = (action.reason if action and action.reason else "Event request rejected by coordinator")
+
+    status_history = EventStatusHistory(
+        event_id=event.id,
+        previous_status=prev_status,
+        new_status=REJECTED,
+        actor_id=current_user.id,
+        reason=reason_text,
+    )
+    db.add(status_history)
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "id": event.id,
+        "status": event.status,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+        "rejection_reason": reason_text,
     }
 
 

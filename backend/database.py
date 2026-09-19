@@ -1,8 +1,16 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+# Automatically load environment variables from .env
+load_dotenv()
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+
+# Normalize postgres:// to postgresql:// for SQLAlchemy compatibility
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
