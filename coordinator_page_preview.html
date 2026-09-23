@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assigned requests — ConnectSphere</title>
+<style>
+  :root {
+    --ink: #16181d;
+    --muted: #5d636e;
+    --hairline: #e2e4e8;
+    --page: #ffffff;
+    --waiting: #9a4a09;
+    --waiting-wash: #fdf4ec;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 4rem;
+    background: var(--page);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  header { border-bottom: 1px solid var(--hairline); padding-bottom: 1rem; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 .25rem; letter-spacing: -0.01em; }
+  .who { margin: 0; color: var(--muted); font-size: .9rem; }
+  .summary { margin: 1.25rem 0 .5rem; color: var(--muted); font-size: .9rem; }
+  .queue { list-style: none; margin: 0; padding: 0; }
+  .request { padding: 1.1rem 0 1.1rem 1rem; border-bottom: 1px solid var(--hairline); border-left: 3px solid transparent; }
+  .request.waiting { border-left-color: var(--waiting); background: var(--waiting-wash); }
+  .headline { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: baseline; justify-content: space-between; }
+  h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+  .marker { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  .waiting-marker { color: var(--waiting); font-weight: 600; }
+  .facts { display: flex; flex-wrap: wrap; gap: .35rem 2rem; margin: .5rem 0 0; }
+  .facts div { display: flex; gap: .4rem; }
+  dt { color: var(--muted); font-size: .875rem; }
+  dd { margin: 0; font-size: .875rem; font-variant-numeric: tabular-nums; }
+  .empty { padding: 3rem 0; color: var(--muted); }
+  .empty p { margin: 0 0 .4rem; }
+  .empty p:first-child { color: var(--ink); font-size: 1.05rem; }
+  a:focus-visible, li:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (max-width: 34rem) {
+    .facts { flex-direction: column; gap: .2rem; }
+    .headline { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Assigned requests</h1>
+      <p class="who">Signed in as coord1</p>
+    </header>
+      <p class="summary">4 assigned to you, 2 waiting for your first review</p>
+      <ul class="queue">
+      <li class="request waiting">
+        <div class="headline">
+          <h2>Asia Pacific partner summit</h2>
+          <span class="marker waiting-marker">Awaiting your first review</span>
+        </div>
+        <dl class="facts">
+          <div><dt>Organiser</dt><dd>acme_events</dd></div>
+          <div><dt>Proposed</dt><dd>4 Nov 2026, 9:00 am</dd></div>
+          <div><dt>Attendance</dt><dd>180 expected</dd></div>
+        </dl>
+      </li>
+      <li class="request waiting">
+        <div class="headline">
+          <h2>Internal product workshop</h2>
+          <span class="marker waiting-marker">Awaiting your first review</span>
+        </div>
+        <dl class="facts">
+          <div><dt>Organiser</dt><dd>globex_hr</dd></div>
+          <div><dt>Proposed</dt><dd>28 Oct 2026, 2:30 pm</dd></div>
+          <div><dt>Attendance</dt><dd>45 expected</dd></div>
+        </dl>
+      </li>
+      <li class="request">
+        <div class="headline">
+          <h2>Year-end appreciation dinner</h2>
+          <span class="marker">Under Review</span>
+        </div>
+        <dl class="facts">
+          <div><dt>Organiser</dt><dd>acme_events</dd></div>
+          <div><dt>Proposed</dt><dd>12 Dec 2026, 7:00 pm</dd></div>
+          <div><dt>Attendance</dt><dd>300 expected</dd></div>
+        </dl>
+      </li>
+      <li class="request">
+        <div class="headline">
+          <h2>Graduate recruitment fair</h2>
+          <span class="marker">Approved</span>
+        </div>
+        <dl class="facts">
+          <div><dt>Organiser</dt><dd>globex_hr</dd></div>
+          <div><dt>Proposed</dt><dd>2 Oct 2026, 10:00 am</dd></div>
+          <div><dt>Attendance</dt><dd>Not set</dd></div>
+        </dl>
+      </li>
+      </ul>
+  </main>
+</body>
+</html>
