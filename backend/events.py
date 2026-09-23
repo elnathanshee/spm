@@ -9,12 +9,29 @@ from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User
 from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED
+# [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
+from .status_rules import StatusChangeError, change_status
 
 router = APIRouter(prefix="/events", tags=["events"])
 
 
 class ReviewAction(BaseModel):
     reason: Optional[str] = None
+
+
+# [SCRUM-26 | Renee] NEW: request body for /reject. Reason is required and cannot be blank
+# (missing/blank reason -> 422). Approve still uses the optional ReviewAction above.
+class RejectAction(BaseModel):
+    """SCRUM-26: a rejection must always say why."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A rejection reason is required")
+        return v.strip()
 
 
 class EventCreate(BaseModel):
@@ -261,18 +278,19 @@ def approve_event(
             detail="Event not found",
         )
 
-    prev_status = event.status
-    event.status = APPROVED
     reason_text = (action.reason if action and action.reason else "Event request approved by coordinator")
 
-    status_history = EventStatusHistory(
-        event_id=event.id,
-        previous_status=prev_status,
-        new_status=APPROVED,
-        actor_id=current_user.id,
-        reason=reason_text,
-    )
-    db.add(status_history)
+    # [SCRUM-26 | Renee] CHANGED: status guard.
+    # Before: set event.status = APPROVED directly (any status, any coordinator).
+    # Now: change_status() checks the rulebook first -
+    #   - only from Submitted / Under Review, otherwise 400
+    #   - only the assigned coordinator, otherwise 403
+    # and it writes the EventStatusHistory row for us.
+    try:
+        change_status(db, event, APPROVED, current_user, reason=reason_text)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
+
     db.commit()
     db.refresh(event)
 
@@ -286,7 +304,7 @@ def approve_event(
 @router.post("/{event_id}/reject")
 def reject_event(
     event_id: int,
-    action: Optional[ReviewAction] = None,
+    action: RejectAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -303,18 +321,17 @@ def reject_event(
             detail="Event not found",
         )
 
-    prev_status = event.status
-    event.status = REJECTED
-    reason_text = (action.reason if action and action.reason else "Event request rejected by coordinator")
+    # [SCRUM-26 | Renee] CHANGED: status guard + required reason.
+    # Before: set event.status = REJECTED directly and used a default reason if none given.
+    # Now: reason is required (RejectAction, else 422), and change_status() checks the rulebook -
+    #   - only from Submitted / Under Review, otherwise 400
+    #   - only the assigned coordinator, otherwise 403
+    # The reason is saved to EventStatusHistory.
+    try:
+        change_status(db, event, REJECTED, current_user, reason=action.reason)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
 
-    status_history = EventStatusHistory(
-        event_id=event.id,
-        previous_status=prev_status,
-        new_status=REJECTED,
-        actor_id=current_user.id,
-        reason=reason_text,
-    )
-    db.add(status_history)
     db.commit()
     db.refresh(event)
 
@@ -322,7 +339,7 @@ def reject_event(
         "id": event.id,
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
-        "rejection_reason": reason_text,
+        "rejection_reason": action.reason,
     }
 
 
