@@ -34,6 +34,32 @@ class RejectAction(BaseModel):
         return v.strip()
 
 
+# [SCRUM-25 | Renee] NEW: request body for /return. The clarification note is required
+# and cannot be blank (missing/blank note -> 422), so the Organiser always knows what to fix.
+class ReturnAction(BaseModel):
+    """SCRUM-25: returning a request must say what is unclear or missing."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def note_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A clarification note is required")
+        return v.strip()
+
+
+# [SCRUM-25 | Renee] NEW helper: the latest clarification note for a Returned request,
+# read from EventStatusHistory. Used by GET /events so the Organiser can see what was asked.
+def latest_clarification_note(event: Event) -> Optional[str]:
+    if event.status != RETURNED:
+        return None
+    returns = [h for h in event.status_history if h.new_status == RETURNED]
+    if not returns:
+        return None
+    return max(returns, key=lambda h: h.id).reason
+
+
 class EventCreate(BaseModel):
     title: str
     purpose: Optional[str] = None
@@ -218,7 +244,7 @@ def submit_event(
 @router.post("/{event_id}/return")
 def return_event_for_clarification(
     event_id: int,
-    action: Optional[ReviewAction] = None,
+    action: ReturnAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -235,18 +261,17 @@ def return_event_for_clarification(
             detail="Event not found",
         )
 
-    prev_status = event.status
-    event.status = RETURNED
-    reason_text = (action.reason if action and action.reason else "Returned to organiser for clarification")
+    # [SCRUM-25 | Renee] CHANGED: status guard + required note.
+    # Before: set event.status = RETURNED directly and used a default note if none given.
+    # Now: note is required (ReturnAction, else 422), and change_status() checks the rulebook -
+    #   - only from Submitted / Under Review, otherwise 400
+    #   - only the assigned coordinator, otherwise 403
+    # The note is saved to EventStatusHistory.
+    try:
+        change_status(db, event, RETURNED, current_user, reason=action.reason)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
 
-    status_history = EventStatusHistory(
-        event_id=event.id,
-        previous_status=prev_status,
-        new_status=RETURNED,
-        actor_id=current_user.id,
-        reason=reason_text,
-    )
-    db.add(status_history)
     db.commit()
     db.refresh(event)
 
@@ -254,7 +279,7 @@ def return_event_for_clarification(
         "id": event.id,
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
-        "clarification_reason": reason_text,
+        "clarification_reason": action.reason,
     }
 
 
@@ -368,6 +393,8 @@ def list_my_events(
             "assigned_coordinator_id": ev.assigned_coordinator_id,
             "created_at": ev.created_at,
             "submitted_at": ev.submitted_at,
+            # [SCRUM-25 | Renee] NEW: the Coordinator's note when the request is Returned, else None
+            "clarification_note": latest_clarification_note(ev),
         }
         for ev in events
     ]
