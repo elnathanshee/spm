@@ -22,13 +22,13 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 | Layer | Choice | Status |
 |---|---|---|
 | Backend | Python (FastAPI) | Agreed |
+| Database | SQLite (Dev) / PostgreSQL (Neon / Prod) via SQLAlchemy | Agreed |
+| Authentication | Local Session Cookie (`connectsphere_session`) with bcrypt | Agreed |
+| Testing framework | Pytest + FastAPI TestClient | Agreed |
 | Version control | GitHub | Agreed |
 | Hosting | Vercel (auto-deploys from GitHub on push) | Agreed |
-| Frontend | TBC | Open |
-| Database | TBC | Open |
-| Authentication | TBC | Open |
-| Testing framework | TBC | Open |
-| CI | TBC | Open |
+| Frontend | React / Vanilla JS & CSS (TBC) | Open |
+| CI | GitHub Actions | Open |
 
 *(Update this table as decisions are made in sprint planning — keep it as the single source of truth for the stack.)*
 
@@ -64,7 +64,7 @@ Copy `.env.example` to `.env` and fill in the required values (database URL, aut
 
 ```bash
 # backend
-uvicorn main:app --reload
+uvicorn backend.main:app --reload
 
 # frontend (once added)
 npm run dev
