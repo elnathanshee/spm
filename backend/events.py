@@ -8,7 +8,7 @@ from .assignment import NoCoordinatorAvailable, assign_coordinator_on_submission
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User
-from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED
+from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 
@@ -280,6 +280,49 @@ def return_event_for_clarification(
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "clarification_reason": action.reason,
+    }
+
+
+@router.post("/{event_id}/review")
+def start_review(
+    event_id: int,
+    action: Optional[ReviewAction] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-27: the assigned Coordinator marks that review has started.
+
+    Nothing happens automatically, so this is a deliberate action the
+    Coordinator takes. It is what makes "awaiting first review" meaningful on
+    the Coordinator's list of requests (SCRUM-24).
+
+    Originally written by Melvin in the root-level events.py, which the merge
+    left outside the backend package so the route was never served. Ported here
+    against the rulebook: the original called its own apply_status_change
+    helper, this calls change_status, so the Submitted -> Under Review guard,
+    the assigned-coordinator check and the history row all come from one place.
+    """
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    reason_text = (action.reason if action and action.reason else "Review started by coordinator")
+
+    try:
+        change_status(db, event, UNDER_REVIEW, current_user, reason=reason_text)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
+
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "id": event.id,
+        "status": event.status,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
     }
 
 
