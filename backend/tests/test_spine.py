@@ -148,6 +148,20 @@ def test_tc006_direct_url_while_logged_out(client):
 
 
 def test_event_draft_creation_and_validation(client, seed_data):
+    """CONTRADICTS SCRUM-20 AC1 (conflict K2) - do not treat as evidence.
+
+    SCRUM-20 AC1: "An incomplete request can be saved without passing
+    submission validation."
+
+    This test asserts the opposite: that creating a DRAFT with a past date or
+    with expected_attendance of 0 is refused with 400. It passes, which means
+    the code and the test agree with each other while both disagree with the
+    story. Passing here is not evidence that the behaviour is correct.
+
+    Either SCRUM-20 AC1 is wrong or the draft validation is. That is a Product
+    Owner decision and is still open, so neither the test nor the endpoint has
+    been changed. Raised in the Week 6 test audit as K2.
+    """
     # Login as organiser
     client.post("/auth/login", json={"username": "org_test", "password": "pass123"})
 

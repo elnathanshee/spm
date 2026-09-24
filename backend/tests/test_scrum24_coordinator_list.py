@@ -77,6 +77,33 @@ def people(db_session):
     return {"organiser": organiser, "mine": mine, "theirs": theirs}
 
 
+_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def proposed_start_for(days_ahead):
+    """A proposed start relative to today, always at 2:30 pm.
+
+    Relative to today so the test does not expire: a hard-coded calendar date
+    quietly changes meaning once it falls into the past. Fixed at 2:30 pm so
+    the rendered time is predictable and TC-302 can assert it.
+    """
+    return (datetime.utcnow() + timedelta(days=days_ahead)).replace(
+        hour=14, minute=30, second=0, microsecond=0
+    )
+
+
+def expected_display(days_ahead):
+    """What AC2 says the page shows for that date: the day, the month, the year
+    and the time a person can read.
+
+    Spelled out here rather than imported from coordinator.py, so the test
+    states what the criterion expects instead of echoing the implementation.
+    """
+    when = proposed_start_for(days_ahead)
+    return f"{when.day} {_MONTH_NAMES[when.month - 1]} {when.year}, 2:30 pm"
+
+
 @pytest.fixture
 def make_event(db_session, people):
     def _make(title, status=SUBMITTED, coordinator="mine", attendance=120, days_ahead=30, submitted_days_ago=1):
@@ -86,7 +113,7 @@ def make_event(db_session, people):
             assigned_coordinator_id=people[coordinator].id,
             status=status,
             expected_attendance=attendance,
-            proposed_start=datetime(2026, 10, 14, 14, 30) + timedelta(days=days_ahead),
+            proposed_start=proposed_start_for(days_ahead),
             submitted_at=datetime.utcnow() - timedelta(days=submitted_days_ago),
         )
         db_session.add(event)
@@ -128,7 +155,7 @@ def test_tc302_each_request_shows_the_five_required_details(client, people, make
     page = client.get("/coordinator/events")
     assert "Annual leadership forum" in page.text
     assert "acme_events" in page.text
-    assert "14 Oct 2026, 2:30 pm" in page.text
+    assert expected_display(days_ahead=0) in page.text
     assert "250 expected" in page.text
     assert UNDER_REVIEW in page.text
 
@@ -164,7 +191,7 @@ def test_tc304_waiting_requests_come_first_longest_wait_at_the_top(client, peopl
 
 
 def test_tc305_empty_list_explains_itself(client, people):
-    """TC-304 (AC4): a Coordinator with nothing assigned is told so."""
+    """TC-305 (AC4): a Coordinator with nothing assigned is told so."""
     login(client, "coord_mine")
     page = client.get("/coordinator/events")
     assert page.status_code == 200
