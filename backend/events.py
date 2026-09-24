@@ -9,12 +9,55 @@ from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User
 from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED
+# [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
+from .status_rules import StatusChangeError, change_status
 
 router = APIRouter(prefix="/events", tags=["events"])
 
 
 class ReviewAction(BaseModel):
     reason: Optional[str] = None
+
+
+# [SCRUM-26 | Renee] NEW: request body for /reject. Reason is required and cannot be blank
+# (missing/blank reason -> 422). Approve still uses the optional ReviewAction above.
+class RejectAction(BaseModel):
+    """SCRUM-26: a rejection must always say why."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A rejection reason is required")
+        return v.strip()
+
+
+# [SCRUM-25 | Renee] NEW: request body for /return. The clarification note is required
+# and cannot be blank (missing/blank note -> 422), so the Organiser always knows what to fix.
+class ReturnAction(BaseModel):
+    """SCRUM-25: returning a request must say what is unclear or missing."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def note_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A clarification note is required")
+        return v.strip()
+
+
+# [SCRUM-25 | Renee] NEW helper: the latest clarification note for a Returned request,
+# read from EventStatusHistory. Used by GET /events so the Organiser can see what was asked.
+def latest_clarification_note(event: Event) -> Optional[str]:
+    if event.status != RETURNED:
+        return None
+    returns = [h for h in event.status_history if h.new_status == RETURNED]
+    if not returns:
+        return None
+    return max(returns, key=lambda h: h.id).reason
 
 
 class EventCreate(BaseModel):
@@ -201,7 +244,7 @@ def submit_event(
 @router.post("/{event_id}/return")
 def return_event_for_clarification(
     event_id: int,
-    action: Optional[ReviewAction] = None,
+    action: ReturnAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -218,18 +261,17 @@ def return_event_for_clarification(
             detail="Event not found",
         )
 
-    prev_status = event.status
-    event.status = RETURNED
-    reason_text = (action.reason if action and action.reason else "Returned to organiser for clarification")
+    # [SCRUM-25 | Renee] CHANGED: status guard + required note.
+    # Before: set event.status = RETURNED directly and used a default note if none given.
+    # Now: note is required (ReturnAction, else 422), and change_status() checks the rulebook -
+    #   - only from Submitted / Under Review, otherwise 400
+    #   - only the assigned coordinator, otherwise 403
+    # The note is saved to EventStatusHistory.
+    try:
+        change_status(db, event, RETURNED, current_user, reason=action.reason)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
 
-    status_history = EventStatusHistory(
-        event_id=event.id,
-        previous_status=prev_status,
-        new_status=RETURNED,
-        actor_id=current_user.id,
-        reason=reason_text,
-    )
-    db.add(status_history)
     db.commit()
     db.refresh(event)
 
@@ -237,7 +279,7 @@ def return_event_for_clarification(
         "id": event.id,
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
-        "clarification_reason": reason_text,
+        "clarification_reason": action.reason,
     }
 
 
@@ -261,18 +303,19 @@ def approve_event(
             detail="Event not found",
         )
 
-    prev_status = event.status
-    event.status = APPROVED
     reason_text = (action.reason if action and action.reason else "Event request approved by coordinator")
 
-    status_history = EventStatusHistory(
-        event_id=event.id,
-        previous_status=prev_status,
-        new_status=APPROVED,
-        actor_id=current_user.id,
-        reason=reason_text,
-    )
-    db.add(status_history)
+    # [SCRUM-26 | Renee] CHANGED: status guard.
+    # Before: set event.status = APPROVED directly (any status, any coordinator).
+    # Now: change_status() checks the rulebook first -
+    #   - only from Submitted / Under Review, otherwise 400
+    #   - only the assigned coordinator, otherwise 403
+    # and it writes the EventStatusHistory row for us.
+    try:
+        change_status(db, event, APPROVED, current_user, reason=reason_text)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
+
     db.commit()
     db.refresh(event)
 
@@ -286,7 +329,7 @@ def approve_event(
 @router.post("/{event_id}/reject")
 def reject_event(
     event_id: int,
-    action: Optional[ReviewAction] = None,
+    action: RejectAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -303,18 +346,17 @@ def reject_event(
             detail="Event not found",
         )
 
-    prev_status = event.status
-    event.status = REJECTED
-    reason_text = (action.reason if action and action.reason else "Event request rejected by coordinator")
+    # [SCRUM-26 | Renee] CHANGED: status guard + required reason.
+    # Before: set event.status = REJECTED directly and used a default reason if none given.
+    # Now: reason is required (RejectAction, else 422), and change_status() checks the rulebook -
+    #   - only from Submitted / Under Review, otherwise 400
+    #   - only the assigned coordinator, otherwise 403
+    # The reason is saved to EventStatusHistory.
+    try:
+        change_status(db, event, REJECTED, current_user, reason=action.reason)
+    except StatusChangeError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
 
-    status_history = EventStatusHistory(
-        event_id=event.id,
-        previous_status=prev_status,
-        new_status=REJECTED,
-        actor_id=current_user.id,
-        reason=reason_text,
-    )
-    db.add(status_history)
     db.commit()
     db.refresh(event)
 
@@ -322,7 +364,7 @@ def reject_event(
         "id": event.id,
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
-        "rejection_reason": reason_text,
+        "rejection_reason": action.reason,
     }
 
 
@@ -351,6 +393,8 @@ def list_my_events(
             "assigned_coordinator_id": ev.assigned_coordinator_id,
             "created_at": ev.created_at,
             "submitted_at": ev.submitted_at,
+            # [SCRUM-25 | Renee] NEW: the Coordinator's note when the request is Returned, else None
+            "clarification_note": latest_clarification_note(ev),
         }
         for ev in events
     ]
