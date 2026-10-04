@@ -96,3 +96,22 @@ class EventStatusHistory(Base):
     # Relationships
     event = relationship("Event", back_populates="status_history")
     actor = relationship("User")
+
+
+# [SCRUM-51 | Renee] NEW: in-app notifications. The customer left the delivery
+# channel to the team, so a notification is a row the recipient reads through
+# GET /notifications. SCRUM-63 and later stories reuse this table.
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=True)
+    kind = Column(String(50), nullable=False)  # e.g. 'submitted', 'returned', 'approved', 'rejected'
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    read_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User")
+    event = relationship("Event")
