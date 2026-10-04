@@ -41,6 +41,10 @@ KIND_SUBMITTED = "submitted"
 KIND_RETURNED = "returned"
 KIND_APPROVED = "approved"
 KIND_REJECTED = "rejected"
+# [SCRUM-23 | Renee] reassignment kinds
+KIND_REASSIGNED_TO_YOU = "reassigned_to_you"
+KIND_REASSIGNED_AWAY = "reassigned_away"
+KIND_COORDINATOR_CHANGED = "coordinator_changed"
 
 
 class NotEntitled(Exception):
@@ -57,14 +61,16 @@ def can_see_event(user: User, event: Event) -> bool:
     Mirrors the visibility already used by GET /events:
       * an Organiser sees only events they organise
       * a Coordinator sees only events assigned to them
-    Every other role receives no event notifications yet. Widen this when a
-    later story (e.g. the Event Coordinator Lead, Week 7 Change #5) needs it.
+      * the Event Coordinator Lead sees every event (SCRUM-23)
+    Every other role receives no event notifications yet.
     """
     role = _role_of(user)
     if role == "organiser":
         return event.organiser_id == user.id
     if role == "coordinator":
         return event.assigned_coordinator_id == user.id
+    if role == "lead":  # [SCRUM-23 | Renee]
+        return True
     return False
 
 
@@ -195,3 +201,29 @@ def mark_notification_read(
         db.commit()
         db.refresh(n)
     return _to_dict(n)
+
+
+# [SCRUM-23 | Renee] NEW: the one notification that outlives the recipient's
+# access. A Coordinator who is reassigned away must still be told, but can no
+# longer see the event. So entitlement is checked now, while they still are the
+# assigned Coordinator, and the row is stored without an event link: it stays
+# in their list (GET /notifications keeps rows with no event) but points them
+# at nothing they can no longer open. Call this BEFORE changing the assignment.
+def notify_former_coordinator(
+    db: Session,
+    former: User,
+    event: Event,
+    message: str,
+) -> Notification:
+    if not can_see_event(former, event):
+        raise NotEntitled(
+            f"User {former.id} is not the assigned coordinator of event {event.id}"
+        )
+    notification = Notification(
+        user_id=former.id,
+        event_id=None,
+        kind=KIND_REASSIGNED_AWAY,
+        message=message,
+    )
+    db.add(notification)
+    return notification

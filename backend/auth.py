@@ -81,6 +81,7 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
     role_redirects = {
         "organiser": "/events",
         "coordinator": "/coordinator/events",
+        "lead": "/events",  # [SCRUM-23 | Renee] the Lead lands on the list of all events
         "admin": "/admin",
     }
     redirect_url = role_redirects.get(user.role.lower(), "/dashboard")

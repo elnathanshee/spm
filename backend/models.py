@@ -19,7 +19,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(100), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(50), nullable=False)  # e.g., 'organiser', 'coordinator', 'admin'
+    role = Column(String(50), nullable=False)  # e.g., 'organiser', 'coordinator', 'lead', 'admin'
     is_active_coordinator = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -115,3 +115,24 @@ class Notification(Base):
     # Relationships
     user = relationship("User")
     event = relationship("Event")
+
+
+# [SCRUM-23 | Renee] NEW: one row per reassignment - who moved which event from
+# whom to whom, and when. A new table rather than new columns on
+# CoordinatorAssignmentHistory, because create_all() adds missing tables on Neon
+# but never alters existing ones, so new columns would need a migration.
+class CoordinatorReassignment(Base):
+    __tablename__ = "coordinator_reassignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    from_coordinator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    to_coordinator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reassigned_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reassigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    event = relationship("Event")
+    from_coordinator = relationship("User", foreign_keys=[from_coordinator_id])
+    to_coordinator = relationship("User", foreign_keys=[to_coordinator_id])
+    reassigned_by = relationship("User", foreign_keys=[reassigned_by_id])
