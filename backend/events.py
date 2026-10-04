@@ -11,6 +11,8 @@ from .models import Event, EventStatusHistory, User
 from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
+# [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
+from .notifications import notify_organiser_of_status
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -230,6 +232,8 @@ def submit_event(
         reason="Event request submitted by organiser",
     )
     db.add(status_history)
+    # [SCRUM-51 | Renee] NEW: notify the Organiser (AC1). Saved in the same commit as the submission.
+    notify_organiser_of_status(db, event, SUBMITTED)
     db.commit()
     db.refresh(event)
 
@@ -272,6 +276,9 @@ def return_event_for_clarification(
     except StatusChangeError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
+    # [SCRUM-51 | Renee] NEW: notify the Organiser, including the Coordinator's note (AC2).
+    # Only reached when the return was allowed, so a refused return sends nothing.
+    notify_organiser_of_status(db, event, RETURNED, note=action.reason)
     db.commit()
     db.refresh(event)
 
@@ -359,6 +366,8 @@ def approve_event(
     except StatusChangeError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
+    # [SCRUM-51 | Renee] NEW: notify the Organiser that it was approved (AC3).
+    notify_organiser_of_status(db, event, APPROVED)
     db.commit()
     db.refresh(event)
 
@@ -400,6 +409,8 @@ def reject_event(
     except StatusChangeError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
+    # [SCRUM-51 | Renee] NEW: notify the Organiser that it was rejected, with the reason (AC3).
+    notify_organiser_of_status(db, event, REJECTED, note=action.reason)
     db.commit()
     db.refresh(event)
 

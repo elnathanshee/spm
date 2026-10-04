@@ -6,6 +6,7 @@ from .coordinator import router as coordinator_router
 from .database import engine
 from .events import router as events_router
 from .models import Base
+from .notifications import router as notifications_router  # [SCRUM-51 | Renee]
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(events_router)
 app.include_router(coordinator_router)
+app.include_router(notifications_router)  # [SCRUM-51 | Renee]
 
 
 @app.get("/")
