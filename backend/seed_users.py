@@ -44,6 +44,13 @@ def seed():
                 "role": "coordinator",
                 "is_active_coordinator": False,
             },
+            # [SCRUM-23 | Renee] NEW: Event Coordinator Lead (Week 7 Change #5)
+            {
+                "username": "lead1",
+                "password": "password123",
+                "role": "lead",
+                "is_active_coordinator": False,
+            },
             {
                 "username": "admin1",
                 "password": "password123",
