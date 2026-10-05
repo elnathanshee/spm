@@ -81,6 +81,27 @@ class EventCreate(BaseModel):
         return v.strip()
 
 
+# [SCRUM-21 | Elnathan] Request body for /amend
+class EventAmend(BaseModel):
+    title: Optional[str] = None
+    purpose: Optional[str] = None
+    description: Optional[str] = None
+    proposed_start: Optional[datetime] = None
+    expected_attendance: Optional[int] = None
+    venue_requirements: Optional[str] = None
+    accessibility_needs: Optional[str] = None
+    equipment_requirements: Optional[str] = None
+    registration_needs: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and (not v or not v.strip()):
+            raise ValueError("Title cannot be empty")
+        return v.strip() if v is not None else None
+
+
+
 def validate_event_business_rules(
     proposed_start: Optional[datetime],
     expected_attendance: Optional[int],
@@ -249,6 +270,103 @@ def submit_event(
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "submitted_at": event.submitted_at,
+    }
+
+
+# [SCRUM-21 | Elnathan] Organiser amends own event request
+@router.post("/{event_id}/amend")
+def amend_event(
+    event_id: int,
+    payload: EventAmend,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-21: Organiser amends own event request while Submitted, Under Review, or Returned."""
+    if current_user.role.lower() != "organiser":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisers can amend event requests",
+        )
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    if event.organiser_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to amend this event request",
+        )
+
+    if event.status == DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Draft requests cannot be amended. Please edit the draft and submit.",
+        )
+    if event.status == APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot amend an approved event request. Please raise a change request.",
+        )
+    if event.status == REJECTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot amend a rejected event request. Please raise a change request.",
+        )
+    if event.status not in [SUBMITTED, UNDER_REVIEW, RETURNED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot amend an event request in {event.status} status.",
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field is required to amend the request",
+        )
+
+    validate_event_business_rules(
+        payload.proposed_start,
+        payload.expected_attendance,
+    )
+
+    changed_fields = []
+    for field, val in update_data.items():
+        if hasattr(event, field):
+            setattr(event, field, val)
+            changed_fields.append(field)
+
+    # Record status history row: previous_status == new_status == current_status
+    status_history = EventStatusHistory(
+        event_id=event.id,
+        previous_status=event.status,
+        new_status=event.status,
+        actor_id=current_user.id,
+        reason=f"Amended: {', '.join(changed_fields)}",
+    )
+    db.add(status_history)
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "message": "Event amended successfully",
+        "id": event.id,
+        "title": event.title,
+        "purpose": event.purpose,
+        "description": event.description,
+        "proposed_start": event.proposed_start,
+        "expected_attendance": event.expected_attendance,
+        "venue_requirements": event.venue_requirements,
+        "accessibility_needs": event.accessibility_needs,
+        "equipment_requirements": event.equipment_requirements,
+        "registration_needs": event.registration_needs,
+        "status": event.status,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+        "changed_fields": changed_fields,
     }
 
 
