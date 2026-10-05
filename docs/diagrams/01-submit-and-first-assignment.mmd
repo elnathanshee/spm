@@ -1,0 +1,57 @@
+---
+title: "Sequence 1 - Organiser submits a request (SCRUM-19/22/51/63)"
+---
+sequenceDiagram
+    autonumber
+    actor Org as Organiser
+    participant API as events.py<br/>POST /events/{id}/submit
+    participant Auth as auth.py<br/>get_current_user
+    participant RR as assignment.py<br/>round-robin
+    participant N as notifications.py
+    participant DB as Database
+
+    Org->>API: submit(event_id) + session cookie
+    API->>Auth: who is calling?
+    Auth->>DB: look up valid LoginSession
+    alt no / invalid session
+        Auth-->>Org: 401 Not authenticated
+    end
+    Auth-->>API: current user
+
+    API->>API: role must be organiser (else 403)
+    API->>DB: load Event
+    alt event not found
+        API-->>Org: 404
+    else not this organiser's event
+        API-->>Org: 403
+    else status not Draft / Returned, or rules fail
+        API-->>Org: 400
+    end
+
+    API->>API: status = Submitted
+
+    opt no Coordinator assigned yet (first submission)
+        API->>RR: assign_coordinator_on_submission(event)
+        RR->>DB: active coordinators + latest assignment times
+        alt no active coordinator
+            RR-->>API: NoCoordinatorAvailable
+            API->>DB: rollback
+            API-->>Org: 400 "No active coordinator available"
+        end
+        RR->>DB: set assigned_coordinator_id, add CoordinatorAssignmentHistory, commit
+        RR-->>API: assigned
+    end
+
+    API->>DB: add EventStatusHistory (Draft/Returned -> Submitted)
+    API->>N: notify_organiser_of_status(SUBMITTED)
+    N->>N: can_see_event(organiser)? (else NotEntitled)
+    N->>DB: add Notification "submitted" -> Organiser
+
+    opt newly assigned (SCRUM-63)
+        API->>N: notify_first_assignment(event)
+        N->>DB: add Notification "coordinator_assigned" -> Organiser (names Coordinator)
+        N->>DB: add Notification "assigned_to_you" -> Coordinator
+    end
+
+    API->>DB: commit
+    API-->>Org: 200 {status: Submitted, assigned_coordinator_id}
