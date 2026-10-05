@@ -12,7 +12,7 @@ from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
-from .notifications import notify_organiser_of_status
+from .notifications import notify_first_assignment, notify_organiser_of_status
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -214,9 +214,12 @@ def submit_event(
     event.status = SUBMITTED
 
     # Only assign a coordinator if one is not already assigned
+    # [SCRUM-63 | Renee] remember whether this submission made the first assignment
+    newly_assigned = False
     if not event.assigned_coordinator_id:
         try:
             assign_coordinator_on_submission(event, db)
+            newly_assigned = True
         except NoCoordinatorAvailable as e:
             db.rollback()
             raise HTTPException(
@@ -234,6 +237,10 @@ def submit_event(
     db.add(status_history)
     # [SCRUM-51 | Renee] NEW: notify the Organiser (AC1). Saved in the same commit as the submission.
     notify_organiser_of_status(db, event, SUBMITTED)
+    # [SCRUM-63 | Renee] NEW: first assignment notifies the Organiser (AC1) and the
+    # Coordinator (AC3). A resubmission keeps the same Coordinator, so nothing is sent.
+    if newly_assigned:
+        notify_first_assignment(db, event)
     db.commit()
     db.refresh(event)
 

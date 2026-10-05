@@ -239,7 +239,8 @@ def test_scrum51_tc11_list_hides_notifications_for_events_no_longer_visible(clie
     coord = db_session.query(User).filter_by(username=assigned).one()
     notify(db_session, coord, event, "assigned", "You have a new request")
     db_session.commit()
-    assert len(my_notifications(client, assigned)) == 1
+    # [SCRUM-63] filter by kind: submit now also sends the coordinator an "assigned_to_you"
+    assert len([n for n in my_notifications(client, assigned) if n["kind"] == "assigned"]) == 1
 
     event.assigned_coordinator_id = db_session.query(User).filter_by(username=other).one().id
     db_session.commit()
@@ -275,6 +276,7 @@ def test_scrum51_tc15_newest_first(client, submitted_event):
     login(client, assigned)
     client.post(f"/events/{event_id}/approve")
 
-    kinds = [n["kind"] for n in my_notifications(client, "org")]
+    # [SCRUM-63] filter to SCRUM-51's kinds: submit now also sends "coordinator_assigned"
+    kinds = [n["kind"] for n in my_notifications(client, "org") if n["kind"] in ("submitted", "approved")]
 
     assert kinds == ["approved", "submitted"]
