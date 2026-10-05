@@ -45,6 +45,9 @@ KIND_REJECTED = "rejected"
 KIND_REASSIGNED_TO_YOU = "reassigned_to_you"
 KIND_REASSIGNED_AWAY = "reassigned_away"
 KIND_COORDINATOR_CHANGED = "coordinator_changed"
+# [SCRUM-63 | Renee] first-assignment kinds
+KIND_COORDINATOR_ASSIGNED = "coordinator_assigned"
+KIND_ASSIGNED_TO_YOU = "assigned_to_you"
 
 
 class NotEntitled(Exception):
@@ -227,3 +230,30 @@ def notify_former_coordinator(
     )
     db.add(notification)
     return notification
+
+
+# [SCRUM-63 | Renee] NEW: notify on a Coordinator's FIRST assignment.
+#   AC1  The Organiser is told a Coordinator was assigned, naming them.
+#   AC3  The Coordinator is told the event is now theirs.
+#   AC2 (a change of Coordinator) is handled by SCRUM-23's reassignment,
+#   which sends KIND_COORDINATOR_CHANGED to the Organiser.
+# Call AFTER the assignment is set, so both recipients pass the entitlement
+# check in notify(). The caller commits.
+def notify_first_assignment(db: Session, event: Event) -> None:
+    organiser = event.organiser or db.get(User, event.organiser_id)
+    coordinator = event.assigned_coordinator or db.get(User, event.assigned_coordinator_id)
+    notify(
+        db,
+        organiser,
+        event,
+        KIND_COORDINATOR_ASSIGNED,
+        f'Coordinator {coordinator.username} has been assigned to your event '
+        f'request "{event.title}".',
+    )
+    notify(
+        db,
+        coordinator,
+        event,
+        KIND_ASSIGNED_TO_YOU,
+        f'Event request "{event.title}" has been assigned to you.',
+    )
