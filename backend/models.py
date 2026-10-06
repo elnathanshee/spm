@@ -54,6 +54,7 @@ class Event(Base):
     assigned_coordinator = relationship("User", foreign_keys=[assigned_coordinator_id], back_populates="assigned_events")
     assignment_history = relationship("CoordinatorAssignmentHistory", back_populates="event", cascade="all, delete-orphan")
     status_history = relationship("EventStatusHistory", back_populates="event", cascade="all, delete-orphan")
+    venue_bookings = relationship("VenueBooking", back_populates="event", cascade="all, delete-orphan")
 
 
 class LoginSession(Base):
@@ -136,3 +137,41 @@ class CoordinatorReassignment(Base):
     from_coordinator = relationship("User", foreign_keys=[from_coordinator_id])
     to_coordinator = relationship("User", foreign_keys=[to_coordinator_id])
     reassigned_by = relationship("User", foreign_keys=[reassigned_by_id])
+
+
+# [SCRUM-30 | Sarah] NEW: Venues and Venue Bookings catalogue
+class Venue(Base):
+    __tablename__ = "venues"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, index=True, nullable=False)
+    location = Column(String(255), nullable=False)
+    capacity = Column(Integer, nullable=False)
+    facilities = Column(Text, nullable=True)  # JSON-encoded list of strings
+    accessibility = Column(Text, nullable=True)
+    supported_layouts = Column(Text, nullable=True)  # JSON-encoded list of strings
+    operating_hours = Column(String(100), nullable=True)
+    setup_time_mins = Column(Integer, default=30, nullable=False)
+    turnaround_time_mins = Column(Integer, default=45, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    bookings = relationship("VenueBooking", back_populates="venue", cascade="all, delete-orphan")
+
+
+class VenueBooking(Base):
+    __tablename__ = "venue_bookings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    venue_id = Column(Integer, ForeignKey("venues.id"), nullable=False)
+    booking_start = Column(DateTime, nullable=False)
+    booking_end = Column(DateTime, nullable=False)
+    status = Column(String(50), default="Confirmed", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    event = relationship("Event", back_populates="venue_bookings")
+    venue = relationship("Venue", back_populates="bookings")
+
