@@ -5,16 +5,16 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 """
 
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .database import get_db
-from .models import User, Venue
+from .models import User, Venue, VenueBooking
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -157,6 +157,131 @@ def list_venues(
     """List all active venues."""
     venues = db.query(Venue).filter(Venue.is_active == True).order_by(Venue.name.asc()).all()
     return [venue_to_dict(v) for v in venues]
+
+
+def check_venue_availability(
+    venue: Venue,
+    start_time: datetime,
+    end_time: datetime,
+    db: Session,
+) -> Tuple[bool, Optional[str]]:
+    """AC1 & AC4: Check venue availability against existing bookings and buffers (Week 7 Change #1)."""
+    bookings = (
+        db.query(VenueBooking)
+        .filter(
+            VenueBooking.venue_id == venue.id,
+            VenueBooking.status.in_(["Confirmed", "Approved", "Tentative", "Pending"]),
+        )
+        .all()
+    )
+
+    setup_delta = timedelta(minutes=venue.setup_time_mins or 0)
+    turnaround_delta = timedelta(minutes=venue.turnaround_time_mins or 0)
+
+    for b in bookings:
+        b_start = b.booking_start
+        b_end = b.booking_end
+
+        # Total blocked window for the existing booking including buffers
+        blocked_start = b_start - setup_delta
+        blocked_end = b_end + turnaround_delta
+
+        # Check for overlap between requested interval [start_time, end_time] and [blocked_start, blocked_end]
+        if start_time < blocked_end and end_time > blocked_start:
+            if start_time < b_end and end_time > b_start:
+                return (
+                    False,
+                    f"Direct conflict with existing booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
+                )
+            elif start_time < blocked_end and start_time >= b_end:
+                return (
+                    False,
+                    f"Falls within {venue.turnaround_time_mins}m turnaround buffer of booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
+                )
+            elif end_time > blocked_start and end_time <= b_start:
+                return (
+                    False,
+                    f"Falls within {venue.setup_time_mins}m setup buffer of booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
+                )
+            else:
+                return (
+                    False,
+                    f"Buffer conflict with booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
+                )
+
+    return True, None
+
+
+@router.get("/search")
+def search_venues(
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    min_capacity: Optional[int] = None,
+    location: Optional[str] = None,
+    accessibility: Optional[str] = None,
+    layout: Optional[str] = None,
+    facilities: Optional[str] = None,
+    name: Optional[str] = None,
+    available_only: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """SCRUM-33: Search and filter venues against event requirements."""
+    # Only active (non-retired) venues are searchable
+    query = db.query(Venue).filter(Venue.is_active == True)
+
+    if min_capacity is not None:
+        query = query.filter(Venue.capacity >= min_capacity)
+
+    if location and location.strip():
+        query = query.filter(func.lower(Venue.location).contains(location.strip().lower()))
+
+    if accessibility and accessibility.strip():
+        query = query.filter(func.lower(Venue.accessibility).contains(accessibility.strip().lower()))
+
+    if name and name.strip():
+        query = query.filter(func.lower(Venue.name).contains(name.strip().lower()))
+
+    venues = query.order_by(Venue.name.asc()).all()
+
+    # In-memory filtering for JSON list attributes (layout, facilities)
+    filtered_venues = []
+    for v in venues:
+        # Layout check
+        if layout and layout.strip():
+            v_layouts = [l.lower() for l in deserialize_list(v.supported_layouts)]
+            if layout.strip().lower() not in v_layouts:
+                continue
+
+        # Facilities check (all required facilities must be present)
+        if facilities and facilities.strip():
+            req_facilities = [f.strip().lower() for f in facilities.split(",") if f.strip()]
+            v_facilities = [f.lower() for f in deserialize_list(v.facilities)]
+            if not all(rf in v_facilities for rf in req_facilities):
+                continue
+
+        filtered_venues.append(v)
+
+    # Date/Time Availability & Buffer Checking
+    results = []
+    for v in filtered_venues:
+        d = venue_to_dict(v)
+        if start_time and end_time:
+            st = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
+            et = end_time.replace(tzinfo=None) if end_time.tzinfo else end_time
+            is_avail, reason = check_venue_availability(v, st, et, db)
+            d["is_available"] = is_avail
+            d["conflict_reason"] = reason
+        else:
+            d["is_available"] = True
+            d["conflict_reason"] = None
+
+        if available_only and not d["is_available"]:
+            continue
+
+        results.append(d)
+
+    return results
 
 
 @router.get("/{venue_id}")
