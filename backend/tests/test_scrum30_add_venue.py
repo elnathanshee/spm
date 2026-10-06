@@ -286,3 +286,32 @@ def test_scrum30_negative_buffer_times_rejected(client, seed_users):
     }
     res = client.post("/venues", json=payload)
     assert res.status_code == 422
+
+
+def test_scrum30_duplicate_name_check_handles_underscores_without_wildcard_collision(client, seed_users):
+    """Ensure that names containing underscores (e.g. 'Hall_1') do not collide with 'HallA1'."""
+    client.cookies.set("connectsphere_session", "token_venue_staff")
+
+    # 1. Create venue named 'HallA1'
+    res1 = client.post(
+        "/venues",
+        json={"name": "HallA1", "location": "Wing A", "capacity": 50},
+    )
+    assert res1.status_code == 201
+
+    # 2. Create venue named 'Hall_1' (underscore should NOT match 'A' via SQL wildcard)
+    res2 = client.post(
+        "/venues",
+        json={"name": "Hall_1", "location": "Wing B", "capacity": 60},
+    )
+    assert res2.status_code == 201
+    assert res2.json()["venue"]["name"] == "Hall_1"
+
+    # 3. Attempt duplicate 'hall_1' (case-insensitive exact match) -> should be rejected
+    res3 = client.post(
+        "/venues",
+        json={"name": "hall_1", "location": "Wing C", "capacity": 70},
+    )
+    assert res3.status_code == 409
+    assert "already exists" in res3.json()["detail"]
+

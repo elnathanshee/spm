@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
@@ -119,7 +120,7 @@ def create_venue(
     db: Session = Depends(get_db),
 ):
     """SCRUM-30: Add a venue to the catalogue (Venue Staff only)."""
-    existing = db.query(Venue).filter(Venue.name.ilike(payload.name)).first()
+    existing = db.query(Venue).filter(func.lower(Venue.name) == payload.name.lower()).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

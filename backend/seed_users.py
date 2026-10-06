@@ -51,6 +51,13 @@ def seed():
                 "role": "lead",
                 "is_active_coordinator": False,
             },
+            # [SCRUM-30 | Sarah] NEW: Venue Staff (Week 7 Change #1)
+            {
+                "username": "venue1",
+                "password": "password123",
+                "role": "venue_staff",
+                "is_active_coordinator": False,
+            },
             {
                 "username": "admin1",
                 "password": "password123",
