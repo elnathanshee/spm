@@ -7,7 +7,7 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -29,6 +29,23 @@ def require_venue_staff(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only Venue Staff can create or manage venue records",
+        )
+    return current_user
+
+
+VENUE_SEARCH_ROLES = {"coordinator", "lead", "venue_staff"}
+
+
+def require_venue_searcher(current_user: User = Depends(get_current_user)) -> User:
+    """SCRUM-17 AC3: venue search is an internal planning function.
+
+    Organisers and other external roles are refused, so they cannot see the
+    booking times of other organisers' events in conflict_reason.
+    """
+    if (current_user.role or "").strip().lower() not in VENUE_SEARCH_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Coordinators, Leads and Venue Staff can search venues",
         )
     return current_user
 
@@ -165,7 +182,13 @@ def check_venue_availability(
     end_time: datetime,
     db: Session,
 ) -> Tuple[bool, Optional[str]]:
-    """AC1 & AC4: Check venue availability against existing bookings and buffers (Week 7 Change #1)."""
+    """AC1 & AC4: Check venue availability against existing bookings and buffers (Week 7 Change #1).
+
+    Every booking occupies the venue from its start minus the venue's setup time
+    to its end plus the venue's turnaround time. Two bookings conflict if those
+    occupied windows overlap, so the buffers are applied to the requested slot
+    as well as to each existing booking. Windows that only touch do not conflict.
+    """
     bookings = (
         db.query(VenueBooking)
         .filter(
@@ -178,36 +201,27 @@ def check_venue_availability(
     setup_delta = timedelta(minutes=venue.setup_time_mins or 0)
     turnaround_delta = timedelta(minutes=venue.turnaround_time_mins or 0)
 
+    # The window the requested event would occupy, including its own buffers
+    requested_start = start_time - setup_delta
+    requested_end = end_time + turnaround_delta
+
     for b in bookings:
         b_start = b.booking_start
         b_end = b.booking_end
 
-        # Total blocked window for the existing booking including buffers
+        # The window the existing booking occupies, including its buffers
         blocked_start = b_start - setup_delta
         blocked_end = b_end + turnaround_delta
 
-        # Check for overlap between requested interval [start_time, end_time] and [blocked_start, blocked_end]
-        if start_time < blocked_end and end_time > blocked_start:
+        if requested_start < blocked_end and requested_end > blocked_start:
+            booking_text = f"{b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')}"
             if start_time < b_end and end_time > b_start:
-                return (
-                    False,
-                    f"Direct conflict with existing booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
-                )
-            elif start_time < blocked_end and start_time >= b_end:
-                return (
-                    False,
-                    f"Falls within {venue.turnaround_time_mins}m turnaround buffer of booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
-                )
-            elif end_time > blocked_start and end_time <= b_start:
-                return (
-                    False,
-                    f"Falls within {venue.setup_time_mins}m setup buffer of booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
-                )
-            else:
-                return (
-                    False,
-                    f"Buffer conflict with booking ({b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')})",
-                )
+                return False, f"Direct conflict with existing booking ({booking_text})"
+            return (
+                False,
+                f"Conflicts with booking ({booking_text}) once {venue.setup_time_mins}m setup "
+                f"and {venue.turnaround_time_mins}m turnaround are included",
+            )
 
     return True, None
 
@@ -224,9 +238,30 @@ def search_venues(
     name: Optional[str] = None,
     available_only: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_venue_searcher),
 ):
     """SCRUM-33: Search and filter venues against event requirements."""
+    # A period is given in full or not at all. Half a period used to be
+    # silently ignored, which reported a booked venue as available.
+    if (start_time is None) != (end_time is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide both start_time and end_time, or neither",
+        )
+
+    # Offsets are dropped without conversion, as before (time zones are a
+    # Sprint 3 follow-up). Doing it before the comparison below means a period
+    # with an offset on one end only cannot crash that comparison.
+    if start_time is not None and start_time.tzinfo:
+        start_time = start_time.replace(tzinfo=None)
+    if end_time is not None and end_time.tzinfo:
+        end_time = end_time.replace(tzinfo=None)
+
+    if start_time is not None and end_time <= start_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_time must be after start_time",
+        )
     # Only active (non-retired) venues are searchable
     query = db.query(Venue).filter(Venue.is_active == True)
 
@@ -266,10 +301,8 @@ def search_venues(
     results = []
     for v in filtered_venues:
         d = venue_to_dict(v)
-        if start_time and end_time:
-            st = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
-            et = end_time.replace(tzinfo=None) if end_time.tzinfo else end_time
-            is_avail, reason = check_venue_availability(v, st, et, db)
+        if start_time is not None:
+            is_avail, reason = check_venue_availability(v, start_time, end_time, db)
             d["is_available"] = is_avail
             d["conflict_reason"] = reason
         else:
