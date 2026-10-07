@@ -416,12 +416,16 @@ def list_my_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role.lower() == "organiser":
+    role = (current_user.role or "").strip().lower()
+    if role == "organiser":
         events = db.query(Event).filter(Event.organiser_id == current_user.id).all()
-    elif current_user.role.lower() == "coordinator":
+    elif role == "coordinator":
         events = db.query(Event).filter(Event.assigned_coordinator_id == current_user.id).all()
     else:
-        events = db.query(Event).all()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisers and coordinators can view event requests",
+        )
 
     return [
         {

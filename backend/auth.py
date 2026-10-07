@@ -81,9 +81,11 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
     role_redirects = {
         "organiser": "/events",
         "coordinator": "/coordinator/events",
-        "admin": "/admin",
+        "venue staff": "/venue",
+        "technical support": "/technical",
+        "attendee": "/attendee",
     }
-    redirect_url = role_redirects.get(user.role.lower(), "/dashboard")
+    redirect_url = role_redirects.get(user.role.strip().lower(), "/dashboard")
 
     return {
         "message": "Login successful",

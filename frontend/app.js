@@ -27,6 +27,9 @@ document.addEventListener("alpine:init", () => {
 
     async init() {
       await this.loadSession();
+      window.addEventListener("hashchange", () => {
+        if (this.user) this.navigate(this.requestedPath(), false);
+      });
     },
 
     normalizeRole(role) {
@@ -80,7 +83,7 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this.user = { ...response.data, role: this.normalizeRole(response.data.role) };
-      this.navigate(this.defaultPath());
+      this.navigate(this.requestedPath() || this.defaultPath());
     },
 
     async login(username, password) {
@@ -104,16 +107,18 @@ document.addEventListener("alpine:init", () => {
 
     defaultPath() { return this.user?.role === "Coordinator" ? "/coordinator/events" : this.user?.role === "Organiser" ? "/events" : this.rolePath(this.user?.role); },
     rolePath(role) { return { "Venue Staff": "/venue", "Technical Support": "/technical", Attendee: "/attendee" }[role] || "/events"; },
+    requestedPath() { return window.location.hash.startsWith("#/") ? window.location.hash.slice(1) : ""; },
     canAccess(targetRole, userRole) { return targetRole === userRole; },
 
-    navigate(path) {
+    navigate(path, updateLocation = true) {
       const item = this.navigation.find(entry => entry.path === path);
-      this.accessDenied = Boolean(item && !this.canAccess(item.role, this.user?.role));
+      this.accessDenied = !item || !this.canAccess(item.role, this.user?.role);
       this.unbuiltRole = ["/venue", "/technical", "/attendee"].includes(path) && !this.accessDenied;
       this.currentPath = this.accessDenied ? "/access-denied" : path;
+      if (updateLocation && window.location.hash !== `#${path}`) window.location.hash = path;
       this.clearAlert();
-      if (path === "/events") this.fetchEvents();
-      if (path === "/coordinator/events") this.fetchAssignedEvents();
+      if (!this.accessDenied && path === "/events") this.fetchEvents();
+      if (!this.accessDenied && path === "/coordinator/events") this.fetchAssignedEvents();
     },
 
     async fetchEvents() {

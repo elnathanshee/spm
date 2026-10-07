@@ -115,6 +115,24 @@ def login(client, username):
     return response
 
 
+ROLE_USERS = {
+    "organiser": "organiser1",
+    "coordinator": "coord1",
+    "venue staff": "venue1",
+    "technical support": "technical1",
+    "attendee": "attendee1",
+}
+
+
+ROLE_LANDING_PATHS = {
+    "organiser": "/events",
+    "coordinator": "/coordinator/events",
+    "venue staff": "/venue",
+    "technical support": "/technical",
+    "attendee": "/attendee",
+}
+
+
 def assert_forbidden(response, detail):
     assert response.status_code == 403
     assert response.json()["detail"] == detail
@@ -133,6 +151,17 @@ def event_payload():
         "proposed_start": (datetime.utcnow() + timedelta(days=30)).isoformat(),
         "expected_attendance": 50,
     }
+
+
+@pytest.mark.parametrize("role", ROLE_USERS)
+def test_each_supported_role_has_an_authenticated_role_landing(client, users, role):
+    response = login(client, ROLE_USERS[role])
+
+    assert response.json()["role"] == role
+    assert response.json()["redirect_url"] == ROLE_LANDING_PATHS[role]
+    session_response = client.get("/auth/me")
+    assert session_response.status_code == 200
+    assert session_response.json()["role"] == role
 
 
 def test_tc301_attendee_cannot_create_or_submit_events(client, users, make_event):
@@ -192,6 +221,40 @@ def test_tc305_technical_support_cannot_create_or_reject(client, make_event):
 
     assert_forbidden(create_response, "Only organisers can create event requests")
     assert_forbidden(reject_response, "Only coordinators can reject event requests")
+
+
+@pytest.mark.parametrize("username", ["venue1", "technical1", "attendee1"])
+def test_external_operational_roles_cannot_read_internal_event_data(client, users, make_event, username):
+    make_event("Confidential planning request", coordinator="coord1", status=SUBMITTED, submitted=True)
+    login(client, username)
+
+    response = client.get("/events")
+
+    assert_forbidden(response, "Only organisers and coordinators can view event requests")
+
+
+@pytest.mark.parametrize("username", ["organiser1", "attendee1"])
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("GET", "/coordinator/events/data", None),
+        ("GET", "/coordinator/events", None),
+        ("POST", "/events/{event_id}/review", None),
+        ("POST", "/events/{event_id}/approve", None),
+        ("POST", "/events/{event_id}/reject", {"reason": "No"}),
+        ("POST", "/events/{event_id}/return", {"reason": "More detail"}),
+    ],
+)
+def test_external_roles_cannot_bypass_internal_planning_endpoints(
+    client, users, make_event, username, method, path, body
+):
+    event = make_event("Internal planning target", coordinator="coord1", status=SUBMITTED, submitted=True)
+    login(client, username)
+
+    response = client.request(method, path.format(event_id=event.id), json=body)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]
 
 
 def test_tc306_coordinator_cannot_create_event_draft(client, db_session, users):
