@@ -1,11 +1,12 @@
 """Venues and Venue Management API.
 
 SCRUM-30: Add a venue to the catalogue (Venue Staff).
+SCRUM-31: Update or retire a venue record (Venue Staff).
 Week 7 Customer Change #1: Setup time and turnaround time buffers.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
@@ -331,3 +332,143 @@ def get_venue(
             detail="Venue not found",
         )
     return venue_to_dict(venue)
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-31: Update or retire a venue record (Venue Staff)
+# ---------------------------------------------------------------------------
+
+# Booking statuses that hold a venue. The same list check_venue_availability
+# uses inline; unifying the two is a follow-up.
+BLOCKING_BOOKING_STATUSES = ["Confirmed", "Approved", "Tentative", "Pending"]
+
+# These columns can't be empty, so an update can't set them to null.
+REQUIRED_VENUE_FIELDS = ("name", "location", "capacity", "setup_time_mins", "turnaround_time_mins")
+
+
+class VenueUpdate(VenueCreate):
+    """Partial update. Inherits VenueCreate's validators, so an update follows
+    the same rules as creating a venue (SCRUM-30). Every field is optional.
+    Unknown fields, including is_active, are refused with 422."""
+
+    model_config = {"extra": "forbid"}
+
+    name: Optional[str] = None
+    location: Optional[str] = None
+    capacity: Optional[int] = None
+    facilities: Optional[List[str]] = None
+    accessibility: Optional[str] = None
+    supported_layouts: Optional[List[str]] = None
+    operating_hours: Optional[str] = None
+    setup_time_mins: Optional[int] = None
+    turnaround_time_mins: Optional[int] = None
+
+    @field_validator(*REQUIRED_VENUE_FIELDS, mode="before")
+    @classmethod
+    def refuse_null(cls, v):
+        if v is None:
+            raise ValueError("Field cannot be null")
+        return v
+
+
+def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
+    return {
+        "booking_id": booking.id,
+        "event_id": booking.event_id,
+        "event_title": booking.event.title,
+        "booking_start": booking.booking_start.isoformat(),
+        "booking_end": booking.booking_end.isoformat(),
+        "status": booking.status,
+    }
+
+
+@router.patch("/{venue_id}")
+def update_venue(
+    venue_id: int,
+    payload: VenueUpdate,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-31 AC1: update any attribute of a venue. A retired venue can be
+    corrected, but stays retired."""
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=422, detail="Send at least one field to update")
+
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    if not venue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venue not found")
+
+    if "name" in changes:
+        clash = (
+            db.query(Venue)
+            .filter(func.lower(Venue.name) == changes["name"].lower(), Venue.id != venue.id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A venue named '{changes['name']}' already exists",
+            )
+
+    # Stored the same way create_venue stores them.
+    for field, value in changes.items():
+        if field in ("facilities", "supported_layouts"):
+            value = serialize_list(value)
+        elif field in ("accessibility", "operating_hours"):
+            value = value.strip() if value else None
+        setattr(venue, field, value)
+
+    db.commit()
+    db.refresh(venue)
+
+    return {
+        "message": "Venue updated successfully",
+        "venue": venue_to_dict(venue),
+        "updated_fields": list(changes),
+    }
+
+
+@router.post("/{venue_id}/retire")
+def retire_venue(
+    venue_id: int,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-31 AC2, AC3: retire a venue so it is no longer bookable.
+
+    Nothing is deleted. Bookings that haven't ended yet and still hold the venue
+    are listed as affected_bookings, but are not cancelled or changed.
+    """
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    if not venue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venue not found")
+    if not venue.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Venue '{venue.name}' is already retired",
+        )
+
+    # Naive UTC, as events.py compares naive times.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    affected = (
+        db.query(VenueBooking)
+        .filter(
+            VenueBooking.venue_id == venue.id,
+            VenueBooking.status.in_(BLOCKING_BOOKING_STATUSES),
+            VenueBooking.booking_end > now,
+        )
+        .order_by(VenueBooking.booking_start.asc())
+        .all()
+    )
+    affected_bookings = [booking_to_dict(b) for b in affected]
+
+    venue.is_active = False
+    db.commit()
+    db.refresh(venue)
+
+    return {
+        "message": "Venue retired successfully",
+        "venue": venue_to_dict(venue),
+        "affected_bookings": affected_bookings,
+    }
