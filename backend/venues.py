@@ -5,8 +5,8 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 """
 
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .database import get_db
-from .models import User, Venue
+from .models import User, Venue, VenueBooking
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -29,6 +29,23 @@ def require_venue_staff(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only Venue Staff can create or manage venue records",
+        )
+    return current_user
+
+
+VENUE_SEARCH_ROLES = {"coordinator", "lead", "venue_staff"}
+
+
+def require_venue_searcher(current_user: User = Depends(get_current_user)) -> User:
+    """SCRUM-17 AC3: venue search is an internal planning function.
+
+    Organisers and other external roles are refused, so they cannot see the
+    booking times of other organisers' events in conflict_reason.
+    """
+    if (current_user.role or "").strip().lower() not in VENUE_SEARCH_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Coordinators, Leads and Venue Staff can search venues",
         )
     return current_user
 
@@ -157,6 +174,147 @@ def list_venues(
     """List all active venues."""
     venues = db.query(Venue).filter(Venue.is_active == True).order_by(Venue.name.asc()).all()
     return [venue_to_dict(v) for v in venues]
+
+
+def check_venue_availability(
+    venue: Venue,
+    start_time: datetime,
+    end_time: datetime,
+    db: Session,
+) -> Tuple[bool, Optional[str]]:
+    """AC1 & AC4: Check venue availability against existing bookings and buffers (Week 7 Change #1).
+
+    Every booking occupies the venue from its start minus the venue's setup time
+    to its end plus the venue's turnaround time. Two bookings conflict if those
+    occupied windows overlap, so the buffers are applied to the requested slot
+    as well as to each existing booking. Windows that only touch do not conflict.
+    """
+    bookings = (
+        db.query(VenueBooking)
+        .filter(
+            VenueBooking.venue_id == venue.id,
+            VenueBooking.status.in_(["Confirmed", "Approved", "Tentative", "Pending"]),
+        )
+        .all()
+    )
+
+    setup_delta = timedelta(minutes=venue.setup_time_mins or 0)
+    turnaround_delta = timedelta(minutes=venue.turnaround_time_mins or 0)
+
+    # The window the requested event would occupy, including its own buffers
+    requested_start = start_time - setup_delta
+    requested_end = end_time + turnaround_delta
+
+    for b in bookings:
+        b_start = b.booking_start
+        b_end = b.booking_end
+
+        # The window the existing booking occupies, including its buffers
+        blocked_start = b_start - setup_delta
+        blocked_end = b_end + turnaround_delta
+
+        if requested_start < blocked_end and requested_end > blocked_start:
+            booking_text = f"{b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')}"
+            if start_time < b_end and end_time > b_start:
+                return False, f"Direct conflict with existing booking ({booking_text})"
+            return (
+                False,
+                f"Conflicts with booking ({booking_text}) once {venue.setup_time_mins}m setup "
+                f"and {venue.turnaround_time_mins}m turnaround are included",
+            )
+
+    return True, None
+
+
+@router.get("/search")
+def search_venues(
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    min_capacity: Optional[int] = None,
+    location: Optional[str] = None,
+    accessibility: Optional[str] = None,
+    layout: Optional[str] = None,
+    facilities: Optional[str] = None,
+    name: Optional[str] = None,
+    available_only: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_venue_searcher),
+):
+    """SCRUM-33: Search and filter venues against event requirements."""
+    # A period is given in full or not at all. Half a period used to be
+    # silently ignored, which reported a booked venue as available.
+    if (start_time is None) != (end_time is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide both start_time and end_time, or neither",
+        )
+
+    # Offsets are dropped without conversion, as before (time zones are a
+    # Sprint 3 follow-up). Doing it before the comparison below means a period
+    # with an offset on one end only cannot crash that comparison.
+    if start_time is not None and start_time.tzinfo:
+        start_time = start_time.replace(tzinfo=None)
+    if end_time is not None and end_time.tzinfo:
+        end_time = end_time.replace(tzinfo=None)
+
+    if start_time is not None and end_time <= start_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_time must be after start_time",
+        )
+    # Only active (non-retired) venues are searchable
+    query = db.query(Venue).filter(Venue.is_active == True)
+
+    if min_capacity is not None:
+        query = query.filter(Venue.capacity >= min_capacity)
+
+    if location and location.strip():
+        query = query.filter(func.lower(Venue.location).contains(location.strip().lower()))
+
+    if accessibility and accessibility.strip():
+        query = query.filter(func.lower(Venue.accessibility).contains(accessibility.strip().lower()))
+
+    if name and name.strip():
+        query = query.filter(func.lower(Venue.name).contains(name.strip().lower()))
+
+    venues = query.order_by(Venue.name.asc()).all()
+
+    # In-memory filtering for JSON list attributes (layout, facilities)
+    filtered_venues = []
+    for v in venues:
+        # Layout check
+        if layout and layout.strip():
+            v_layouts = [l.lower() for l in deserialize_list(v.supported_layouts)]
+            if layout.strip().lower() not in v_layouts:
+                continue
+
+        # Facilities check (all required facilities must be present)
+        if facilities and facilities.strip():
+            req_facilities = [f.strip().lower() for f in facilities.split(",") if f.strip()]
+            v_facilities = [f.lower() for f in deserialize_list(v.facilities)]
+            if not all(rf in v_facilities for rf in req_facilities):
+                continue
+
+        filtered_venues.append(v)
+
+    # Date/Time Availability & Buffer Checking
+    results = []
+    for v in filtered_venues:
+        d = venue_to_dict(v)
+        if start_time is not None:
+            is_avail, reason = check_venue_availability(v, start_time, end_time, db)
+            d["is_available"] = is_avail
+            d["conflict_reason"] = reason
+        else:
+            d["is_available"] = True
+            d["conflict_reason"] = None
+
+        if available_only and not d["is_available"]:
+            continue
+
+        results.append(d)
+
+    return results
 
 
 @router.get("/{venue_id}")
