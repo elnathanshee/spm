@@ -1,109 +1,87 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ConnectSphere</title>
-  <script type="module" src="/src/main.js"></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#12362f">
+  <title>ConnectSphere · Event operations</title><script type="module" src="/src/main.js"></script>
 </head>
-<body class="min-h-screen bg-slate-50 text-slate-900">
-  <div x-data="appState()" x-init="init()" class="min-h-screen">
-    <template x-if="!user">
-      <main class="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
-        <section class="bg-white rounded-2xl shadow-2xl border border-slate-100 p-8 w-full max-w-md text-slate-800">
-          <div class="flex items-center gap-4">
-            <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-bold text-white shadow-lg shadow-indigo-600/20" aria-hidden="true">C</div>
-            <div>
-              <p class="text-sm font-bold uppercase tracking-[0.22em] text-slate-900">ConnectSphere</p>
-              <p class="mt-1 text-sm text-slate-500">Event planning, connected.</p>
-            </div>
-          </div>
-          <div class="mt-10">
-            <h1 class="text-3xl font-semibold tracking-tight">Welcome back</h1>
-            <p class="mt-2 text-sm text-slate-500">Sign in to continue to your workspace.</p>
-          </div>
-          <div x-show="alert && alert.message" class="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-800" role="alert" x-text="alert && alert.message"></div>
-          <form class="mt-6 space-y-5" @submit.prevent="login(loginForm.username, loginForm.password)">
-            <label class="block text-sm font-medium text-slate-700">Username
-              <input x-model="loginForm.username" required autocomplete="username" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-slate-50/50 focus:bg-white">
-            </label>
-            <label class="block text-sm font-medium text-slate-700">Password
-              <input x-model="loginForm.password" required type="password" autocomplete="current-password" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-slate-50/50 focus:bg-white">
-            </label>
-            <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-xl shadow-md hover:shadow-indigo-500/20 active:scale-[0.99] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50" :disabled="loading">Sign in</button>
+<body>
+<div x-data="appState()" x-init="init()" class="min-h-screen">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <template x-if="!user">
+    <main class="login-shell">
+      <section class="login-story" aria-labelledby="welcome-title">
+        <div class="brand brand-light"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><strong>ConnectSphere</strong><small>Event services</small></span></div>
+        <div class="login-story-copy"><p class="eyebrow eyebrow-light">One connected workspace</p><h1 id="welcome-title">Plan every detail.<br>Keep every team aligned.</h1><p>Move events from request to readiness with a clear, role-specific view of the work that matters to you.</p></div>
+        <p class="login-support">ConnectSphere Event Services</p>
+      </section>
+      <section class="login-panel" aria-labelledby="sign-in-title"><div class="login-card">
+        <div class="mobile-brand brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><strong>ConnectSphere</strong><small>Event services</small></span></div>
+        <p class="eyebrow">Secure workspace</p><h2 id="sign-in-title">Welcome back</h2><p class="subtle">Sign in with your organisation account to continue.</p>
+        <div x-show="alert && alert.message" x-cloak class="alert alert-error mt-6" role="alert"><span class="alert-icon" aria-hidden="true">!</span><span x-text="alert && alert.message"></span></div>
+        <form class="login-form" @submit.prevent="login(loginForm.username, loginForm.password)">
+          <div class="field-group"><label for="username">Username</label><input id="username" x-model.trim="loginForm.username" required autocomplete="username" placeholder="Enter your username"></div>
+          <div class="field-group"><label for="password">Password</label><input id="password" x-model="loginForm.password" required type="password" autocomplete="current-password" placeholder="Enter your password"></div>
+          <button class="button button-primary button-block" :disabled="loading"><span x-show="loading" class="spinner" aria-hidden="true"></span><span x-text="loading ? 'Signing in…' : 'Sign in to workspace'"></span></button>
+        </form><p class="login-note"><span>●</span> Your access is tailored to your assigned role.</p>
+      </div></section>
+    </main>
+  </template>
+
+  <template x-if="user"><div class="app-shell" :class="sidebarOpen ? 'nav-open' : ''">
+    <div class="mobile-scrim" x-show="sidebarOpen" x-transition.opacity @click="sidebarOpen = false" aria-hidden="true"></div>
+    <aside class="sidebar" aria-label="Application sidebar">
+      <div class="sidebar-brand brand brand-light"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><strong>ConnectSphere</strong><small>Event services</small></span></div>
+      <div class="workspace-label"><span>Workspace</span><strong x-text="roleWorkspace()"></strong></div>
+      <nav class="side-nav" aria-label="Main navigation"><p class="nav-section-label">Menu</p>
+        <template x-for="item in navigation" :key="item.path"><button x-show="canAccess(item.role, user.role)" @click="navigate(item.path); sidebarOpen = false" class="nav-item" :class="currentPath === item.path ? 'active' : ''" :aria-current="currentPath === item.path ? 'page' : null"><span class="nav-icon" aria-hidden="true" x-html="iconFor(item.icon)"></span><span x-text="item.label"></span></button></template>
+      </nav>
+      <div class="sidebar-footer"><div class="role-card"><span class="avatar" x-text="userInitials()"></span><span class="role-card-copy"><strong x-text="user.username"></strong><small x-text="user.role"></small></span></div><button class="signout-button" @click="logout()"><span x-html="iconFor('logout')"></span> Sign out</button></div>
+    </aside>
+    <section class="app-area">
+      <header class="topbar"><button class="menu-button" @click="sidebarOpen = !sidebarOpen" :aria-expanded="sidebarOpen" aria-label="Toggle navigation"><i></i><i></i><i></i></button><div class="breadcrumb"><span>ConnectSphere</span><b>/</b><strong x-text="pageTitle()"></strong></div><div class="topbar-user"><i></i><span x-text="user.role"></span></div></header>
+      <main id="main-content" class="main-content" tabindex="-1">
+        <div x-show="alert && alert.message" x-cloak class="alert content-alert" :class="alert && alert.kind === 'error' ? 'alert-error' : 'alert-success'" role="status"><span class="alert-icon" x-text="alert && alert.kind === 'error' ? '!' : '✓'"></span><span x-text="alert && alert.message"></span><button @click="clearAlert()" aria-label="Dismiss message">×</button></div>
+        <div x-show="loading" x-cloak class="loading-bar" role="status"><i></i><span>Updating your workspace…</span></div>
+
+        <template x-if="accessDenied"><section class="state-card"><div class="state-icon danger">!</div><p class="eyebrow">Restricted area</p><h1>Access denied</h1><p>This page is not available to your <strong x-text="user.role"></strong> role. Your workspace only shows functions assigned to you.</p><button class="button button-primary" @click="navigate(defaultPath())">Return to my workspace</button></section></template>
+        <template x-if="unbuiltRole"><section><div class="page-header"><div><p class="eyebrow" x-text="`${user.role} workspace`"></p><h1 x-text="rolePageHeading()"></h1><p x-text="rolePageDescription()"></p></div></div><div class="state-card role-state"><div class="state-icon" x-html="iconFor(roleIcon())"></div><h2>Your focused workspace is ready</h2><p x-text="roleEmptyMessage()"></p><div class="permission-note"><b>✓</b><span><strong>Role-based access is active.</strong><br>Internal planning tools are kept separate from this workspace.</span></div></div></section></template>
+
+        <template x-if="currentPath === '/events' && user.role === 'Organiser'"><section>
+          <div class="page-header"><div><p class="eyebrow">Organiser workspace</p><h1>Your event requests</h1><p>Track progress, respond to clarifications, and start a new request.</p></div><button @click="navigate('/events/new')" class="button button-primary"><span>＋</span> New request</button></div>
+          <div class="summary-strip" aria-label="Event request summary"><div><span>All requests</span><strong x-text="events.length"></strong></div><div><span>Need attention</span><strong x-text="events.filter(event => ['Draft', 'Returned'].includes(event.status)).length"></strong></div><div><span>In review</span><strong x-text="events.filter(event => ['Submitted', 'Under Review'].includes(event.status)).length"></strong></div></div>
+          <div x-show="events.length === 0 && !loading" class="state-card compact"><div class="state-icon" x-html="iconFor('calendar')"></div><h2>No event requests yet</h2><p>Create your first request to begin planning with the ConnectSphere team.</p><button class="button button-primary" @click="navigate('/events/new')">Create event request</button></div>
+          <div class="event-grid"><template x-for="event in events" :key="event.id"><article class="event-card">
+            <div class="event-card-top"><div><p class="card-kicker">Event request <span x-text="`#${event.id}`"></span></p><h2 x-text="event.title"></h2></div><span class="status-badge" :class="statusClass(event.status)"><i></i><span x-text="event.status"></span></span></div>
+            <dl class="event-meta"><div><dt><span x-html="iconFor('calendar')"></span>Proposed date</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt><span x-html="iconFor('people')"></span>Attendance</dt><dd x-text="event.expected_attendance ? `${event.expected_attendance} guests` : 'Not set'"></dd></div><div><dt><span x-html="iconFor('message')"></span>Clarification</dt><dd x-text="event.clarification_note || 'None outstanding'"></dd></div></dl>
+            <div class="card-actions" x-show="['Draft', 'Submitted', 'Under Review', 'Returned'].includes(event.status)"><button x-show="['Submitted', 'Under Review', 'Returned'].includes(event.status)" @click="openAmend(event)" class="button button-secondary">Amend request</button><button x-show="['Draft', 'Returned'].includes(event.status)" @click="submitEvent(event.id)" class="button button-primary">Submit for review <span>→</span></button></div>
+          </article></template></div>
+        </section></template>
+
+        <template x-if="currentPath === '/events/new' && user.role === 'Organiser'"><section class="form-page">
+          <button @click="navigate('/events')" class="back-link">← Back to event requests</button><div class="page-header"><div><p class="eyebrow">New request</p><h1>Tell us about your event</h1><p>Start with the essential details. You can amend the request while it is being reviewed.</p></div></div>
+          <form class="form-card" @submit.prevent="createEventDraft(draft)" novalidate>
+            <fieldset><legend><span>01</span><div>Event overview<small>Give the planning team a clear understanding of your event.</small></div></legend><div class="form-section-body"><div class="field-group"><label for="event-title">Event title <em>Required</em></label><input id="event-title" x-model.trim="draft.title" :aria-invalid="fieldErrors.title ? 'true' : 'false'" required placeholder="e.g. Regional Partner Summit"><small class="field-error" x-text="fieldErrors.title"></small></div><div class="field-group"><label for="event-purpose">Purpose</label><textarea id="event-purpose" x-model="draft.purpose" rows="3" placeholder="What should this event achieve?"></textarea></div><div class="field-group"><label for="event-description">Description</label><textarea id="event-description" x-model="draft.description" rows="4" placeholder="Share the format, audience, and any useful context."></textarea></div></div></fieldset>
+            <fieldset><legend><span>02</span><div>Schedule & attendance<small>Initial estimates help the team assess availability.</small></div></legend><div class="form-section-body form-grid"><div class="field-group"><label for="event-start">Proposed start</label><input id="event-start" x-model="draft.proposed_start" type="datetime-local" :aria-invalid="fieldErrors.proposed_start ? 'true' : 'false'"><small class="field-error" x-text="fieldErrors.proposed_start"></small></div><div class="field-group"><label for="event-attendance">Expected attendance</label><input id="event-attendance" x-model.number="draft.expected_attendance" type="number" min="1" placeholder="e.g. 120" :aria-invalid="fieldErrors.expected_attendance ? 'true' : 'false'"><small class="field-error" x-text="fieldErrors.expected_attendance"></small></div></div></fieldset>
+            <fieldset><legend><span>03</span><div>Venue needs<small>Describe the space or setup you have in mind.</small></div></legend><div class="form-section-body"><div class="field-group"><label for="venue-requirements">Venue requirements</label><textarea id="venue-requirements" x-model="draft.venue_requirements" rows="4" placeholder="Room layout, accessibility, catering, breakout spaces…"></textarea></div></div></fieldset>
+            <div class="form-actions"><button type="button" class="button button-secondary" @click="navigate('/events')">Cancel</button><button class="button button-primary" :disabled="loading">Save draft <span>→</span></button></div>
           </form>
-        </section>
-      </main>
-    </template>
+        </section></template>
 
-    <template x-if="user">
-      <div>
-        <header class="border-b border-slate-200 bg-white">
-          <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-            <div>
-              <p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">ConnectSphere</p>
-              <p class="mt-1 text-sm text-slate-500"><span x-text="user.username"></span> Â· <span x-text="user.role"></span></p>
-            </div>
-            <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50" @click="logout()">Sign out</button>
+        <template x-if="currentPath === '/coordinator/events' && user.role === 'Coordinator'"><section>
+          <div class="page-header"><div><p class="eyebrow">Coordinator workspace</p><h1>Assigned requests</h1><p>Review event briefs, record decisions, and keep requests moving.</p></div><div class="attention-pill"><i></i><strong x-text="assignedEvents.filter(event => event.awaiting_first_review).length"></strong> awaiting first review</div></div>
+          <div class="summary-strip"><div><span>Assigned to you</span><strong x-text="assignedEvents.length"></strong></div><div><span>Awaiting review</span><strong x-text="assignedEvents.filter(event => event.awaiting_first_review).length"></strong></div><div><span>In progress</span><strong x-text="assignedEvents.filter(event => event.status === 'Under Review').length"></strong></div></div>
+          <div x-show="assignedEvents.length === 0 && !loading" class="state-card compact"><div class="state-icon" x-html="iconFor('inbox')"></div><h2>Your review queue is clear</h2><p>Newly assigned requests will appear here when they need your attention.</p></div>
+          <div class="queue-panel" x-show="assignedEvents.length > 0"><div class="queue-heading"><div><h2>Review queue</h2><p>Requests are ordered by their current workflow state.</p></div><span x-text="`${assignedEvents.length} ${assignedEvents.length === 1 ? 'request' : 'requests'}`"></span></div>
+            <template x-for="event in assignedEvents" :key="event.id"><article class="queue-row" :class="event.awaiting_first_review ? 'waiting-row' : ''"><div class="event-card-top"><div><p class="card-kicker" x-text="event.organiser || 'Event organiser'"></p><h3 x-text="event.title"></h3></div><span class="status-badge" :class="event.awaiting_first_review ? 'status-waiting' : statusClass(event.status)"><i></i><span x-text="event.awaiting_first_review ? 'Awaiting review' : event.status"></span></span></div><dl class="inline-meta"><div><dt>Proposed</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt>Attendance</dt><dd x-text="event.expected_attendance ? `${event.expected_attendance} guests` : 'Not set'"></dd></div></dl><div class="queue-actions" x-show="['Submitted', 'Under Review'].includes(event.status)"><button x-show="event.status === 'Submitted'" @click="startReview(event.id)" class="button button-primary">Start review</button><button @click="handleApprove(event.id)" class="button button-success">Approve</button><button @click="openDecision(event, 'return')" class="button button-secondary">Request clarification</button><button @click="openDecision(event, 'reject')" class="button button-danger-quiet">Reject</button></div></article></template>
           </div>
-          <nav class="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-6 pb-3" aria-label="Main navigation">
-            <template x-for="item in navigation" :key="item.path">
-              <button x-show="canAccess(item.role, user.role)" @click="navigate(item.path)" class="whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium hover:bg-slate-100" :class="currentPath === item.path ? 'bg-slate-900 text-white hover:bg-slate-900' : 'text-slate-600'" x-text="item.label"></button>
-            </template>
-          </nav>
-        </header>
-
-        <div class="mx-auto max-w-6xl px-6 py-6">
-          <div x-show="alert && alert.message" class="mb-6 rounded-lg p-4 text-sm" :class="alert && alert.kind === 'error' ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'" role="alert" x-text="alert && alert.message"></div>
-          <div x-show="loading" class="mb-4 text-sm text-slate-500">Loading...</div>
-
-          <template x-if="accessDenied">
-            <section class="rounded-xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
-              <h1 class="text-2xl font-semibold">Access Denied</h1>
-              <p class="mt-2 text-slate-500">Your role is not authorized to view this area.</p>
-            </section>
-          </template>
-
-          <template x-if="unbuiltRole">
-            <section class="rounded-xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
-              <h1 class="text-2xl font-semibold" x-text="user.role"></h1>
-              <p class="mt-2 text-slate-500" x-text="`No active portal functions configured for role '${user.role}'.`"></p>
-            </section>
-          </template>
-
-          <template x-if="currentPath === '/events' && user.role === 'Organiser'">
-            <section>
-              <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
-                <div><p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">Organiser workspace</p><h1 class="mt-2 text-3xl font-semibold tracking-tight">Your event requests</h1></div>
-                <button @click="navigate('/events/new')" class="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700">New request</button>
-              </div>
-              <div x-show="events.length === 0 && !loading" class="rounded-xl bg-white p-8 text-slate-500 ring-1 ring-slate-200">No event requests yet.</div>
-              <div class="space-y-3">
-                <template x-for="event in events" :key="event.id">
-                  <article class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-                    <div class="flex flex-wrap items-start justify-between gap-3"><h2 class="text-lg font-semibold" x-text="event.title"></h2><span class="status-badge" :class="statusClass(event.status)" x-text="event.status"></span></div>
-                    <dl class="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-3"><div><dt class="text-slate-400">Proposed</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt class="text-slate-400">Attendance</dt><dd x-text="event.expected_attendance || 'Not set'"></dd></div><div><dt class="text-slate-400">Clarification</dt><dd x-text="event.clarification_note || 'None'"></dd></div></dl>
-                    <div class="mt-4 flex gap-2"><button x-show="['Submitted', 'Under Review', 'Returned'].includes(event.status)" @click="openAmend(event)" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50">Amend</button><button x-show="['Draft', 'Returned'].includes(event.status)" @click="submitEvent(event.id)" class="rounded-lg bg-amber-700 px-3 py-2 text-sm font-medium text-white hover:bg-amber-800">Submit</button></div>
-                  </article>
-                </template>
-              </div>
-            </section>
-          </template>
-
-          <template x-if="currentPath === '/events/new' && user.role === 'Organiser'">
-            <section class="mx-auto max-w-3xl"><button @click="navigate('/events')" class="mb-5 text-sm font-medium text-slate-500 hover:text-slate-900">Back to requests</button><h1 class="text-3xl font-semibold">New event request</h1><form class="mt-6 space-y-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200" @submit.prevent="createEventDraft(draft)"><label class="block text-sm font-medium">Title<input x-model="draft.title" class="form-input" required><small class="field-error" x-text="fieldErrors.title"></small></label><label class="block text-sm font-medium">Purpose<textarea x-model="draft.purpose" class="form-input"></textarea></label><label class="block text-sm font-medium">Description<textarea x-model="draft.description" class="form-input"></textarea></label><div class="grid gap-4 sm:grid-cols-2"><label class="block text-sm font-medium">Proposed start<input x-model="draft.proposed_start" type="datetime-local" class="form-input"><small class="field-error" x-text="fieldErrors.proposed_start"></small></label><label class="block text-sm font-medium">Expected attendance<input x-model.number="draft.expected_attendance" type="number" min="1" class="form-input"><small class="field-error" x-text="fieldErrors.expected_attendance"></small></label></div><label class="block text-sm font-medium">Venue requirements<textarea x-model="draft.venue_requirements" class="form-input"></textarea></label><button class="rounded-lg bg-slate-900 px-4 py-2.5 font-medium text-white hover:bg-slate-700">Save draft</button></form></section>
-          </template>
-
-          <template x-if="currentPath === '/coordinator/events' && user.role === 'Coordinator'">
-            <section><div class="mb-6"><p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">Coordinator workspace</p><h1 class="mt-2 text-3xl font-semibold tracking-tight">Assigned requests</h1><p class="mt-2 text-slate-500" x-text="`${assignedEvents.length} assigned to you, ${assignedEvents.filter(event => event.awaiting_first_review).length} waiting for your first review`"></p></div><div x-show="assignedEvents.length === 0 && !loading" class="rounded-xl bg-white p-8 text-slate-500 ring-1 ring-slate-200">Nothing is assigned to you yet.</div><div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200"><template x-for="event in assignedEvents" :key="event.id"><article class="queue-row" :class="event.awaiting_first_review ? 'waiting-row' : ''"><div class="flex flex-wrap items-start justify-between gap-3"><div><h2 class="text-lg font-semibold" x-text="event.title"></h2><p class="mt-1 text-sm text-slate-500" x-text="event.organiser"></p></div><span class="status-badge" :class="statusClass(event.status)" x-text="event.awaiting_first_review ? 'Awaiting your first review' : event.status"></span></div><dl class="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-sm text-slate-600"><div><dt class="inline text-slate-400">Proposed: </dt><dd class="inline" x-text="formatDate(event.proposed_start)"></dd></div><div><dt class="inline text-slate-400">Attendance: </dt><dd class="inline" x-text="event.expected_attendance ? `${event.expected_attendance} expected` : 'Not set'"></dd></div></dl><div class="mt-4 flex flex-wrap gap-2"><button x-show="event.status === 'Submitted'" @click="startReview(event.id)" class="action-button">Start review</button><button x-show="['Submitted', 'Under Review'].includes(event.status)" @click="handleApprove(event.id)" class="action-button approve">Approve</button><button x-show="['Submitted', 'Under Review'].includes(event.status)" @click="openDecision(event, 'reject')" class="action-button">Reject</button><button x-show="['Submitted', 'Under Review'].includes(event.status)" @click="openDecision(event, 'return')" class="action-button">Return for clarification</button></div></article></template></div></section>
-          </template>
-        </div>
-
-        <template x-if="modal.open">
-          <div class="modal-backdrop" @keydown.escape.window="closeModal()"><section class="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true"><h2 class="text-xl font-semibold" x-text="modal.kind === 'reject' ? 'Reject request' : modal.kind === 'return' ? 'Return for clarification' : 'Amend event'"></h2><form class="mt-5 space-y-4" @submit.prevent="submitModal()"><template x-if="modal.kind === 'amend'"><div class="space-y-4"><label class="block text-sm font-medium">Title<input x-model="amendForm.title" class="form-input" required><small class="field-error" x-text="fieldErrors.title"></small></label><label class="block text-sm font-medium">Description<textarea x-model="amendForm.description" class="form-input"></textarea></label></div></template><template x-if="modal.kind !== 'amend'"><label class="block text-sm font-medium">Reason<textarea x-model="decisionForm.reason" class="form-input" required></textarea><small class="field-error" x-text="fieldErrors.reason"></small></label></template><div class="flex justify-end gap-2"><button type="button" @click="closeModal()" class="rounded-lg border border-slate-300 px-4 py-2 text-sm">Cancel</button><button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white" x-text="modal.kind === 'amend' ? 'Save changes' : 'Confirm'"></button></div></form></section></div>
-        </template>
-      </div>
-    </template>
-  </div>
-</body>
-</html>
+        </section></template>
+      </main>
+    </section>
+    <template x-if="modal.open"><div class="modal-backdrop" @keydown.escape.window="closeModal()" @click.self="closeModal()"><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title" x-transition><div class="modal-header"><div><p class="eyebrow">Event request</p><h2 id="modal-title" x-text="modal.kind === 'reject' ? 'Reject request' : modal.kind === 'return' ? 'Request clarification' : 'Amend event'"></h2></div><button @click="closeModal()" aria-label="Close dialog">×</button></div><form @submit.prevent="submitModal()">
+      <template x-if="modal.kind === 'amend'"><div class="modal-body"><p class="form-help">Update the details below. Existing workflow status and ownership will remain unchanged.</p><div class="field-group"><label for="amend-title">Event title <em>Required</em></label><input id="amend-title" x-model.trim="amendForm.title" required :aria-invalid="fieldErrors.title ? 'true' : 'false'"><small class="field-error" x-text="fieldErrors.title"></small></div><div class="field-group"><label for="amend-description">Description</label><textarea id="amend-description" x-model="amendForm.description" rows="5"></textarea></div></div></template>
+      <template x-if="modal.kind !== 'amend'"><div class="modal-body"><p class="form-help" x-text="modal.kind === 'reject' ? 'Explain the decision clearly so the organiser understands the outcome.' : 'Describe exactly what information the organiser needs to provide.'"></p><div class="field-group"><label for="decision-reason">Reason <em>Required</em></label><textarea id="decision-reason" x-model.trim="decisionForm.reason" rows="5" required :aria-invalid="fieldErrors.reason ? 'true' : 'false'" placeholder="Provide a concise, actionable explanation."></textarea><small class="field-error" x-text="fieldErrors.reason"></small></div></div></template>
+      <div class="modal-actions"><button type="button" @click="closeModal()" class="button button-secondary">Cancel</button><button class="button" :class="modal.kind === 'reject' ? 'button-danger' : 'button-primary'" x-text="modal.kind === 'amend' ? 'Save changes' : modal.kind === 'reject' ? 'Reject request' : 'Send clarification request'"></button></div>
+    </form></section></div></template>
+  </div></template>
+</div>
+</body></html>
