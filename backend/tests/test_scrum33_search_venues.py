@@ -407,3 +407,240 @@ def test_scrum33_tc13_unauthenticated_request_rejected(client):
     client.cookies.clear()
     res = client.get("/venues/search")
     assert res.status_code == 401
+
+
+
+# ---------------------------------------------------------------------------
+# PR #14 review fixes
+#
+# Week 7 Customer Change #1: every booking occupies the venue from its start
+# minus setup to its end plus turnaround, and two bookings at one venue
+# conflict if those windows overlap. Windows that only touch do not conflict.
+# Dates below are relative to today so these tests never expire.
+# ---------------------------------------------------------------------------
+
+BUFFER_DAY = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+
+
+def at(hhmm):
+    """An ISO timestamp on BUFFER_DAY, e.g. at("13:00")."""
+    return f"{BUFFER_DAY}T{hhmm}:00"
+
+
+@pytest.fixture
+def buffer_venue(db_session, seed_data):
+    """A venue with 30m setup and 45m turnaround, booked 10:00 to 12:00.
+
+    With its buffers, that booking occupies the venue from 09:30 to 12:45.
+    """
+    venue = Venue(
+        name="Buffer Test Hall",
+        location="Building D",
+        capacity=80,
+        setup_time_mins=30,
+        turnaround_time_mins=45,
+        is_active=True,
+    )
+    db_session.add(venue)
+    db_session.commit()
+
+    organiser = db_session.query(User).filter_by(username="org_dave").one()
+    event = Event(title="Existing booked event", organiser_id=organiser.id, status="Approved")
+    db_session.add(event)
+    db_session.commit()
+
+    day = datetime.strptime(BUFFER_DAY, "%Y-%m-%d")
+    db_session.add(
+        VenueBooking(
+            event_id=event.id,
+            venue_id=venue.id,
+            booking_start=day.replace(hour=10),
+            booking_end=day.replace(hour=12),
+            status="Confirmed",
+        )
+    )
+    db_session.commit()
+    return venue
+
+
+def buffer_hall_result(client, start, end):
+    """Search as a Coordinator and return the Buffer Test Hall entry."""
+    client.cookies.set("connectsphere_session", "token_coord_sarah")
+    res = client.get("/venues/search", params={"start_time": at(start), "end_time": at(end)})
+    assert res.status_code == 200
+    return {v["name"]: v for v in res.json()}["Buffer Test Hall"]
+
+
+def test_scrum33_tc14_new_event_setup_cannot_overlap_previous_turnaround(client, buffer_venue):
+    """TC-3314 (SCRUM-33 AC4, Change #1): 13:00 to 14:00 is unavailable.
+
+    The new event's own 30m setup starts at 12:30, inside the 45m turnaround
+    that runs to 12:45 after the 10:00 to 12:00 booking.
+    """
+    hall = buffer_hall_result(client, "13:00", "14:00")
+
+    assert hall["is_available"] is False
+    assert "setup" in hall["conflict_reason"]
+    assert "turnaround" in hall["conflict_reason"]
+
+
+def test_scrum33_tc15_new_event_turnaround_cannot_overlap_next_setup(client, buffer_venue):
+    """TC-3315 (SCRUM-33 AC4, Change #1): 07:00 to 09:00 is unavailable.
+
+    The new event's own 45m turnaround runs to 09:45, past the 30m setup that
+    starts at 09:30 before the 10:00 to 12:00 booking.
+    """
+    hall = buffer_hall_result(client, "07:00", "09:00")
+
+    assert hall["is_available"] is False
+    assert "setup" in hall["conflict_reason"]
+    assert "turnaround" in hall["conflict_reason"]
+
+
+def test_scrum33_tc16_windows_that_only_touch_after_a_booking_are_available(client, buffer_venue):
+    """TC-3316 (SCRUM-33 AC4, Change #1, boundary): 13:15 to 14:00 is available.
+
+    Its setup starts at 12:45, exactly when the previous turnaround ends. The
+    windows touch but do not overlap.
+    """
+    hall = buffer_hall_result(client, "13:15", "14:00")
+
+    assert hall["is_available"] is True
+    assert hall["conflict_reason"] is None
+
+
+def test_scrum33_tc17_windows_that_only_touch_before_a_booking_are_available(client, buffer_venue):
+    """TC-3317 (SCRUM-33 AC4, Change #1, boundary): 06:00 to 08:45 is available.
+
+    Its turnaround ends at 09:30, exactly when the next setup starts. The
+    windows touch but do not overlap.
+    """
+    hall = buffer_hall_result(client, "06:00", "08:45")
+
+    assert hall["is_available"] is True
+    assert hall["conflict_reason"] is None
+
+
+@pytest.fixture
+def role_tokens(db_session, seed_data):
+    """A logged-in session for each role, keyed by role name."""
+    tokens = {"coordinator": "token_coord_sarah"}
+    for role in ["lead", "venue_staff", "organiser", "admin"]:
+        user = User(
+            username=f"{role}_tc33",
+            password_hash=hash_password("password123"),
+            role=role,
+            is_active_coordinator=False,
+        )
+        db_session.add(user)
+        db_session.commit()
+        token = f"token_{role}_tc33"
+        db_session.add(LoginSession(user_id=user.id, token=token, valid=True))
+        db_session.commit()
+        tokens[role] = token
+    return tokens
+
+
+@pytest.mark.parametrize("role", ["coordinator", "lead", "venue_staff"])
+def test_scrum33_tc18_internal_planning_roles_can_search(client, role_tokens, role):
+    """TC-3318 (SCRUM-33, SCRUM-17 AC3, DoD role-based access): Coordinators,
+    Leads and Venue Staff can search venues."""
+    client.cookies.set("connectsphere_session", role_tokens[role])
+
+    res = client.get("/venues/search")
+
+    assert res.status_code == 200
+    assert len(res.json()) == 3
+
+
+def test_scrum33_tc19_organiser_cannot_search_or_see_other_bookings(client, role_tokens):
+    """TC-3319 (SCRUM-33, SCRUM-17 AC3, DoD role-based access): an Organiser is
+    refused with 403 and a reason, and the response carries none of another
+    event's booking times."""
+    client.cookies.set("connectsphere_session", role_tokens["organiser"])
+
+    # This period overlaps the Grand Hall booking (2026-11-15 14:00 to 17:00).
+    res = client.get(
+        "/venues/search",
+        params={"start_time": "2026-11-15T15:00:00", "end_time": "2026-11-15T16:00:00"},
+    )
+
+    assert res.status_code == 403
+    assert "Coordinators, Leads and Venue Staff" in res.json()["detail"]
+    assert "conflict_reason" not in res.text
+    assert "14:00" not in res.text
+
+
+def test_scrum33_tc20_admin_cannot_search(client, role_tokens):
+    """TC-3320 (SCRUM-33, SCRUM-17 AC3, DoD role-based access): the customer has
+    said there is no system admin role, so an admin account is refused like any
+    other role outside internal planning."""
+    client.cookies.set("connectsphere_session", role_tokens["admin"])
+
+    res = client.get("/venues/search")
+
+    assert res.status_code == 403
+
+
+@pytest.fixture
+def coord_client(client, seed_data):
+    """A client logged in as the seeded Coordinator."""
+    client.cookies.set("connectsphere_session", "token_coord_sarah")
+    return client
+
+
+def test_scrum33_tc21_start_time_without_end_time_is_refused(coord_client):
+    """TC-3321 (SCRUM-33 AC1, DoD refusals say why): a period with only
+    start_time is refused with 400 instead of being silently ignored."""
+    res = coord_client.get("/venues/search", params={"start_time": "2026-11-15T15:00:00"})
+
+    assert res.status_code == 400
+    assert "both start_time and end_time" in res.json()["detail"]
+
+
+def test_scrum33_tc22_end_time_without_start_time_is_refused(coord_client):
+    """TC-3322 (SCRUM-33 AC1, DoD refusals say why): a period with only
+    end_time is refused with 400 instead of being silently ignored."""
+    res = coord_client.get("/venues/search", params={"end_time": "2026-11-15T16:00:00"})
+
+    assert res.status_code == 400
+    assert "both start_time and end_time" in res.json()["detail"]
+
+
+def test_scrum33_tc23_end_before_start_is_refused(coord_client):
+    """TC-3323 (SCRUM-33 AC1, DoD refusals say why): an end_time earlier than
+    start_time is refused with 400."""
+    res = coord_client.get(
+        "/venues/search",
+        params={"start_time": "2026-11-15T16:00:00", "end_time": "2026-11-15T15:00:00"},
+    )
+
+    assert res.status_code == 400
+    assert "end_time must be after start_time" in res.json()["detail"]
+
+
+def test_scrum33_tc24_zero_length_period_is_refused(coord_client):
+    """TC-3324 (SCRUM-33 AC1, boundary): start_time equal to end_time is a
+    zero-length period and is refused with 400."""
+    res = coord_client.get(
+        "/venues/search",
+        params={"start_time": "2026-11-15T15:00:00", "end_time": "2026-11-15T15:00:00"},
+    )
+
+    assert res.status_code == 400
+    assert "end_time must be after start_time" in res.json()["detail"]
+
+
+def test_scrum33_tc25_offset_on_one_end_only_does_not_crash(coord_client):
+    """TC-3325 (SCRUM-33 AC1, boundary): a period with a time zone offset on
+    start_time but not on end_time is handled, not a 500.
+
+    Guards the start/end comparison added for TC-3323: comparing a datetime
+    that has an offset with one that does not raises TypeError in Python.
+    """
+    res = coord_client.get(
+        "/venues/search",
+        params={"start_time": "2026-11-20T10:00:00+08:00", "end_time": "2026-11-20T11:00:00"},
+    )
+
+    assert res.status_code == 200
