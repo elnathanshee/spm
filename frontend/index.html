@@ -1,0 +1,109 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ConnectSphere</title>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <div x-data="appState()" x-init="init()" class="min-h-screen">
+    <template x-if="!user">
+      <main class="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
+        <section class="bg-white rounded-2xl shadow-2xl border border-slate-100 p-8 w-full max-w-md text-slate-800">
+          <div class="flex items-center gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-bold text-white shadow-lg shadow-indigo-600/20" aria-hidden="true">C</div>
+            <div>
+              <p class="text-sm font-bold uppercase tracking-[0.22em] text-slate-900">ConnectSphere</p>
+              <p class="mt-1 text-sm text-slate-500">Event planning, connected.</p>
+            </div>
+          </div>
+          <div class="mt-10">
+            <h1 class="text-3xl font-semibold tracking-tight">Welcome back</h1>
+            <p class="mt-2 text-sm text-slate-500">Sign in to continue to your workspace.</p>
+          </div>
+          <div x-show="alert && alert.message" class="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-800" role="alert" x-text="alert && alert.message"></div>
+          <form class="mt-6 space-y-5" @submit.prevent="login(loginForm.username, loginForm.password)">
+            <label class="block text-sm font-medium text-slate-700">Username
+              <input x-model="loginForm.username" required autocomplete="username" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-slate-50/50 focus:bg-white">
+            </label>
+            <label class="block text-sm font-medium text-slate-700">Password
+              <input x-model="loginForm.password" required type="password" autocomplete="current-password" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-slate-50/50 focus:bg-white">
+            </label>
+            <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-xl shadow-md hover:shadow-indigo-500/20 active:scale-[0.99] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50" :disabled="loading">Sign in</button>
+          </form>
+        </section>
+      </main>
+    </template>
+
+    <template x-if="user">
+      <div>
+        <header class="border-b border-slate-200 bg-white">
+          <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
+            <div>
+              <p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">ConnectSphere</p>
+              <p class="mt-1 text-sm text-slate-500"><span x-text="user.username"></span> Â· <span x-text="user.role"></span></p>
+            </div>
+            <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50" @click="logout()">Sign out</button>
+          </div>
+          <nav class="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-6 pb-3" aria-label="Main navigation">
+            <template x-for="item in navigation" :key="item.path">
+              <button x-show="canAccess(item.role, user.role)" @click="navigate(item.path)" class="whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium hover:bg-slate-100" :class="currentPath === item.path ? 'bg-slate-900 text-white hover:bg-slate-900' : 'text-slate-600'" x-text="item.label"></button>
+            </template>
+          </nav>
+        </header>
+
+        <div class="mx-auto max-w-6xl px-6 py-6">
+          <div x-show="alert && alert.message" class="mb-6 rounded-lg p-4 text-sm" :class="alert && alert.kind === 'error' ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'" role="alert" x-text="alert && alert.message"></div>
+          <div x-show="loading" class="mb-4 text-sm text-slate-500">Loading...</div>
+
+          <template x-if="accessDenied">
+            <section class="rounded-xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
+              <h1 class="text-2xl font-semibold">Access Denied</h1>
+              <p class="mt-2 text-slate-500">Your role is not authorized to view this area.</p>
+            </section>
+          </template>
+
+          <template x-if="unbuiltRole">
+            <section class="rounded-xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
+              <h1 class="text-2xl font-semibold" x-text="user.role"></h1>
+              <p class="mt-2 text-slate-500" x-text="`No active portal functions configured for role '${user.role}'.`"></p>
+            </section>
+          </template>
+
+          <template x-if="currentPath === '/events' && user.role === 'Organiser'">
+            <section>
+              <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+                <div><p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">Organiser workspace</p><h1 class="mt-2 text-3xl font-semibold tracking-tight">Your event requests</h1></div>
+                <button @click="navigate('/events/new')" class="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700">New request</button>
+              </div>
+              <div x-show="events.length === 0 && !loading" class="rounded-xl bg-white p-8 text-slate-500 ring-1 ring-slate-200">No event requests yet.</div>
+              <div class="space-y-3">
+                <template x-for="event in events" :key="event.id">
+                  <article class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                    <div class="flex flex-wrap items-start justify-between gap-3"><h2 class="text-lg font-semibold" x-text="event.title"></h2><span class="status-badge" :class="statusClass(event.status)" x-text="event.status"></span></div>
+                    <dl class="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-3"><div><dt class="text-slate-400">Proposed</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt class="text-slate-400">Attendance</dt><dd x-text="event.expected_attendance || 'Not set'"></dd></div><div><dt class="text-slate-400">Clarification</dt><dd x-text="event.clarification_note || 'None'"></dd></div></dl>
+                    <div class="mt-4 flex gap-2"><button x-show="['Submitted', 'Under Review', 'Returned'].includes(event.status)" @click="openAmend(event)" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50">Amend</button><button x-show="['Draft', 'Returned'].includes(event.status)" @click="submitEvent(event.id)" class="rounded-lg bg-amber-700 px-3 py-2 text-sm font-medium text-white hover:bg-amber-800">Submit</button></div>
+                  </article>
+                </template>
+              </div>
+            </section>
+          </template>
+
+          <template x-if="currentPath === '/events/new' && user.role === 'Organiser'">
+            <section class="mx-auto max-w-3xl"><button @click="navigate('/events')" class="mb-5 text-sm font-medium text-slate-500 hover:text-slate-900">Back to requests</button><h1 class="text-3xl font-semibold">New event request</h1><form class="mt-6 space-y-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200" @submit.prevent="createEventDraft(draft)"><label class="block text-sm font-medium">Title<input x-model="draft.title" class="form-input" required><small class="field-error" x-text="fieldErrors.title"></small></label><label class="block text-sm font-medium">Purpose<textarea x-model="draft.purpose" class="form-input"></textarea></label><label class="block text-sm font-medium">Description<textarea x-model="draft.description" class="form-input"></textarea></label><div class="grid gap-4 sm:grid-cols-2"><label class="block text-sm font-medium">Proposed start<input x-model="draft.proposed_start" type="datetime-local" class="form-input"><small class="field-error" x-text="fieldErrors.proposed_start"></small></label><label class="block text-sm font-medium">Expected attendance<input x-model.number="draft.expected_attendance" type="number" min="1" class="form-input"><small class="field-error" x-text="fieldErrors.expected_attendance"></small></label></div><label class="block text-sm font-medium">Venue requirements<textarea x-model="draft.venue_requirements" class="form-input"></textarea></label><button class="rounded-lg bg-slate-900 px-4 py-2.5 font-medium text-white hover:bg-slate-700">Save draft</button></form></section>
+          </template>
+
+          <template x-if="currentPath === '/coordinator/events' && user.role === 'Coordinator'">
+            <section><div class="mb-6"><p class="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">Coordinator workspace</p><h1 class="mt-2 text-3xl font-semibold tracking-tight">Assigned requests</h1><p class="mt-2 text-slate-500" x-text="`${assignedEvents.length} assigned to you, ${assignedEvents.filter(event => event.awaiting_first_review).length} waiting for your first review`"></p></div><div x-show="assignedEvents.length === 0 && !loading" class="rounded-xl bg-white p-8 text-slate-500 ring-1 ring-slate-200">Nothing is assigned to you yet.</div><div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200"><template x-for="event in assignedEvents" :key="event.id"><article class="queue-row" :class="event.awaiting_first_review ? 'waiting-row' : ''"><div class="flex flex-wrap items-start justify-between gap-3"><div><h2 class="text-lg font-semibold" x-text="event.title"></h2><p class="mt-1 text-sm text-slate-500" x-text="event.organiser"></p></div><span class="status-badge" :class="statusClass(event.status)" x-text="event.awaiting_first_review ? 'Awaiting your first review' : event.status"></span></div><dl class="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-sm text-slate-600"><div><dt class="inline text-slate-400">Proposed: </dt><dd class="inline" x-text="formatDate(event.proposed_start)"></dd></div><div><dt class="inline text-slate-400">Attendance: </dt><dd class="inline" x-text="event.expected_attendance ? `${event.expected_attendance} expected` : 'Not set'"></dd></div></dl><div class="mt-4 flex flex-wrap gap-2"><button x-show="event.status === 'Submitted'" @click="startReview(event.id)" class="action-button">Start review</button><button x-show="['Submitted', 'Under Review'].includes(event.status)" @click="handleApprove(event.id)" class="action-button approve">Approve</button><button x-show="['Submitted', 'Under Review'].includes(event.status)" @click="openDecision(event, 'reject')" class="action-button">Reject</button><button x-show="['Submitted', 'Under Review'].includes(event.status)" @click="openDecision(event, 'return')" class="action-button">Return for clarification</button></div></article></template></div></section>
+          </template>
+        </div>
+
+        <template x-if="modal.open">
+          <div class="modal-backdrop" @keydown.escape.window="closeModal()"><section class="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true"><h2 class="text-xl font-semibold" x-text="modal.kind === 'reject' ? 'Reject request' : modal.kind === 'return' ? 'Return for clarification' : 'Amend event'"></h2><form class="mt-5 space-y-4" @submit.prevent="submitModal()"><template x-if="modal.kind === 'amend'"><div class="space-y-4"><label class="block text-sm font-medium">Title<input x-model="amendForm.title" class="form-input" required><small class="field-error" x-text="fieldErrors.title"></small></label><label class="block text-sm font-medium">Description<textarea x-model="amendForm.description" class="form-input"></textarea></label></div></template><template x-if="modal.kind !== 'amend'"><label class="block text-sm font-medium">Reason<textarea x-model="decisionForm.reason" class="form-input" required></textarea><small class="field-error" x-text="fieldErrors.reason"></small></label></template><div class="flex justify-end gap-2"><button type="button" @click="closeModal()" class="rounded-lg border border-slate-300 px-4 py-2 text-sm">Cancel</button><button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white" x-text="modal.kind === 'amend' ? 'Save changes' : 'Confirm'"></button></div></form></section></div>
+        </template>
+      </div>
+    </template>
+  </div>
+</body>
+</html>

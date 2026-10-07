@@ -1,4 +1,4 @@
-import secrets
+﻿import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
@@ -47,7 +47,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not session or not session.user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired session",
+            detail="Not authenticated",
         )
 
     return session.user
@@ -87,9 +87,19 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
 
     return {
         "message": "Login successful",
+        "user_id": user.id,
         "role": user.role,
         "username": user.username,
         "redirect_url": redirect_url,
+    }
+
+
+@router.get("/me")
+def current_session_user(current_user: User = Depends(get_current_user)):
+    return {
+        "user_id": current_user.id,
+        "username": current_user.username,
+        "role": current_user.role,
     }
 
 
@@ -115,3 +125,4 @@ def logout(
         "message": "Logged out successfully",
         "redirect_url": "/login",
     }
+
