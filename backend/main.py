@@ -5,12 +5,13 @@ from .auth import router as auth_router
 from .coordinator import router as coordinator_router
 from .database import engine
 from .events import router as events_router
+from .lead import router as lead_router
 from .models import Base
-from .notifications import router as notifications_router  # [SCRUM-51 | Renee]
-from .reassignment import router as reassignment_router  # [SCRUM-23 | Renee]
-from .suitability import router as suitability_router  # [SCRUM-34 | Elnathan]
-from .venue_calendar import router as venue_calendar_router  # [SCRUM-32 | Elnathan]
-from .venues import router as venues_router  # [SCRUM-30 | Sarah]
+from .notifications import router as notifications_router
+from .reassignment import router as reassignment_router
+from .suitability import router as suitability_router
+from .venue_calendar import router as venue_calendar_router
+from .venues import router as venues_router
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -33,11 +34,12 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(events_router)
 app.include_router(coordinator_router)
-app.include_router(notifications_router)  # [SCRUM-51 | Renee]
-app.include_router(reassignment_router)  # [SCRUM-23 | Renee]
-app.include_router(venues_router)  # [SCRUM-30 | Sarah]
-app.include_router(venue_calendar_router)  # [SCRUM-32 | Elnathan]
-app.include_router(suitability_router)  # [SCRUM-34 | Elnathan]
+app.include_router(lead_router)
+app.include_router(notifications_router)
+app.include_router(reassignment_router)
+app.include_router(venues_router)
+app.include_router(venue_calendar_router)
+app.include_router(suitability_router)
 
 
 @app.get("/")

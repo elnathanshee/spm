@@ -28,6 +28,7 @@ class User(Base):
     organised_events = relationship("Event", foreign_keys="Event.organiser_id", back_populates="organiser")
     assigned_events = relationship("Event", foreign_keys="Event.assigned_coordinator_id", back_populates="assigned_coordinator")
     coordinator_assignments = relationship("CoordinatorAssignmentHistory", back_populates="coordinator")
+    notifications = relationship("Notification", back_populates="recipient", cascade="all, delete-orphan")
 
 
 class Event(Base):
@@ -54,6 +55,7 @@ class Event(Base):
     assigned_coordinator = relationship("User", foreign_keys=[assigned_coordinator_id], back_populates="assigned_events")
     assignment_history = relationship("CoordinatorAssignmentHistory", back_populates="event", cascade="all, delete-orphan")
     status_history = relationship("EventStatusHistory", back_populates="event", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="event", cascade="all, delete-orphan")
     venue_bookings = relationship("VenueBooking", back_populates="event", cascade="all, delete-orphan")
 
 
@@ -107,15 +109,45 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"), nullable=True)
-    kind = Column(String(50), nullable=False)  # e.g. 'submitted', 'returned', 'approved', 'rejected'
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=True, index=True)
+    kind = Column(String(50), nullable=True)  # e.g. 'submitted', 'returned', 'approved', 'rejected'
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     read_at = Column(DateTime, nullable=True)
 
     # Relationships
-    user = relationship("User")
-    event = relationship("Event")
+    user = relationship("User", foreign_keys=[user_id], back_populates="notifications")
+    recipient = relationship("User", foreign_keys=[user_id], overlaps="notifications,user")
+    event = relationship("Event", back_populates="notifications")
+
+    def __init__(self, **kwargs):
+        if "recipient_id" in kwargs and "user_id" not in kwargs:
+            kwargs["user_id"] = kwargs.pop("recipient_id")
+        if "read" in kwargs and "read_at" not in kwargs:
+            read_val = kwargs.pop("read")
+            kwargs["read_at"] = datetime.utcnow() if read_val else None
+        if "kind" not in kwargs:
+            kwargs["kind"] = "info"
+        super().__init__(**kwargs)
+
+    @property
+    def recipient_id(self):
+        return self.user_id
+
+    @recipient_id.setter
+    def recipient_id(self, val):
+        self.user_id = val
+
+    @property
+    def read(self):
+        return self.read_at is not None
+
+    @read.setter
+    def read(self, val):
+        if val:
+            self.read_at = datetime.utcnow()
+        else:
+            self.read_at = None
 
 
 # [SCRUM-23 | Renee] NEW: one row per reassignment - who moved which event from
@@ -174,4 +206,3 @@ class VenueBooking(Base):
     # Relationships
     event = relationship("Event", back_populates="venue_bookings")
     venue = relationship("Venue", back_populates="bookings")
-

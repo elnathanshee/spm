@@ -114,6 +114,9 @@ def kinds_for(client, username, kind):
 def test_scrum63_tc01_organiser_notified_naming_coordinator(client, db_session, people):
     event_id = create_draft(client)
     assert submit(client, event_id).status_code == 200
+    coord_a_id = db_session.query(User).filter_by(username="coord_a").one().id
+    login(client, "lead")
+    assert client.post(f"/events/{event_id}/assign", json={"coordinator_id": coord_a_id}).status_code == 200
     coordinator = assigned_username(db_session, event_id)
 
     found = kinds_for(client, "org", "coordinator_assigned")
@@ -128,7 +131,10 @@ def test_scrum63_tc01_organiser_notified_naming_coordinator(client, db_session, 
 
 def test_scrum63_tc02_assigned_coordinator_notified(client, db_session, people):
     event_id = create_draft(client)
-    submit(client, event_id)
+    assert submit(client, event_id).status_code == 200
+    coord_a_id = db_session.query(User).filter_by(username="coord_a").one().id
+    login(client, "lead")
+    assert client.post(f"/events/{event_id}/assign", json={"coordinator_id": coord_a_id}).status_code == 200
     coordinator = assigned_username(db_session, event_id)
     other = "coord_b" if coordinator == "coord_a" else "coord_a"
 
@@ -143,12 +149,19 @@ def test_scrum63_tc02_assigned_coordinator_notified(client, db_session, people):
 
 def test_scrum63_tc03_round_robin_notifies_each_coordinator_for_their_own_event(client, db_session, people):
     first = create_draft(client, title="Gala")
-    submit(client, first)
+    assert submit(client, first).status_code == 200
     second = create_draft(client, title="Workshop")
-    submit(client, second)
+    assert submit(client, second).status_code == 200
+
+    coord_a_id = db_session.query(User).filter_by(username="coord_a").one().id
+    coord_b_id = db_session.query(User).filter_by(username="coord_b").one().id
+
+    login(client, "lead")
+    assert client.post(f"/events/{first}/assign", json={"coordinator_id": coord_a_id}).status_code == 200
+    assert client.post(f"/events/{second}/assign", json={"coordinator_id": coord_b_id}).status_code == 200
 
     a, b = assigned_username(db_session, first), assigned_username(db_session, second)
-    assert a != b  # round-robin spread them
+    assert a != b
 
     assert [n["event_id"] for n in kinds_for(client, a, "assigned_to_you")] == [first]
     assert [n["event_id"] for n in kinds_for(client, b, "assigned_to_you")] == [second]
@@ -158,7 +171,10 @@ def test_scrum63_tc03_round_robin_notifies_each_coordinator_for_their_own_event(
 
 def test_scrum63_tc04_resubmission_does_not_renotify(client, db_session, people):
     event_id = create_draft(client)
-    submit(client, event_id)
+    assert submit(client, event_id).status_code == 200
+    coord_a_id = db_session.query(User).filter_by(username="coord_a").one().id
+    login(client, "lead")
+    assert client.post(f"/events/{event_id}/assign", json={"coordinator_id": coord_a_id}).status_code == 200
     coordinator = assigned_username(db_session, event_id)
     login(client, coordinator)
     assert client.post(f"/events/{event_id}/return", json={"reason": "Add AV needs"}).status_code == 200
@@ -172,10 +188,17 @@ def test_scrum63_tc04_resubmission_does_not_renotify(client, db_session, people)
 def test_scrum63_tc05_no_coordinator_available_sends_nothing(client, db_session):
     make_user(db_session, "org", "organiser")
     make_user(db_session, "coord_off", "coordinator", active=False)
+    make_user(db_session, "lead", "lead")
     db_session.commit()
 
     event_id = create_draft(client)
-    assert submit(client, event_id).status_code == 400
+    # Week 7 Change #5: submission succeeds without assigning coordinator
+    assert submit(client, event_id).status_code == 200
+
+    # Attempting to assign inactive coordinator fails
+    coord_off_id = db_session.query(User).filter_by(username="coord_off").one().id
+    login(client, "lead")
+    assert client.post(f"/events/{event_id}/assign", json={"coordinator_id": coord_off_id}).status_code == 400
 
     db_session.expire_all()
     kinds = {n.kind for n in db_session.query(Notification).all()}
@@ -192,7 +215,10 @@ def test_scrum63_tc06_saving_a_draft_sends_nothing(client, db_session, people):
 
 def test_scrum63_tc07_other_organiser_receives_nothing(client, db_session, people):
     event_id = create_draft(client)
-    submit(client, event_id)
+    assert submit(client, event_id).status_code == 200
+    coord_a_id = db_session.query(User).filter_by(username="coord_a").one().id
+    login(client, "lead")
+    assert client.post(f"/events/{event_id}/assign", json={"coordinator_id": coord_a_id}).status_code == 200
 
     login(client, "org2")
     assert client.get("/notifications").json() == []
@@ -202,12 +228,15 @@ def test_scrum63_tc07_other_organiser_receives_nothing(client, db_session, peopl
 
 def test_scrum63_tc08_organiser_notified_when_coordinator_changes(client, db_session, people):
     event_id = create_draft(client)
-    submit(client, event_id)
+    assert submit(client, event_id).status_code == 200
+    coord_a_id = db_session.query(User).filter_by(username="coord_a").one().id
+    coord_b_id = db_session.query(User).filter_by(username="coord_b").one().id
+    login(client, "lead")
+    assert client.post(f"/events/{event_id}/assign", json={"coordinator_id": coord_a_id}).status_code == 200
     current = assigned_username(db_session, event_id)
     new = "coord_b" if current == "coord_a" else "coord_a"
-    new_id = db_session.query(User).filter_by(username=new).one().id
+    new_id = coord_b_id if new == "coord_b" else coord_a_id
 
-    login(client, "lead")
     assert client.post(f"/events/{event_id}/reassign", json={"coordinator_id": new_id}).status_code == 200
 
     changed = kinds_for(client, "org", "coordinator_changed")

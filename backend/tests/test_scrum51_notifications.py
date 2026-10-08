@@ -66,9 +66,10 @@ def people(db_session):
     other_org = User(username="other_org", password_hash=hash_password("pass123"), role="organiser")
     coord_a = User(username="coord_a", password_hash=hash_password("pass123"), role="coordinator", is_active_coordinator=True)
     coord_b = User(username="coord_b", password_hash=hash_password("pass123"), role="coordinator", is_active_coordinator=True)
-    db_session.add_all([org, other_org, coord_a, coord_b])
+    lead = User(username="lead", password_hash=hash_password("pass123"), role="lead")
+    db_session.add_all([org, other_org, coord_a, coord_b, lead])
     db_session.commit()
-    return {"org": org, "other_org": other_org, "coord_a": coord_a, "coord_b": coord_b}
+    return {"org": org, "other_org": other_org, "coord_a": coord_a, "coord_b": coord_b, "lead": lead}
 
 
 def login(client, username):
@@ -81,7 +82,7 @@ TITLE = "Annual Gala"
 
 @pytest.fixture
 def submitted_event(client, people, db_session):
-    """Organiser creates and submits a request. Returns (event_id, assigned coordinator, other coordinator)."""
+    """Organiser creates and submits a request, Lead assigns to coord_a. Returns (event_id, assigned coordinator, other coordinator)."""
     login(client, "org")
     start = (datetime.utcnow() + timedelta(days=14)).isoformat()
     resp = client.post("/events", json={"title": TITLE, "proposed_start": start, "expected_attendance": 100})
@@ -90,9 +91,11 @@ def submitted_event(client, people, db_session):
     sub = client.post(f"/events/{event_id}/submit")
     assert sub.status_code == 200
 
-    assigned = db_session.get(User, sub.json()["assigned_coordinator_id"]).username
-    other = "coord_b" if assigned == "coord_a" else "coord_a"
-    return event_id, assigned, other
+    login(client, "lead")
+    assign_resp = client.post(f"/events/{event_id}/assign", json={"coordinator_id": people["coord_a"].id})
+    assert assign_resp.status_code == 200
+
+    return event_id, "coord_a", "coord_b"
 
 
 def my_notifications(client, username):

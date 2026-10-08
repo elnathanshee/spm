@@ -1,0 +1,20 @@
+{
+  "name": "connectsphere-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-dev.mjs",
+    "build": "vite build",
+    "test": "node --test --test-isolation=none",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "alpinejs": "^3.15.0",
+    "tailwindcss": "^4.1.14"
+  },
+  "devDependencies": {
+    "vite": "^7.1.7"
+  }
+}

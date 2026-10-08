@@ -93,10 +93,10 @@ def submitted_event(client, people, db_session):
     sub = client.post(f"/events/{event_id}/submit")
     assert sub.status_code == 200
 
-    assigned_id = sub.json()["assigned_coordinator_id"]
-    assigned = db_session.get(User, assigned_id).username
-    other = "coord_b" if assigned == "coord_a" else "coord_a"
-    return event_id, assigned, other
+    event = db_session.get(Event, event_id)
+    event.assigned_coordinator_id = people["coord_a"].id
+    db_session.commit()
+    return event_id, "coord_a", "coord_b"
 
 
 def set_status(db_session, event_id, new_status):

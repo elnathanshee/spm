@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
-from .assignment import NoCoordinatorAvailable, assign_coordinator_on_submission
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User
@@ -99,7 +98,6 @@ class EventAmend(BaseModel):
         if v is not None and (not v or not v.strip()):
             raise ValueError("Title cannot be empty")
         return v.strip() if v is not None else None
-
 
 
 def validate_event_business_rules(
@@ -233,20 +231,7 @@ def submit_event(
 
     prev_status = event.status
     event.status = SUBMITTED
-
-    # Only assign a coordinator if one is not already assigned
-    # [SCRUM-63 | Renee] remember whether this submission made the first assignment
-    newly_assigned = False
-    if not event.assigned_coordinator_id:
-        try:
-            assign_coordinator_on_submission(event, db)
-            newly_assigned = True
-        except NoCoordinatorAvailable as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e),
-            )
+    event.submitted_at = datetime.utcnow()
 
     status_history = EventStatusHistory(
         event_id=event.id,
@@ -258,10 +243,6 @@ def submit_event(
     db.add(status_history)
     # [SCRUM-51 | Renee] NEW: notify the Organiser (AC1). Saved in the same commit as the submission.
     notify_organiser_of_status(db, event, SUBMITTED)
-    # [SCRUM-63 | Renee] NEW: first assignment notifies the Organiser (AC1) and the
-    # Coordinator (AC3). A resubmission keeps the same Coordinator, so nothing is sent.
-    if newly_assigned:
-        notify_first_assignment(db, event)
     db.commit()
     db.refresh(event)
 
@@ -282,7 +263,7 @@ def amend_event(
     db: Session = Depends(get_db),
 ):
     """SCRUM-21: Organiser amends own event request while Submitted, Under Review, or Returned."""
-    if current_user.role.lower() != "organiser":
+    if (current_user.role or "").strip().lower() != "organiser":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only organisers can amend event requests",
@@ -365,6 +346,7 @@ def amend_event(
         "equipment_requirements": event.equipment_requirements,
         "registration_needs": event.registration_needs,
         "status": event.status,
+        "organiser_id": event.organiser_id,
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "changed_fields": changed_fields,
     }
@@ -552,12 +534,16 @@ def list_my_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role.lower() == "organiser":
+    role = (current_user.role or "").strip().lower()
+    if role == "organiser":
         events = db.query(Event).filter(Event.organiser_id == current_user.id).all()
-    elif current_user.role.lower() == "coordinator":
+    elif role == "coordinator":
         events = db.query(Event).filter(Event.assigned_coordinator_id == current_user.id).all()
     else:
-        events = db.query(Event).all()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisers and coordinators can view event requests",
+        )
 
     return [
         {

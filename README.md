@@ -21,13 +21,13 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 
 | Layer | Choice | Status |
 |---|---|---|
+| Frontend | Alpine.js + Tailwind CSS (static assets) | Agreed |
 | Backend | Python (FastAPI) | Agreed |
 | Database | SQLite (Dev) / PostgreSQL (Neon / Prod) via SQLAlchemy | Agreed |
 | Authentication | Local Session Cookie (`connectsphere_session`) with bcrypt | Agreed |
 | Testing framework | Pytest + FastAPI TestClient | Agreed |
 | Version control | GitHub | Agreed |
 | Hosting | Vercel (auto-deploys from GitHub on push) | Agreed |
-| Frontend | React / Vanilla JS & CSS (TBC) | Open |
 | CI | GitHub Actions | Open |
 
 *(Update this table as decisions are made in sprint planning — keep it as the single source of truth for the stack.)*
@@ -37,7 +37,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 ### Prerequisites
 
 - Python 3.x
-- Node.js (once frontend framework is chosen)
+- Node.js and npm
 - Git
 
 ### Setup
@@ -51,7 +51,7 @@ python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# frontend (once added)
+# frontend
 cd frontend
 npm install
 ```
@@ -63,26 +63,43 @@ Copy `.env.example` to `.env` and fill in the required values (database URL, aut
 ### Running Locally
 
 ```bash
-# backend
-uvicorn backend.main:app --reload
-
-# frontend (once added)
+# From the frontend directory; starts both FastAPI and Vite
+cd frontend
 npm run dev
 ```
+
+Open `http://localhost:5173`. Vite proxies `/auth`, `/events`, and
+`/coordinator`, `/lead`, and `/notifications` to `http://localhost:8000`, preserving same-origin cookie
+behavior during development.
+
+Credentialed CORS is currently enabled for `http://localhost:3000`,
+`http://127.0.0.1:3000`, `http://localhost:5173`, and
+`http://127.0.0.1:5173`. Serve the frontend over HTTP rather than opening
+`frontend/index.html` with `file://`, so the Vite proxy and HttpOnly session
+cookie are available.
 
 ### Running Tests
 
 ```bash
 # backend
-pytest
+python -m pytest
 
-# frontend (once added)
+# frontend, from the frontend directory
 npm test
+npm run build
 ```
+
+See [docs/SCRUM-17-MANUAL-TESTING.md](docs/SCRUM-17-MANUAL-TESTING.md) for
+development-account initialization and the six-role RBAC verification guide.
 
 ## Deployment
 
 Every push to `main` auto-deploys via Vercel. No manual deployment step should be needed.
+
+Configure Vercel with the project root set to `frontend/`, Build Command set to
+`npm run build`, and Output Directory set to `dist`. The deployed frontend
+must use a backend URL whose CORS policy allows the Vercel origin with
+credentials enabled.
 
 ## Developer Standards & SOP
 

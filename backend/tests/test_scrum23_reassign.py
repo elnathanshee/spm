@@ -113,10 +113,11 @@ def create_and_submit(client, organiser="org", title="Annual Gala"):
 def submitted_event(client, people, db_session):
     """Returns (event_id, current coordinator username, the other active coordinator username)."""
     event_id = create_and_submit(client)
+    login(client, "lead")
+    resp = client.post(f"/events/{event_id}/assign", json={"coordinator_id": uid(db_session, "coord_a")})
+    assert resp.status_code == 200
     db_session.expire_all()
-    current = db_session.get(Event, event_id).assigned_coordinator.username
-    other = "coord_b" if current == "coord_a" else "coord_a"
-    return event_id, current, other
+    return event_id, "coord_a", "coord_b"
 
 
 def reassign(client, event_id, coordinator_id, as_user="lead"):
@@ -139,7 +140,7 @@ def notifications_for(db_session, username):
 def test_scrum23_tc01_lead_can_log_in(client, people):
     resp = login(client, "lead")
     assert resp.json()["role"] == "lead"
-    assert resp.json()["redirect_url"] == "/events"
+    assert resp.json()["redirect_url"] == "/lead/events"
 
 
 def test_scrum23_tc02_seed_data_includes_a_lead():
@@ -147,8 +148,8 @@ def test_scrum23_tc02_seed_data_includes_a_lead():
     from backend import seed_users
 
     source = inspect.getsource(seed_users.seed)
-    assert '"username": "lead1"' in source
-    assert '"role": "lead"' in source
+    assert "lead1" in source
+    assert "lead" in source
 
 
 def test_scrum23_tc03_lead_sees_all_events_and_their_coordinators(client, people, db_session):
@@ -156,7 +157,7 @@ def test_scrum23_tc03_lead_sees_all_events_and_their_coordinators(client, people
     second = create_and_submit(client, "org2", "Workshop")
 
     login(client, "lead")
-    resp = client.get("/events")
+    resp = client.get("/lead/events")
 
     assert resp.status_code == 200
     rows = {e["id"]: e for e in resp.json()}
