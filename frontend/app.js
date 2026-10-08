@@ -1,11 +1,22 @@
 ﻿const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+import {
+  NAVIGATION,
+  canAccess as roleCanAccess,
+  defaultPathForRole,
+  normalizeRole as normalizeRoleName,
+  requestedFrontendPath,
+  resolveRolePath,
+} from "./src/rbac.js";
+import { beginAuthentication, finishAuthentication, resetSignedOutState } from "./src/session-state.js";
+
 document.addEventListener("alpine:init", () => {
   Alpine.data("appState", () => ({
     user: null,
     currentPath: "/login",
     sidebarOpen: false,
     loading: false,
+    pendingPath: requestedFrontendPath(window.location.hash),
     accessDenied: false,
     unbuiltRole: false,
     events: [],
@@ -13,35 +24,35 @@ document.addEventListener("alpine:init", () => {
     alert: { message: "", kind: "error" },
     fieldErrors: {},
     loginForm: { username: "", password: "" },
+    showPassword: false,
     draft: { title: "", purpose: "", description: "", proposed_start: "", expected_attendance: null, venue_requirements: "" },
     amendForm: { title: "", description: "" },
     decisionForm: { reason: "" },
     modal: { open: false, kind: "", event: null },
-    navigation: [
-      { path: "/events", label: "My event requests", role: "Organiser", icon: "calendar" },
-      { path: "/events/new", label: "Create request", role: "Organiser", icon: "plus" },
-      { path: "/coordinator/events", label: "Assigned requests", role: "Coordinator", icon: "inbox" },
-      { path: "/venue", label: "Venue operations", role: "Venue Staff", icon: "building" },
-      { path: "/technical", label: "Technical support", role: "Technical Support", icon: "equipment" },
-      { path: "/attendee", label: "Event directory", role: "Attendee", icon: "ticket" },
-    ],
+    navigation: NAVIGATION,
 
     async init() {
+      if (window.location.hash) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      }
       await this.loadSession();
-      window.addEventListener("hashchange", () => {
-        if (this.user) this.navigate(this.requestedPath(), false);
-      });
     },
 
     normalizeRole(role) {
-      const roles = { organiser: "Organiser", coordinator: "Coordinator", "venue staff": "Venue Staff", "technical support": "Technical Support", attendee: "Attendee" };
-      return roles[String(role || "").trim().toLowerCase()] || role;
+      return normalizeRoleName(role);
     },
 
     async apiRequest(path, options = {}) {
       const request = { ...options, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
       if (request.body && typeof request.body !== "string") request.body = JSON.stringify(request.body);
-      const response = await fetch(`${API_BASE}${path}`, request);
+      let response;
+      try {
+        response = await fetch(`${API_BASE}${path}`, request);
+      } catch {
+        const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
+        this.handleHttpError(0, data, path);
+        return { ok: false, status: 0, data };
+      }
       const data = await response.json().catch(() => ({}));
       if (response.ok) return { ok: true, status: response.status, data };
       this.handleHttpError(response.status, data, path);
@@ -49,6 +60,10 @@ document.addEventListener("alpine:init", () => {
     },
 
     handleHttpError(status, data, path) {
+      if (status === 0 || status === 503) {
+        this.showAlert(data.detail || "Cannot reach the backend service. Start FastAPI on port 8000 and try again.");
+        return;
+      }
       if (status === 401) {
         this.user = null;
         this.events = [];
@@ -59,7 +74,7 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       if (status === 403) {
-        this.showAlert(`403 Forbidden: Role '${this.user?.role || "unknown"}' is not authorized to perform this function.`);
+        this.showAlert("You don't have permission to perform this action.");
         return;
       }
       if (status === 422) {
@@ -84,32 +99,35 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this.user = { ...response.data, role: this.normalizeRole(response.data.role) };
-      this.navigate(this.requestedPath() || this.defaultPath());
+      const destination = this.pendingPath || this.defaultPath();
+      this.pendingPath = null;
+      this.navigate(destination);
     },
 
     async login(username, password) {
-      this.loading = true;
-      this.clearAlert();
+      if (!beginAuthentication(this)) return;
       const response = await this.apiRequest("/auth/login", { method: "POST", body: { username, password } });
-      this.loading = false;
+      finishAuthentication(this);
       if (!response.ok) return;
       this.user = { user_id: response.data.user_id, username: response.data.username, role: this.normalizeRole(response.data.role) };
       this.loginForm.password = "";
-      this.navigate(this.defaultPath());
+      this.showPassword = false;
+      const destination = this.pendingPath || this.defaultPath();
+      this.pendingPath = null;
+      this.navigate(destination);
     },
 
     async logout() {
-      await this.apiRequest("/auth/logout", { method: "POST" });
-      this.user = null;
-      this.currentPath = "/login";
-      this.events = [];
-      this.assignedEvents = [];
+      this.loading = true;
+      const response = await this.apiRequest("/auth/logout", { method: "POST" });
+      this.loading = false;
+      if (!response.ok) return;
+      resetSignedOutState(this);
     },
 
-    defaultPath() { return this.user?.role === "Coordinator" ? "/coordinator/events" : this.user?.role === "Organiser" ? "/events" : this.rolePath(this.user?.role); },
-    rolePath(role) { return { "Venue Staff": "/venue", "Technical Support": "/technical", Attendee: "/attendee" }[role] || "/events"; },
-    requestedPath() { return window.location.hash.startsWith("#/") ? window.location.hash.slice(1) : ""; },
-    canAccess(targetRole, userRole) { return targetRole === userRole; },
+    defaultPath() { return defaultPathForRole(this.user?.role); },
+    rolePath(role) { return defaultPathForRole(role); },
+    canAccess(targetRole, userRole) { return roleCanAccess(targetRole, userRole); },
     pageTitle() { if (this.accessDenied) return "Access denied"; return this.navigation.find(entry => entry.path === this.currentPath)?.label || "Workspace"; },
     roleWorkspace() { return { Organiser: "Event requests", Coordinator: "Planning & review", "Venue Staff": "Venue operations", "Technical Support": "Technical operations", Attendee: "My events" }[this.user?.role] || "Event services"; },
     rolePageHeading() { return { "Venue Staff": "Venue operations", "Technical Support": "Technical support", Attendee: "Event directory" }[this.user?.role] || "Your workspace"; },
@@ -132,12 +150,11 @@ document.addEventListener("alpine:init", () => {
       return icons[name] || icons.calendar;
     },
 
-    navigate(path, updateLocation = true) {
-      const item = this.navigation.find(entry => entry.path === path);
-      this.accessDenied = !item || !this.canAccess(item.role, this.user?.role);
-      this.unbuiltRole = ["/venue", "/technical", "/attendee"].includes(path) && !this.accessDenied;
-      this.currentPath = this.accessDenied ? "/access-denied" : path;
-      if (updateLocation && window.location.hash !== `#${path}`) window.location.hash = path;
+    navigate(path) {
+      const resolution = resolveRolePath(path, this.user?.role);
+      this.accessDenied = resolution.accessDenied;
+      this.unbuiltRole = resolution.unbuiltRole;
+      this.currentPath = resolution.currentPath;
       this.clearAlert();
       if (!this.accessDenied && path === "/events") this.fetchEvents();
       if (!this.accessDenied && path === "/coordinator/events") this.fetchAssignedEvents();

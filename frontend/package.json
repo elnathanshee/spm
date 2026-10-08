@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/run-dev.mjs",
     "build": "vite build",
-    "test": "node scripts/run-scrum17-tests.mjs",
+    "test": "node --test --test-isolation=none",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -79,6 +79,18 @@ class EventCreate(BaseModel):
         return v.strip()
 
 
+class EventAmend(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Title cannot be empty")
+        return v.strip()
+
+
 def validate_event_business_rules(
     proposed_start: Optional[datetime],
     expected_attendance: Optional[int],
@@ -238,6 +250,46 @@ def submit_event(
         "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "submitted_at": event.submitted_at,
+    }
+
+
+@router.post("/{event_id}/amend")
+def amend_event(
+    event_id: int,
+    event_in: EventAmend,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if (current_user.role or "").strip().lower() != "organiser":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisers can amend event requests",
+        )
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    if event.organiser_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to amend this event request",
+        )
+    if event.status not in [DRAFT, SUBMITTED, UNDER_REVIEW, RETURNED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot amend an event request with status '{event.status}'",
+        )
+
+    event.title = event_in.title
+    event.description = event_in.description
+    db.commit()
+    db.refresh(event)
+    return {
+        "id": event.id,
+        "title": event.title,
+        "description": event.description,
+        "status": event.status,
+        "organiser_id": event.organiser_id,
     }
 
 

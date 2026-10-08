@@ -275,6 +275,48 @@ def test_tc307_organiser_cannot_submit_another_organisers_event(client, make_eve
     assert_forbidden(response, "You are not authorized to submit this event request")
 
 
+def test_organiser_can_amend_owned_event_without_changing_its_identity(client, db_session, make_event):
+    event = make_event("Original title", organiser="organiser1")
+    login(client, "organiser1")
+
+    response = client.post(
+        f"/events/{event.id}/amend",
+        json={"title": "Updated title", "description": "Updated description"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == event.id
+    assert response.json()["title"] == "Updated title"
+    db_session.refresh(event)
+    assert event.title == "Updated title"
+    assert event.status == DRAFT
+
+
+@pytest.mark.parametrize("username", ["organiser2", "coord1", "venue1", "technical1", "attendee1"])
+def test_other_users_cannot_amend_an_organisers_event(client, make_event, username):
+    event = make_event("Protected event", organiser="organiser1")
+    login(client, username)
+
+    response = client.post(
+        f"/events/{event.id}/amend",
+        json={"title": "Unauthorized update", "description": "Should not persist"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]
+
+
+def test_amend_requires_authentication(client, make_event):
+    event = make_event("Protected event", organiser="organiser1")
+
+    response = client.post(
+        f"/events/{event.id}/amend",
+        json={"title": "Unauthorized update", "description": "Should not persist"},
+    )
+
+    assert_unauthenticated(response)
+
+
 def test_tc308_organiser_event_list_contains_only_owned_events(client, make_event):
     own_event = make_event("Organiser one event", organiser="organiser1")
     other_event = make_event("Organiser two event", organiser="organiser2")
