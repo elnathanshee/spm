@@ -27,7 +27,7 @@ def seed():
             ("coord2", "coordinator", True),
             ("coord_inactive", "coordinator", False),
             ("lead1", "lead", False),
-            ("venue1", "venue staff", False),
+            ("venue1", "venue_staff", False),
             ("technical1", "technical support", False),
             ("attendee1", "attendee", False),
         ]

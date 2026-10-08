@@ -1,4 +1,4 @@
-﻿import secrets
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
@@ -14,7 +14,9 @@ SUPPORTED_APPLICATION_ROLES = frozenset({
     "coordinator",
     "lead",
     "venue staff",
+    "venue_staff",
     "technical support",
+    "technical_support",
     "attendee",
 })
 
@@ -107,7 +109,9 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
         "coordinator": "/coordinator/events",
         "lead": "/lead/events",
         "venue staff": "/venue",
+        "venue_staff": "/venue",
         "technical support": "/technical",
+        "technical_support": "/technical",
         "attendee": "/attendee",
     }
     redirect_url = role_redirects[normalized_role(user)]

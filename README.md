@@ -101,6 +101,23 @@ Configure Vercel with the project root set to `frontend/`, Build Command set to
 must use a backend URL whose CORS policy allows the Vercel origin with
 credentials enabled.
 
+## Developer Standards & SOP
+
+To maintain code quality, TDD commit traceability, and trunk stability, all team members must follow the **[ConnectSphere Developer SOP](docs/DEVELOPER_SOP.md)**:
+
+1. **Trunk-Based Development:** Short-lived feature branches (`feature/SCRUM-<id>-<name>`) merging into `main` via PRs.
+2. **Test-Driven Development (TDD):** Two-phase commit discipline for every story:
+   - `test(SCRUM-XX): ...` (RED Phase)
+   - `feat(SCRUM-XX): ...` (GREEN Phase)
+3. **5-Path Test Classification:** Every feature must test Happy Path, Negative Path, Boundary Path, Workflow Variations, and Cross-Cutting concerns.
+
+## Documentation & Architecture
+
+- **[Developer SOP & TDD Guide](docs/DEVELOPER_SOP.md):** Team coding standards, branching, and TDD commit rules.
+- **[Test Case Register](docs/TEST_CASES.md):** Complete log of automated test cases, scenarios, and results across all sprints.
+- **[C4 Architecture DSL](docs/connectsphere.dsl):** Structurizr DSL architecture models for System Context and Container views.
+- **[Sequence Diagrams](docs/diagrams/):** Mermaid sequence diagrams and high-res exports for core event lifecycles.
+
 ## Project Management
 
 - **Backlog, sprints, estimates:** Jira, project `SCRUM` ("ConnectSphere Event Services") — internal working source; exported for the Week 12 submission (Deliverable 1).

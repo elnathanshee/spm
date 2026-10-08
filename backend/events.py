@@ -10,6 +10,8 @@ from .models import Event, EventStatusHistory, User
 from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
+# [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
+from .notifications import notify_first_assignment, notify_organiser_of_status
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -78,16 +80,24 @@ class EventCreate(BaseModel):
         return v.strip()
 
 
+# [SCRUM-21 | Elnathan] Request body for /amend
 class EventAmend(BaseModel):
-    title: str
+    title: Optional[str] = None
+    purpose: Optional[str] = None
     description: Optional[str] = None
+    proposed_start: Optional[datetime] = None
+    expected_attendance: Optional[int] = None
+    venue_requirements: Optional[str] = None
+    accessibility_needs: Optional[str] = None
+    equipment_requirements: Optional[str] = None
+    registration_needs: Optional[str] = None
 
     @field_validator("title")
     @classmethod
-    def validate_title(cls, v: str) -> str:
-        if not v or not v.strip():
+    def validate_title(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and (not v or not v.strip()):
             raise ValueError("Title cannot be empty")
-        return v.strip()
+        return v.strip() if v is not None else None
 
 
 def validate_event_business_rules(
@@ -231,6 +241,8 @@ def submit_event(
         reason="Event request submitted by organiser",
     )
     db.add(status_history)
+    # [SCRUM-51 | Renee] NEW: notify the Organiser (AC1). Saved in the same commit as the submission.
+    notify_organiser_of_status(db, event, SUBMITTED)
     db.commit()
     db.refresh(event)
 
@@ -242,13 +254,15 @@ def submit_event(
     }
 
 
+# [SCRUM-21 | Elnathan] Organiser amends own event request
 @router.post("/{event_id}/amend")
 def amend_event(
     event_id: int,
-    event_in: EventAmend,
+    payload: EventAmend,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """SCRUM-21: Organiser amends own event request while Submitted, Under Review, or Returned."""
     if (current_user.role or "").strip().lower() != "organiser":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -257,28 +271,84 @@ def amend_event(
 
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
     if event.organiser_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to amend this event request",
         )
-    if event.status not in [DRAFT, SUBMITTED, UNDER_REVIEW, RETURNED]:
+
+    if event.status == DRAFT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot amend an event request with status '{event.status}'",
+            detail="Draft requests cannot be amended. Please edit the draft and submit.",
+        )
+    if event.status == APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot amend an approved event request. Please raise a change request.",
+        )
+    if event.status == REJECTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot amend a rejected event request. Please raise a change request.",
+        )
+    if event.status not in [SUBMITTED, UNDER_REVIEW, RETURNED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot amend an event request in {event.status} status.",
         )
 
-    event.title = event_in.title
-    event.description = event_in.description
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field is required to amend the request",
+        )
+
+    validate_event_business_rules(
+        payload.proposed_start,
+        payload.expected_attendance,
+    )
+
+    changed_fields = []
+    for field, val in update_data.items():
+        if hasattr(event, field):
+            setattr(event, field, val)
+            changed_fields.append(field)
+
+    # Record status history row: previous_status == new_status == current_status
+    status_history = EventStatusHistory(
+        event_id=event.id,
+        previous_status=event.status,
+        new_status=event.status,
+        actor_id=current_user.id,
+        reason=f"Amended: {', '.join(changed_fields)}",
+    )
+    db.add(status_history)
     db.commit()
     db.refresh(event)
+
     return {
+        "message": "Event amended successfully",
         "id": event.id,
         "title": event.title,
+        "purpose": event.purpose,
         "description": event.description,
+        "proposed_start": event.proposed_start,
+        "expected_attendance": event.expected_attendance,
+        "venue_requirements": event.venue_requirements,
+        "accessibility_needs": event.accessibility_needs,
+        "equipment_requirements": event.equipment_requirements,
+        "registration_needs": event.registration_needs,
         "status": event.status,
         "organiser_id": event.organiser_id,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+        "changed_fields": changed_fields,
     }
 
 
@@ -313,6 +383,9 @@ def return_event_for_clarification(
     except StatusChangeError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
+    # [SCRUM-51 | Renee] NEW: notify the Organiser, including the Coordinator's note (AC2).
+    # Only reached when the return was allowed, so a refused return sends nothing.
+    notify_organiser_of_status(db, event, RETURNED, note=action.reason)
     db.commit()
     db.refresh(event)
 
@@ -400,6 +473,8 @@ def approve_event(
     except StatusChangeError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
+    # [SCRUM-51 | Renee] NEW: notify the Organiser that it was approved (AC3).
+    notify_organiser_of_status(db, event, APPROVED)
     db.commit()
     db.refresh(event)
 
@@ -441,6 +516,8 @@ def reject_event(
     except StatusChangeError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
+    # [SCRUM-51 | Renee] NEW: notify the Organiser that it was rejected, with the reason (AC3).
+    notify_organiser_of_status(db, event, REJECTED, note=action.reason)
     db.commit()
     db.refresh(event)
 

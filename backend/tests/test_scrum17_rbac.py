@@ -318,7 +318,7 @@ def test_tc307_organiser_cannot_submit_another_organisers_event(client, make_eve
 
 
 def test_organiser_can_amend_owned_event_without_changing_its_identity(client, db_session, make_event):
-    event = make_event("Original title", organiser="organiser1")
+    event = make_event("Original title", organiser="organiser1", status=SUBMITTED, submitted=True)
     login(client, "organiser1")
 
     response = client.post(
@@ -331,12 +331,12 @@ def test_organiser_can_amend_owned_event_without_changing_its_identity(client, d
     assert response.json()["title"] == "Updated title"
     db_session.refresh(event)
     assert event.title == "Updated title"
-    assert event.status == DRAFT
+    assert event.status == SUBMITTED
 
 
 @pytest.mark.parametrize("username", ["organiser2", "coord1", "venue1", "technical1", "attendee1"])
 def test_other_users_cannot_amend_an_organisers_event(client, make_event, username):
-    event = make_event("Protected event", organiser="organiser1")
+    event = make_event("Protected event", organiser="organiser1", status=SUBMITTED, submitted=True)
     login(client, username)
 
     response = client.post(
@@ -349,7 +349,7 @@ def test_other_users_cannot_amend_an_organisers_event(client, make_event, userna
 
 
 def test_amend_requires_authentication(client, make_event):
-    event = make_event("Protected event", organiser="organiser1")
+    event = make_event("Protected event", organiser="organiser1", status=SUBMITTED, submitted=True)
 
     response = client.post(
         f"/events/{event.id}/amend",

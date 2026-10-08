@@ -8,6 +8,10 @@ from .events import router as events_router
 from .lead import router as lead_router
 from .models import Base
 from .notifications import router as notifications_router
+from .reassignment import router as reassignment_router
+from .suitability import router as suitability_router
+from .venue_calendar import router as venue_calendar_router
+from .venues import router as venues_router
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -32,6 +36,10 @@ app.include_router(events_router)
 app.include_router(coordinator_router)
 app.include_router(lead_router)
 app.include_router(notifications_router)
+app.include_router(reassignment_router)
+app.include_router(venues_router)
+app.include_router(venue_calendar_router)
+app.include_router(suitability_router)
 
 
 @app.get("/")
