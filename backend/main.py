@@ -9,6 +9,7 @@ from .models import Base
 from .notifications import router as notifications_router  # [SCRUM-51 | Renee]
 from .reassignment import router as reassignment_router  # [SCRUM-23 | Renee]
 from .suitability import router as suitability_router  # [SCRUM-34 | Elnathan]
+from .venue_calendar import router as venue_calendar_router  # [SCRUM-32 | Elnathan]
 from .venues import router as venues_router  # [SCRUM-30 | Sarah]
 
 # Create all database tables
@@ -35,6 +36,7 @@ app.include_router(coordinator_router)
 app.include_router(notifications_router)  # [SCRUM-51 | Renee]
 app.include_router(reassignment_router)  # [SCRUM-23 | Renee]
 app.include_router(venues_router)  # [SCRUM-30 | Sarah]
+app.include_router(venue_calendar_router)  # [SCRUM-32 | Elnathan]
 app.include_router(suitability_router)  # [SCRUM-34 | Elnathan]
 
 
