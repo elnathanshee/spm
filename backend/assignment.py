@@ -1,63 +1,57 @@
-from datetime import datetime
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import CoordinatorAssignmentHistory, Event, User
+from .models import CoordinatorAssignmentHistory, Event, Notification, User
 
 
-class NoCoordinatorAvailable(Exception):
-    pass
+class AssignmentError(Exception):
+    def __init__(self, message: str, http_status: int = 400):
+        super().__init__(message)
+        self.http_status = http_status
 
 
-def get_round_robin_coordinator(db: Session) -> User:
-    coordinators = (
-        db.query(User)
-        .filter(
-            User.role.ilike("coordinator"),
-            User.is_active_coordinator == True,
-        )
-        .order_by(User.id.asc())
-        .all()
-    )
-
-    if not coordinators:
-        raise NoCoordinatorAvailable("No active coordinator available")
-
-    coordinator_latest_times = []
-    for coord in coordinators:
-        latest = (
-            db.query(func.max(CoordinatorAssignmentHistory.assigned_at))
-            .filter(CoordinatorAssignmentHistory.coordinator_id == coord.id)
-            .scalar()
-        )
-        coordinator_latest_times.append((coord, latest))
-
-    # Coordinators with no prior assignments come first, then oldest assignment timestamp
-    coordinator_latest_times.sort(
-        key=lambda item: (
-            item[1] is not None,
-            item[1] if item[1] is not None else datetime.min,
-            item[0].id,
-        )
-    )
-
-    return coordinator_latest_times[0][0]
+def require_lead(user: User) -> None:
+    if (user.role or "").strip().lower() != "lead":
+        raise AssignmentError("Only Event Coordinator Leads can assign event requests", 403)
 
 
-def assign_coordinator_on_submission(event: Event, db: Session) -> None:
-    if event.assigned_coordinator_id is not None:
-        return
+def get_active_coordinator(db: Session, coordinator_id: int) -> User:
+    coordinator = db.get(User, coordinator_id)
+    if (
+        coordinator is None
+        or (coordinator.role or "").strip().lower() != "coordinator"
+        or not coordinator.is_active_coordinator
+    ):
+        raise AssignmentError("Selected user is not an active Coordinator")
+    return coordinator
 
-    coordinator = get_round_robin_coordinator(db)
-    now = datetime.utcnow()
+
+def assign_event(db: Session, event: Event, coordinator: User, lead: User, *, reassign: bool) -> None:
+    require_lead(lead)
+    previous = event.assigned_coordinator
+
+    if reassign:
+        if previous is None:
+            raise AssignmentError("Event request is unassigned; use initial assignment")
+        if previous.id == coordinator.id:
+            raise AssignmentError("Event request is already assigned to this Coordinator")
+    elif previous is not None:
+        raise AssignmentError("Event request is already assigned; use reassignment")
+
     event.assigned_coordinator_id = coordinator.id
-    event.submitted_at = now
+    db.add(CoordinatorAssignmentHistory(event_id=event.id, coordinator_id=coordinator.id))
 
-    history = CoordinatorAssignmentHistory(
+    if previous is not None:
+        db.add(Notification(
+            recipient_id=previous.id,
+            event_id=event.id,
+            message=f"Event request #{event.id} ({event.title}) was reassigned from you to {coordinator.username}.",
+        ))
+
+    action = "reassigned to you" if previous is not None else "assigned to you"
+    db.add(Notification(
+        recipient_id=coordinator.id,
         event_id=event.id,
-        coordinator_id=coordinator.id,
-        assigned_at=now,
-    )
-    db.add(history)
+        message=f"Event request #{event.id} ({event.title}) was {action} by {lead.username}.",
+    ))
     db.commit()
     db.refresh(event)

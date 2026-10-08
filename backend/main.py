@@ -5,7 +5,9 @@ from .auth import router as auth_router
 from .coordinator import router as coordinator_router
 from .database import engine
 from .events import router as events_router
+from .lead import router as lead_router
 from .models import Base
+from .notifications import router as notifications_router
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -28,6 +30,8 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(events_router)
 app.include_router(coordinator_router)
+app.include_router(lead_router)
+app.include_router(notifications_router)
 
 
 @app.get("/")

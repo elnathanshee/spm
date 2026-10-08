@@ -9,6 +9,28 @@ from .security import verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+SUPPORTED_APPLICATION_ROLES = frozenset({
+    "organiser",
+    "coordinator",
+    "lead",
+    "venue staff",
+    "technical support",
+    "attendee",
+})
+
+
+def normalized_role(user: User) -> str:
+    return (user.role or "").strip().lower()
+
+
+def require_supported_role(user: User) -> User:
+    if normalized_role(user) not in SUPPORTED_APPLICATION_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account does not have a supported application role",
+        )
+    return user
+
 
 class LoginForm(BaseModel):
     username: str
@@ -50,7 +72,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             detail="Not authenticated",
         )
 
-    return session.user
+    return require_supported_role(session.user)
 
 
 @router.post("/login")
@@ -68,6 +90,8 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
             detail="Invalid username or password",
         )
 
+    require_supported_role(user)
+
     session = create_session(db, user)
 
     response.set_cookie(
@@ -81,11 +105,12 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
     role_redirects = {
         "organiser": "/events",
         "coordinator": "/coordinator/events",
+        "lead": "/lead/events",
         "venue staff": "/venue",
         "technical support": "/technical",
         "attendee": "/attendee",
     }
-    redirect_url = role_redirects.get(user.role.strip().lower(), "/dashboard")
+    redirect_url = role_redirects[normalized_role(user)]
 
     return {
         "message": "Login successful",

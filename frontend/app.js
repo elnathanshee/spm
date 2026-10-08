@@ -21,6 +21,9 @@ document.addEventListener("alpine:init", () => {
     unbuiltRole: false,
     events: [],
     assignedEvents: [],
+    leadEvents: [],
+    coordinators: [],
+    notifications: [],
     alert: { message: "", kind: "error" },
     fieldErrors: {},
     loginForm: { username: "", password: "" },
@@ -36,6 +39,7 @@ document.addEventListener("alpine:init", () => {
         window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
       }
       await this.loadSession();
+      window.setInterval(() => this.refreshWorkspace(), 15000);
     },
 
     normalizeRole(role) {
@@ -99,6 +103,7 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this.user = { ...response.data, role: this.normalizeRole(response.data.role) };
+      await this.fetchNotifications();
       const destination = this.pendingPath || this.defaultPath();
       this.pendingPath = null;
       this.navigate(destination);
@@ -112,6 +117,7 @@ document.addEventListener("alpine:init", () => {
       this.user = { user_id: response.data.user_id, username: response.data.username, role: this.normalizeRole(response.data.role) };
       this.loginForm.password = "";
       this.showPassword = false;
+      await this.fetchNotifications();
       const destination = this.pendingPath || this.defaultPath();
       this.pendingPath = null;
       this.navigate(destination);
@@ -129,7 +135,7 @@ document.addEventListener("alpine:init", () => {
     rolePath(role) { return defaultPathForRole(role); },
     canAccess(targetRole, userRole) { return roleCanAccess(targetRole, userRole); },
     pageTitle() { if (this.accessDenied) return "Access denied"; return this.navigation.find(entry => entry.path === this.currentPath)?.label || "Workspace"; },
-    roleWorkspace() { return { Organiser: "Event requests", Coordinator: "Planning & review", "Venue Staff": "Venue operations", "Technical Support": "Technical operations", Attendee: "My events" }[this.user?.role] || "Event services"; },
+    roleWorkspace() { return { Organiser: "Event requests", Coordinator: "Planning & review", "Event Coordinator Lead": "Assignment oversight", "Venue Staff": "Venue operations", "Technical Support": "Technical operations", Attendee: "My events" }[this.user?.role] || "Event services"; },
     rolePageHeading() { return { "Venue Staff": "Venue operations", "Technical Support": "Technical support", Attendee: "Event directory" }[this.user?.role] || "Your workspace"; },
     rolePageDescription() { return { "Venue Staff": "Review venue-related work assigned to your role.", "Technical Support": "Keep track of technical and equipment arrangements assigned to you.", Attendee: "Find attendee-facing event information available to your role." }[this.user?.role] || "Your role-specific view of ConnectSphere."; },
     roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "There are no attendee events available right now. Events open to your role will appear here." }[this.user?.role] || "There is no work requiring your attention right now."; },
@@ -158,6 +164,7 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
       if (!this.accessDenied && path === "/events") this.fetchEvents();
       if (!this.accessDenied && path === "/coordinator/events") this.fetchAssignedEvents();
+      if (!this.accessDenied && path === "/lead/events") this.fetchLeadData();
     },
 
     async fetchEvents() {
@@ -189,6 +196,39 @@ document.addEventListener("alpine:init", () => {
       const response = await this.apiRequest("/coordinator/events/data");
       if (response.ok) this.assignedEvents = response.data;
       this.loading = false;
+    },
+
+    async fetchLeadData() {
+      this.loading = true;
+      const [eventsResponse, coordinatorsResponse] = await Promise.all([
+        this.apiRequest("/lead/events"),
+        this.apiRequest("/lead/coordinators"),
+      ]);
+      if (eventsResponse.ok) this.leadEvents = eventsResponse.data.map(event => ({ ...event, selectedCoordinatorId: event.assigned_coordinator_id || "" }));
+      if (coordinatorsResponse.ok) this.coordinators = coordinatorsResponse.data;
+      this.loading = false;
+    },
+
+    async fetchNotifications() {
+      const response = await this.apiRequest("/notifications");
+      if (response.ok) this.notifications = response.data;
+    },
+
+    async refreshWorkspace() {
+      if (!this.user || this.loading) return;
+      await this.fetchNotifications();
+      if (this.currentPath === "/coordinator/events") await this.fetchAssignedEvents();
+      if (this.currentPath === "/lead/events") await this.fetchLeadData();
+    },
+
+    async saveAssignment(event) {
+      if (!event.selectedCoordinatorId) { this.showAlert("Select a Coordinator first."); return; }
+      const action = event.assigned_coordinator_id ? "reassign" : "assign";
+      const response = await this.apiRequest(`/events/${event.id}/${action}`, { method: "POST", body: { coordinator_id: Number(event.selectedCoordinatorId) } });
+      if (response.ok) {
+        await this.fetchLeadData();
+        this.showAlert(`Event request #${event.id} ${action === "assign" ? "assigned" : "reassigned"}.`, "success");
+      }
     },
 
     async startReview(eventId) { const response = await this.apiRequest(`/events/${eventId}/review`, { method: "POST" }); if (response.ok) { await this.fetchAssignedEvents(); this.showAlert("Review started.", "success"); } },

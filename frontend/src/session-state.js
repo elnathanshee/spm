@@ -7,6 +7,9 @@ export function resetSignedOutState(state) {
   state.unbuiltRole = false;
   state.events = [];
   state.assignedEvents = [];
+  state.leadEvents = [];
+  state.coordinators = [];
+  state.notifications = [];
   state.alert = null;
   state.fieldErrors = {};
   state.loginForm = { username: "", password: "" };

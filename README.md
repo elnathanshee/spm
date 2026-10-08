@@ -63,15 +63,13 @@ Copy `.env.example` to `.env` and fill in the required values (database URL, aut
 ### Running Locally
 
 ```bash
-# backend
-uvicorn backend.main:app --reload
-
-# frontend, from the frontend directory, in a second terminal
+# From the frontend directory; starts both FastAPI and Vite
+cd frontend
 npm run dev
 ```
 
 Open `http://localhost:5173`. Vite proxies `/auth`, `/events`, and
-`/coordinator` to `http://localhost:8000`, preserving same-origin cookie
+`/coordinator`, `/lead`, and `/notifications` to `http://localhost:8000`, preserving same-origin cookie
 behavior during development.
 
 Credentialed CORS is currently enabled for `http://localhost:3000`,
@@ -84,12 +82,15 @@ cookie are available.
 
 ```bash
 # backend
-pytest
+python -m pytest
 
-# frontend
+# frontend, from the frontend directory
+npm test
 npm run build
-npm run preview
 ```
+
+See [docs/SCRUM-17-MANUAL-TESTING.md](docs/SCRUM-17-MANUAL-TESTING.md) for
+development-account initialization and the six-role RBAC verification guide.
 
 ## Deployment
 

@@ -28,6 +28,7 @@ class User(Base):
     organised_events = relationship("Event", foreign_keys="Event.organiser_id", back_populates="organiser")
     assigned_events = relationship("Event", foreign_keys="Event.assigned_coordinator_id", back_populates="assigned_coordinator")
     coordinator_assignments = relationship("CoordinatorAssignmentHistory", back_populates="coordinator")
+    notifications = relationship("Notification", back_populates="recipient", cascade="all, delete-orphan")
 
 
 class Event(Base):
@@ -54,6 +55,7 @@ class Event(Base):
     assigned_coordinator = relationship("User", foreign_keys=[assigned_coordinator_id], back_populates="assigned_events")
     assignment_history = relationship("CoordinatorAssignmentHistory", back_populates="event", cascade="all, delete-orphan")
     status_history = relationship("EventStatusHistory", back_populates="event", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="event", cascade="all, delete-orphan")
 
 
 class LoginSession(Base):
@@ -96,3 +98,17 @@ class EventStatusHistory(Base):
     # Relationships
     event = relationship("Event", back_populates="status_history")
     actor = relationship("User")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    read = Column(Boolean, default=False, nullable=False)
+
+    recipient = relationship("User", back_populates="notifications")
+    event = relationship("Event", back_populates="notifications")

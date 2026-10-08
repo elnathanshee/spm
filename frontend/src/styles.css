@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+.notification-summary{display:grid;gap:.25rem;margin-bottom:.75rem;border-radius:.5rem;background:rgb(255 255 255/.06);padding:.7rem;color:#dce8e4}.notification-summary strong{font-size:.72rem}.notification-summary small{overflow:hidden;color:#9fb3ae;font-size:.66rem;line-height:1.4;text-overflow:ellipsis}.assignment-controls{display:flex;align-items:end;justify-content:flex-end;gap:.6rem;margin-top:1rem}.assignment-controls label{align-self:center;color:#77847f;font-size:.72rem;font-weight:700}.assignment-controls select{min-width:12rem;border:1px solid var(--line2);border-radius:.5rem;background:#fff;padding:.65rem .75rem;color:var(--ink);font-size:.82rem}
+
 .password-field{position:relative}.password-field input{padding-right:4.25rem}.password-field button{position:absolute;right:.7rem;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#218878;padding:.3rem;font-size:.72rem;font-weight:750}.password-field button:hover{color:#12362f}
 
 :root{color-scheme:light;--ink:#172320;--muted:#66736f;--forest:#12362f;--forest2:#19483f;--teal:#218878;--soft:#e9f5f2;--canvas:#f4f6f4;--line:#dce3df;--line2:#cbd5d0;--danger:#a53b37;--shadow:0 1px 2px rgb(16 36 31/.04),0 10px 28px rgb(16 36 31/.05)}

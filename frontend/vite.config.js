@@ -24,6 +24,8 @@ export default defineConfig({
       "/auth": backendProxy,
       "/events": backendProxy,
       "/coordinator": backendProxy,
+      "/lead": backendProxy,
+      "/notifications": backendProxy,
     },
   },
   build: {

@@ -2,6 +2,7 @@ export const NAVIGATION = [
   { path: "/events", label: "My event requests", role: "Organiser", icon: "calendar" },
   { path: "/events/new", label: "Create request", role: "Organiser", icon: "plus" },
   { path: "/coordinator/events", label: "Assigned requests", role: "Coordinator", icon: "inbox" },
+  { path: "/lead/events", label: "Assignment oversight", role: "Event Coordinator Lead", icon: "people" },
   { path: "/venue", label: "Venue operations", role: "Venue Staff", icon: "building" },
   { path: "/technical", label: "Technical support", role: "Technical Support", icon: "equipment" },
   { path: "/attendee", label: "Event directory", role: "Attendee", icon: "ticket" },
@@ -10,6 +11,7 @@ export const NAVIGATION = [
 const NORMALIZED_ROLES = {
   organiser: "Organiser",
   coordinator: "Coordinator",
+  lead: "Event Coordinator Lead",
   "venue staff": "Venue Staff",
   "technical support": "Technical Support",
   attendee: "Attendee",
@@ -18,6 +20,7 @@ const NORMALIZED_ROLES = {
 const ROLE_PATHS = {
   Organiser: "/events",
   Coordinator: "/coordinator/events",
+  "Event Coordinator Lead": "/lead/events",
   "Venue Staff": "/venue",
   "Technical Support": "/technical",
   Attendee: "/attendee",

@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
-from .assignment import NoCoordinatorAvailable, assign_coordinator_on_submission
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User
@@ -222,17 +221,7 @@ def submit_event(
 
     prev_status = event.status
     event.status = SUBMITTED
-
-    # Only assign a coordinator if one is not already assigned
-    if not event.assigned_coordinator_id:
-        try:
-            assign_coordinator_on_submission(event, db)
-        except NoCoordinatorAvailable as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e),
-            )
+    event.submitted_at = datetime.utcnow()
 
     status_history = EventStatusHistory(
         event_id=event.id,

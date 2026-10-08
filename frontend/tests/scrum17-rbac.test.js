@@ -6,12 +6,13 @@ import { NAVIGATION, canAccess, defaultPathForRole, normalizeRole, requestedFron
 const ROLES = {
   organiser: { display: "Organiser", path: "/events" },
   coordinator: { display: "Coordinator", path: "/coordinator/events" },
+  lead: { display: "Event Coordinator Lead", path: "/lead/events" },
   "venue staff": { display: "Venue Staff", path: "/venue" },
   "technical support": { display: "Technical Support", path: "/technical" },
   attendee: { display: "Attendee", path: "/attendee" },
 };
 
-test("all five backend role values map to their frontend role and landing view", () => {
+test("all current backend role values map to their frontend role and landing view", () => {
   for (const [backendRole, expected] of Object.entries(ROLES)) {
     assert.equal(normalizeRole(backendRole), expected.display);
     assert.equal(defaultPathForRole(backendRole), expected.path);
@@ -52,6 +53,19 @@ test("Organiser and Attendee cannot enter the Coordinator planning view", () => 
   for (const externalRole of ["Organiser", "Attendee"]) {
     assert.equal(resolveRolePath("/coordinator/events", externalRole).accessDenied, true);
   }
+});
+
+test("only the Lead can enter assignment oversight", () => {
+  assert.equal(resolveRolePath("/lead/events", "Event Coordinator Lead").accessDenied, false);
+  for (const role of ["Organiser", "Coordinator", "Venue Staff", "Technical Support", "Attendee"]) {
+    assert.equal(resolveRolePath("/lead/events", role).accessDenied, true);
+  }
+});
+
+test("Admin is not a supported frontend application role", () => {
+  assert.equal(NAVIGATION.some((item) => item.role === "Admin"), false);
+  assert.equal(resolveRolePath("/events", "Admin").accessDenied, true);
+  assert.equal(resolveRolePath("/lead/events", "admin").accessDenied, true);
 });
 
 test("a manually requested frontend route is retained for an explicit access decision", () => {

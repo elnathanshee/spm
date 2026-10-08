@@ -13,6 +13,9 @@ test("logout clears notifications and all authenticated UI state", () => {
     unbuiltRole: true,
     events: [{ id: 1 }],
     assignedEvents: [{ id: 2 }],
+    leadEvents: [{ id: 3 }],
+    coordinators: [{ id: 2 }],
+    notifications: [{ id: 1 }],
     alert: { message: "Review started.", kind: "success" },
     fieldErrors: { reason: "Required" },
     loginForm: { username: "coord2", password: "secret" },
@@ -29,6 +32,9 @@ test("logout clears notifications and all authenticated UI state", () => {
   assert.equal(state.alert, null);
   assert.deepEqual(state.events, []);
   assert.deepEqual(state.assignedEvents, []);
+  assert.deepEqual(state.leadEvents, []);
+  assert.deepEqual(state.coordinators, []);
+  assert.deepEqual(state.notifications, []);
   assert.deepEqual(state.loginForm, { username: "", password: "" });
   assert.deepEqual(state.fieldErrors, {});
   assert.deepEqual(state.modal, { open: false, kind: "", event: null });
