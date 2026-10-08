@@ -60,10 +60,14 @@ def apply_assignment(event_id: int, request: AssignmentRequest, current_user: Us
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only active submitted event requests can be assigned")
     try:
         coordinator = get_active_coordinator(db, request.coordinator_id)
+        previous_id = event.assigned_coordinator_id
         assign_event(db, event, coordinator, current_user, reassign=reassign)
     except AssignmentError as error:
         raise HTTPException(status_code=error.http_status, detail=str(error))
-    return event_row(event)
+    row = event_row(event)
+    row["previous_coordinator_id"] = previous_id
+    row["reassigned_by"] = current_user.username
+    return row
 
 
 @router.post("/events/{event_id}/assign")

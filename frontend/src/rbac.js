@@ -13,7 +13,9 @@ const NORMALIZED_ROLES = {
   coordinator: "Coordinator",
   lead: "Event Coordinator Lead",
   "venue staff": "Venue Staff",
+  venue_staff: "Venue Staff",
   "technical support": "Technical Support",
+  technical_support: "Technical Support",
   attendee: "Attendee",
 };
 

@@ -8,7 +8,9 @@ const ROLES = {
   coordinator: { display: "Coordinator", path: "/coordinator/events" },
   lead: { display: "Event Coordinator Lead", path: "/lead/events" },
   "venue staff": { display: "Venue Staff", path: "/venue" },
+  venue_staff: { display: "Venue Staff", path: "/venue" },
   "technical support": { display: "Technical Support", path: "/technical" },
+  technical_support: { display: "Technical Support", path: "/technical" },
   attendee: { display: "Attendee", path: "/attendee" },
 };
 
@@ -16,6 +18,15 @@ test("all current backend role values map to their frontend role and landing vie
   for (const [backendRole, expected] of Object.entries(ROLES)) {
     assert.equal(normalizeRole(backendRole), expected.display);
     assert.equal(defaultPathForRole(backendRole), expected.path);
+  }
+});
+
+test("backend role codes are never exposed as user-facing labels", () => {
+  for (const [backendRole, expected] of Object.entries(ROLES)) {
+    const label = normalizeRole(backendRole);
+    assert.equal(label, expected.display);
+    assert.equal(label.includes("_"), false, `${backendRole} leaked into the interface`);
+    assert.match(label, /^[A-Z]/, `${backendRole} should have a presentation-ready label`);
   }
 });
 
