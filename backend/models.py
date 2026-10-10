@@ -200,7 +200,8 @@ class VenueBooking(Base):
     venue_id = Column(Integer, ForeignKey("venues.id"), nullable=False)
     booking_start = Column(DateTime, nullable=False)
     booking_end = Column(DateTime, nullable=False)
-    status = Column(String(50), default="Confirmed", nullable=False)
+    status = Column(String(50), default="Pending", nullable=False)
+    rejection_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
