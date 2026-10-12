@@ -416,6 +416,17 @@ class VenueBookingRequest(BaseModel):
 def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     return {
         "booking_id": booking.id,
+        "event_id": booking.event_id,
+        "event_title": booking.event.title,
+        "booking_start": booking.booking_start.isoformat(),
+        "booking_end": booking.booking_end.isoformat(),
+        "status": booking.status,
+    }
+
+
+def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+    return {
+        "booking_id": booking.id,
         "id": booking.id,
         "venue_id": booking.venue_id,
         "event_id": booking.event_id,
@@ -572,7 +583,7 @@ def submit_venue_booking_request(
 
     return {
         "message": "Venue booking request submitted successfully",
-        "booking": booking_to_dict(booking),
+        "booking": booking_detail_dict(booking),
     }
 
 
@@ -592,5 +603,5 @@ def list_venue_bookings(
     if status:
         query = query.filter(VenueBooking.status == status)
     bookings = query.order_by(VenueBooking.booking_start.asc()).all()
-    return [booking_to_dict(b) for b in bookings]
+    return [booking_detail_dict(b) for b in bookings]
 
