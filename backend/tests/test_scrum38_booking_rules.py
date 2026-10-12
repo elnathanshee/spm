@@ -293,6 +293,20 @@ def test_tc3807_every_clash_in_start_order_and_exclude_booking_id(rules, db_sess
     assert ids(rules.find_conflicts(db_session, hall, at(10), at(11), exclude_booking_id=b.id)) == [c.id]
 
 
+def test_tc3814_find_conflicts_goes_through_is_blocking(rules, db_session, hall, event, monkeypatch):
+    """TC-3814 | Workflow Variation | AC1 (PO answer 2: is_blocking is the one gate)
+    A Pending hold D 10:00-12:00 and a Confirmed booking D 13:00-14:00. is_blocking
+    is replaced for this test only, so that Pending no longer blocks (standing in
+    for SCRUM-81's hold expiry).
+    Expected: find_conflicts for D 10:00-14:00 returns only the Confirmed
+    booking, so changing is_blocking alone changes which bookings clash."""
+    add_booking(db_session, hall, event, at(10), at(12), "Pending")
+    confirmed = add_booking(db_session, hall, event, at(13), at(14), "Confirmed")
+    monkeypatch.setattr(rules, "is_blocking", lambda booking: booking.status != "Pending")
+
+    assert ids(rules.find_conflicts(db_session, hall, at(10), at(14))) == [confirmed.id]
+
+
 def test_tc3813_several_clashes_name_the_earliest_starting(db_session, hall, event):
     """TC-3813 | Workflow Variation | AC1 (PO answer 1: start order, then id)
     Booking D 13:00-14:00 is added before booking D 10:00-12:00. Request
