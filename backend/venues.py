@@ -8,14 +8,14 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .database import get_db
-from .models import User, Venue, VenueBooking
+from .models import Event, User, Venue, VenueBooking
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -47,6 +47,30 @@ def require_venue_searcher(current_user: User = Depends(get_current_user)) -> Us
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only Coordinators, Leads and Venue Staff can search venues",
+        )
+    return current_user
+
+
+def require_coordinator(current_user: User = Depends(get_current_user)) -> User:
+    """SCRUM-35 AC4: Only Coordinators can submit venue booking requests.
+    Organisers and external roles cannot select venues directly.
+    """
+    role = (current_user.role or "").strip().lower()
+    if role not in ("coordinator", "lead"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Coordinators can submit venue booking requests",
+        )
+    return current_user
+
+
+def require_booking_viewer(current_user: User = Depends(get_current_user)) -> User:
+    """SCRUM-35 AC2: Venue Staff, Coordinators and Leads can view venue bookings."""
+    role = (current_user.role or "").strip().lower()
+    if role not in ("coordinator", "lead", "venue_staff"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Coordinators and Venue Staff can view venue bookings",
         )
     return current_user
 
@@ -371,6 +395,24 @@ class VenueUpdate(VenueCreate):
         return v
 
 
+class VenueBookingRequest(BaseModel):
+    event_id: int
+    booking_start: datetime
+    booking_end: datetime
+    venue_requirements: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_booking_dates(self) -> "VenueBookingRequest":
+        start = self.booking_start
+        end = self.booking_end
+        now = datetime.now(timezone.utc) if start.tzinfo is not None else datetime.utcnow()
+        if end <= start:
+            raise ValueError("booking_end must be after booking_start")
+        if start < now:
+            raise ValueError("booking_start cannot be in the past")
+        return self
+
+
 def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     return {
         "booking_id": booking.id,
@@ -379,6 +421,21 @@ def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
         "booking_start": booking.booking_start.isoformat(),
         "booking_end": booking.booking_end.isoformat(),
         "status": booking.status,
+    }
+
+
+def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+    return {
+        "booking_id": booking.id,
+        "id": booking.id,
+        "venue_id": booking.venue_id,
+        "event_id": booking.event_id,
+        "event_title": booking.event.title if booking.event else None,
+        "booking_start": booking.booking_start.isoformat(),
+        "booking_end": booking.booking_end.isoformat(),
+        "status": booking.status,
+        "rejection_reason": getattr(booking, "rejection_reason", None),
+        "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
     }
 
 
@@ -472,3 +529,79 @@ def retire_venue(
         "venue": venue_to_dict(venue),
         "affected_bookings": affected_bookings,
     }
+
+
+@router.post("/{venue_id}/bookings", status_code=status.HTTP_201_CREATED)
+def submit_venue_booking_request(
+    venue_id: int,
+    payload: VenueBookingRequest,
+    current_user: User = Depends(require_coordinator),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-35: Submit a venue booking request (Coordinator only).
+
+    Creates a tentative hold (status='Pending') on the venue if available.
+    Customer constraint: at most one active tentative hold OR one confirmed
+    booking per (venue, time slot). Overlaps return 409 Conflict.
+    """
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    if not venue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venue not found")
+    if not venue.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Venue '{venue.name}' is retired and cannot be booked",
+        )
+
+    event = db.query(Event).filter(Event.id == payload.event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    start = payload.booking_start.replace(tzinfo=None) if payload.booking_start.tzinfo else payload.booking_start
+    end = payload.booking_end.replace(tzinfo=None) if payload.booking_end.tzinfo else payload.booking_end
+
+    is_avail, reason = check_venue_availability(venue, start, end, db)
+    if not is_avail:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=reason or f"Venue '{venue.name}' is unavailable for the requested time slot",
+        )
+
+    if payload.venue_requirements:
+        event.venue_requirements = payload.venue_requirements
+
+    booking = VenueBooking(
+        venue_id=venue.id,
+        event_id=event.id,
+        booking_start=start,
+        booking_end=end,
+        status="Pending",
+    )
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+
+    return {
+        "message": "Venue booking request submitted successfully",
+        "booking": booking_detail_dict(booking),
+    }
+
+
+@router.get("/{venue_id}/bookings")
+def list_venue_bookings(
+    venue_id: int,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: User = Depends(require_booking_viewer),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-35 AC2: View venue bookings / requests pending decision."""
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    if not venue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venue not found")
+
+    query = db.query(VenueBooking).filter(VenueBooking.venue_id == venue_id)
+    if status_filter:
+        query = query.filter(VenueBooking.status == status_filter)
+    bookings = query.order_by(VenueBooking.booking_start.asc()).all()
+    return [booking_detail_dict(b) for b in bookings]
+

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .database import get_db
-from .models import Event, EventStatusHistory, User
+from .models import Event, EventStatusHistory, User, VenueBooking
 from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
@@ -562,4 +562,38 @@ def list_my_events(
             "clarification_note": latest_clarification_note(ev),
         }
         for ev in events
+    ]
+
+
+@router.get("/{event_id}/bookings")
+def get_event_bookings(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-35 AC3: The Coordinator can see that the request is pending."""
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    bookings = (
+        db.query(VenueBooking)
+        .filter(VenueBooking.event_id == event_id)
+        .order_by(VenueBooking.booking_start.asc())
+        .all()
+    )
+    return [
+        {
+            "id": b.id,
+            "booking_id": b.id,
+            "event_id": b.event_id,
+            "venue_id": b.venue_id,
+            "venue_name": b.venue.name if b.venue else None,
+            "booking_start": b.booking_start.isoformat(),
+            "booking_end": b.booking_end.isoformat(),
+            "status": b.status,
+            "rejection_reason": getattr(b, "rejection_reason", None),
+            "created_at": b.created_at.isoformat() if hasattr(b, "created_at") and b.created_at else None,
+        }
+        for b in bookings
     ]
