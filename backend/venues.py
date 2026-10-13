@@ -8,7 +8,7 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -590,7 +590,7 @@ def submit_venue_booking_request(
 @router.get("/{venue_id}/bookings")
 def list_venue_bookings(
     venue_id: int,
-    status: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
     current_user: User = Depends(require_booking_viewer),
     db: Session = Depends(get_db),
 ):
@@ -600,8 +600,8 @@ def list_venue_bookings(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venue not found")
 
     query = db.query(VenueBooking).filter(VenueBooking.venue_id == venue_id)
-    if status:
-        query = query.filter(VenueBooking.status == status)
+    if status_filter:
+        query = query.filter(VenueBooking.status == status_filter)
     bookings = query.order_by(VenueBooking.booking_start.asc()).all()
     return [booking_detail_dict(b) for b in bookings]
 

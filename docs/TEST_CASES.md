@@ -6,11 +6,11 @@ This register documents all automated test cases across **Sprint 1** and **Sprin
 
 ## Summary Statistics
 
-- **Total Test Cases:** 106
+- **Total Test Cases:** 107
 - **Sprint 1:** 28 Test Cases (SCRUM-16: 6, SCRUM-22 & 27: 7, SCRUM-21: 15)
 - **Sprint 2:** 64 Test Cases (SCRUM-51: 15, SCRUM-23: 18, SCRUM-63: 8, SCRUM-30: 10, SCRUM-33: 13)
-- **Sprint 3:** 14 Test Cases (SCRUM-35: 14)
-- **Pass Rate:** 100% (106 / 106 Passed)
+- **Sprint 3:** 15 Test Cases (SCRUM-35: 15)
+- **Pass Rate:** 100% (107 / 107 Passed)
 - **Automation:** 100% automated via `pytest`
 
 ---
@@ -125,3 +125,4 @@ This register documents all automated test cases across **Sprint 1** and **Sprin
 | **TC-3512** | SCRUM-35 | Cross-Cutting | AC4 (Organiser Guard) | Organiser attempts to submit venue booking request directly | Logged in as org_dave | 1. Call POST /venues/{id}/bookings | org token | Request rejected (403 Forbidden). Only Coordinators can select venues. | HTTP 403 Forbidden: {"detail": "Only Coordinators can submit venue booking requests"}. | Automated test (pytest) | Passed | Sprint 3 | Sarah | 10-Oct-26 |
 | **TC-3513** | SCRUM-35 | Cross-Cutting | DoD Item 14 (Auth) | Unauthenticated user cannot submit booking request | No session cookie | 1. Call POST /venues/{id}/bookings with no cookie | No session | Request rejected (401 Unauthorized). | HTTP 401 Unauthorized: {"detail": "Not authenticated"}. | Automated test (pytest) | Passed | Sprint 3 | Sarah | 10-Oct-26 |
 | **TC-3514** | SCRUM-35 | Cross-Cutting | AC2 (Venue Staff Visibility) | Venue Staff views pending booking requests for venue | Booking in Pending status exists | 1. Log in as venue_staff<br>2. Call GET /venues/{id}/bookings | venue_id | Pending booking request is visible to Venue Staff. | HTTP 200: List contains pending request with event details. | Automated test (pytest) | Passed | Sprint 3 | Sarah | 10-Oct-26 |
+| **TC-3515** | SCRUM-35 | Negative Path | AC2 (Error Handling 404) | Listing bookings for non-existent venue returns 404 | None | 1. Log in as venue_staff<br>2. Call GET /venues/99999/bookings | venue_id: 99999 | Request rejected (404 Not Found) stating venue not found. | HTTP 404: {"detail": "Venue not found"}. | Automated test (pytest) | Passed | Sprint 3 | Sarah | 13-Oct-26 |

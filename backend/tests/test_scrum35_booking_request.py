@@ -514,3 +514,13 @@ def test_tc3514_venue_staff_can_view_pending_requests(client, seed_data):
     assert res.status_code == 200
     bookings = res.json()
     assert any(b["status"] == "Pending" and b["event_id"] == event_id for b in bookings)
+
+
+def test_tc3515_list_bookings_non_existent_venue_returns_404(client, seed_data):
+    """TC-3515 (Negative Path): Listing bookings for a non-existent venue returns 404.
+    Guards against query parameter shadowing FastAPI's status module.
+    """
+    client.cookies.set("connectsphere_session", "token_staff_alex")
+    res = client.get("/venues/99999/bookings")
+    assert res.status_code == 404
+    assert "venue not found" in res.json()["detail"].lower()
