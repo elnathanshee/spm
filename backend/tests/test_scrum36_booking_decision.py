@@ -191,7 +191,7 @@ def test_tc3603_venue_staff_rejects_pending_request(client, seed_data):
     _as(client, "token_staff_alex")
     b = seed_data["booking"]
 
-    res = client.post(f"/venues/bookings/{b.id}/reject")
+    res = client.post(f"/venues/bookings/{b.id}/reject", json={"reason": "Venue unavailable"})
     assert res.status_code == 200
     booking = res.json()["booking"]
 
@@ -206,7 +206,7 @@ def test_tc3604_coordinator_sees_rejection_with_venue_date_time(client, seed_dat
     venue, date and time were rejected."""
     b = seed_data["booking"]
     _as(client, "token_staff_alex")
-    assert client.post(f"/venues/bookings/{b.id}/reject").status_code == 200
+    assert client.post(f"/venues/bookings/{b.id}/reject", json={"reason": "Venue unavailable"}).status_code == 200
 
     _as(client, "token_coord_sarah")
     res = client.get(f"/events/{seed_data['event'].id}/bookings")
@@ -229,7 +229,7 @@ def test_tc3605_decide_non_existent_booking_returns_404(client, seed_data):
     _as(client, "token_staff_alex")
     for res in (
         client.post("/venues/bookings/99999/approve"),
-        client.post("/venues/bookings/99999/reject"),
+        client.post("/venues/bookings/99999/reject", json={"reason": "Venue unavailable"}),
         client.get("/venues/bookings/99999"),
     ):
         assert res.status_code == 404
@@ -252,7 +252,7 @@ def test_tc3607_cannot_reverse_a_decision(client, seed_data):
     """TC-3607: Once rejected, a booking cannot then be approved (and vice versa)."""
     _as(client, "token_staff_alex")
     b = seed_data["booking"]
-    assert client.post(f"/venues/bookings/{b.id}/reject").status_code == 200
+    assert client.post(f"/venues/bookings/{b.id}/reject", json={"reason": "Venue unavailable"}).status_code == 200
 
     res = client.post(f"/venues/bookings/{b.id}/approve")
     assert res.status_code == 409
@@ -321,7 +321,7 @@ def test_tc3612_rejected_slot_can_be_requested_again(client, seed_data):
     same venue slot again."""
     b = seed_data["booking"]
     _as(client, "token_staff_alex")
-    assert client.post(f"/venues/bookings/{b.id}/reject").status_code == 200
+    assert client.post(f"/venues/bookings/{b.id}/reject", json={"reason": "Venue unavailable"}).status_code == 200
 
     _as(client, "token_coord_sarah")
     res = client.post(
