@@ -207,3 +207,26 @@ class VenueBooking(Base):
     # Relationships
     event = relationship("Event", back_populates="venue_bookings")
     venue = relationship("Venue", back_populates="bookings")
+    # [SCRUM-36 | Renee] The Venue Staff decision on this request, if any
+    decision = relationship("VenueBookingDecision", back_populates="booking",
+                            uselist=False, cascade="all, delete-orphan")
+
+
+# [SCRUM-36 | Renee] NEW: one row per Venue Staff decision on a booking request -
+# who approved or rejected it, and when. A new table rather than new columns on
+# venue_bookings, because create_all() adds missing tables on Neon but never
+# alters existing ones (same reason as CoordinatorReassignment, SCRUM-23).
+# booking_id is unique, so a request can only ever be decided once.
+class VenueBookingDecision(Base):
+    __tablename__ = "venue_booking_decisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False, unique=True, index=True)
+    decision = Column(String(20), nullable=False)  # "Approved" or "Rejected"
+    decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reason = Column(Text, nullable=True)  # left for SCRUM-37 (rejection reason)
+
+    # Relationships
+    booking = relationship("VenueBooking", back_populates="decision")
+    decided_by = relationship("User")

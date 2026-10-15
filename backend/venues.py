@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .database import get_db
-from .models import Event, User, Venue, VenueBooking
+from .models import Event, User, Venue, VenueBooking, VenueBookingDecision
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -605,3 +605,89 @@ def list_venue_bookings(
     bookings = query.order_by(VenueBooking.booking_start.asc()).all()
     return [booking_detail_dict(b) for b in bookings]
 
+
+# ---------------------------------------------------------------------------
+# [SCRUM-36 | Renee] Approve or reject a venue booking request (Venue Staff)
+# ---------------------------------------------------------------------------
+
+def decision_to_dict(decision: Optional[VenueBookingDecision]) -> Optional[Dict[str, Any]]:
+    if decision is None:
+        return None
+    return {
+        "decision": decision.decision,
+        "decided_by": decision.decided_by.username if decision.decided_by else None,
+        "decided_at": decision.decided_at.isoformat() if decision.decided_at else None,
+        "reason": decision.reason,
+    }
+
+
+def booking_review_dict(booking: VenueBooking) -> Dict[str, Any]:
+    """AC1: the request alongside the venue's capacity, layout, accessibility
+    and facilities, plus the decision once one has been made."""
+    data = booking_detail_dict(booking)
+    data["venue"] = venue_to_dict(booking.venue) if booking.venue else None
+    data["decision"] = decision_to_dict(booking.decision)
+    return data
+
+
+def _get_booking_or_404(booking_id: int, db: Session) -> VenueBooking:
+    booking = db.query(VenueBooking).filter(VenueBooking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    return booking
+
+
+def _decide_booking(booking_id: int, decision: str, new_status: str, staff: User, db: Session) -> Dict[str, Any]:
+    """AC2-AC4: record an explicit decision by a named Venue Staff member.
+
+    Only Pending requests can be decided, and only once - a decided booking
+    returns 409 and is left unchanged. Approve -> Confirmed (still holds the
+    slot); Reject -> Rejected (frees the slot, the Coordinator sees it on
+    GET /events/{id}/bookings).
+    """
+    booking = _get_booking_or_404(booking_id, db)
+    if booking.status != "Pending" or booking.decision is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Booking has already been decided (status: {booking.status})",
+        )
+
+    booking.status = new_status
+    booking.decision = VenueBookingDecision(decision=decision, decided_by_id=staff.id)
+    db.commit()
+    db.refresh(booking)
+
+    return {
+        "message": f"Booking request {decision.lower()}",
+        "booking": booking_review_dict(booking),
+    }
+
+
+@router.get("/bookings/{booking_id}")
+def get_booking_for_review(
+    booking_id: int,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-36 AC1: Venue Staff view a request with the venue's details."""
+    return booking_review_dict(_get_booking_or_404(booking_id, db))
+
+
+@router.post("/bookings/{booking_id}/approve")
+def approve_booking(
+    booking_id: int,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-36 AC2, AC4: approve a Pending request -> Confirmed booking."""
+    return _decide_booking(booking_id, "Approved", "Confirmed", current_user, db)
+
+
+@router.post("/bookings/{booking_id}/reject")
+def reject_booking(
+    booking_id: int,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-36 AC3, AC4: reject a Pending request -> Rejected."""
+    return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db)
