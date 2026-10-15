@@ -73,6 +73,13 @@ test("only the Lead can enter assignment oversight", () => {
   }
 });
 
+test("only Coordinators can enter the read-only all-events view", () => {
+  assert.equal(resolveRolePath("/coordinator/all-events", "Coordinator").accessDenied, false);
+  for (const role of ["Organiser", "Event Coordinator Lead", "Venue Staff", "Technical Support", "Attendee"]) {
+    assert.equal(resolveRolePath("/coordinator/all-events", role).accessDenied, true);
+  }
+});
+
 test("Admin is not a supported frontend application role", () => {
   assert.equal(NAVIGATION.some((item) => item.role === "Admin"), false);
   assert.equal(resolveRolePath("/events", "Admin").accessDenied, true);

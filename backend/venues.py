@@ -556,6 +556,12 @@ def submit_venue_booking_request(
     event = db.query(Event).filter(Event.id == payload.event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    role = (current_user.role or "").strip().lower()
+    if role == "coordinator" and event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can book venues only for events assigned to them",
+        )
 
     start = payload.booking_start.replace(tzinfo=None) if payload.booking_start.tzinfo else payload.booking_start
     end = payload.booking_end.replace(tzinfo=None) if payload.booking_end.tzinfo else payload.booking_end
