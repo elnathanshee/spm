@@ -6,7 +6,7 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator, model_validator
@@ -14,8 +14,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
+from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .database import get_db
-from .models import Event, User, Venue, VenueBooking
+from .models import Event, User, Venue, VenueBooking, VenueBookingDecision
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -213,42 +214,24 @@ def check_venue_availability(
     to its end plus the venue's turnaround time. Two bookings conflict if those
     occupied windows overlap, so the buffers are applied to the requested slot
     as well as to each existing booking. Windows that only touch do not conflict.
+
+    [SCRUM-38 | Elnathan] The rule itself is in booking_rules.find_conflicts.
+    When several bookings clash, the earliest-starting one is named (then the
+    lowest id); before SCRUM-38 the order was undefined.
     """
-    bookings = (
-        db.query(VenueBooking)
-        .filter(
-            VenueBooking.venue_id == venue.id,
-            VenueBooking.status.in_(["Confirmed", "Approved", "Tentative", "Pending"]),
-        )
-        .all()
+    conflicts = find_conflicts(db, venue, start_time, end_time)
+    if not conflicts:
+        return True, None
+
+    b = conflicts[0]
+    booking_text = f"{b.booking_start.strftime('%Y-%m-%d %H:%M')} - {b.booking_end.strftime('%H:%M')}"
+    if windows_overlap(start_time, end_time, b.booking_start, b.booking_end):
+        return False, f"Direct conflict with existing booking ({booking_text})"
+    return (
+        False,
+        f"Conflicts with booking ({booking_text}) once {venue.setup_time_mins}m setup "
+        f"and {venue.turnaround_time_mins}m turnaround are included",
     )
-
-    setup_delta = timedelta(minutes=venue.setup_time_mins or 0)
-    turnaround_delta = timedelta(minutes=venue.turnaround_time_mins or 0)
-
-    # The window the requested event would occupy, including its own buffers
-    requested_start = start_time - setup_delta
-    requested_end = end_time + turnaround_delta
-
-    for b in bookings:
-        b_start = b.booking_start
-        b_end = b.booking_end
-
-        # The window the existing booking occupies, including its buffers
-        blocked_start = b_start - setup_delta
-        blocked_end = b_end + turnaround_delta
-
-        if requested_start < blocked_end and requested_end > blocked_start:
-            booking_text = f"{b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')}"
-            if start_time < b_end and end_time > b_start:
-                return False, f"Direct conflict with existing booking ({booking_text})"
-            return (
-                False,
-                f"Conflicts with booking ({booking_text}) once {venue.setup_time_mins}m setup "
-                f"and {venue.turnaround_time_mins}m turnaround are included",
-            )
-
-    return True, None
 
 
 @router.get("/search")
@@ -362,10 +345,6 @@ def get_venue(
 # SCRUM-31: Update or retire a venue record (Venue Staff)
 # ---------------------------------------------------------------------------
 
-# Booking statuses that hold a venue. The same list check_venue_availability
-# uses inline; unifying the two is a follow-up.
-BLOCKING_BOOKING_STATUSES = ["Confirmed", "Approved", "Tentative", "Pending"]
-
 # These columns can't be empty, so an update can't set them to null.
 REQUIRED_VENUE_FIELDS = ("name", "location", "capacity", "setup_time_mins", "turnaround_time_mins")
 
@@ -425,6 +404,7 @@ def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
 
 
 def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+    decision_reason = booking.decision.reason if hasattr(booking, "decision") and booking.decision else None
     return {
         "booking_id": booking.id,
         "id": booking.id,
@@ -434,7 +414,7 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "booking_start": booking.booking_start.isoformat(),
         "booking_end": booking.booking_end.isoformat(),
         "status": booking.status,
-        "rejection_reason": getattr(booking, "rejection_reason", None),
+        "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
     }
 
@@ -512,13 +492,14 @@ def retire_venue(
         db.query(VenueBooking)
         .filter(
             VenueBooking.venue_id == venue.id,
-            VenueBooking.status.in_(BLOCKING_BOOKING_STATUSES),
+            VenueBooking.status.in_(BLOCKING_STATUSES),
             VenueBooking.booking_end > now,
         )
         .order_by(VenueBooking.booking_start.asc())
         .all()
     )
-    affected_bookings = [booking_to_dict(b) for b in affected]
+    # [SCRUM-38] The SQL status filter is a first cut; is_blocking has the final say.
+    affected_bookings = [booking_to_dict(b) for b in affected if is_blocking(b)]
 
     venue.is_active = False
     db.commit()
@@ -556,6 +537,12 @@ def submit_venue_booking_request(
     event = db.query(Event).filter(Event.id == payload.event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    role = (current_user.role or "").strip().lower()
+    if role == "coordinator" and event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can book venues only for events assigned to them",
+        )
 
     start = payload.booking_start.replace(tzinfo=None) if payload.booking_start.tzinfo else payload.booking_start
     end = payload.booking_end.replace(tzinfo=None) if payload.booking_end.tzinfo else payload.booking_end
@@ -605,3 +592,116 @@ def list_venue_bookings(
     bookings = query.order_by(VenueBooking.booking_start.asc()).all()
     return [booking_detail_dict(b) for b in bookings]
 
+
+# ---------------------------------------------------------------------------
+# [SCRUM-36 | Renee] Approve or reject a venue booking request (Venue Staff)
+# ---------------------------------------------------------------------------
+
+def decision_to_dict(decision: Optional[VenueBookingDecision]) -> Optional[Dict[str, Any]]:
+    if decision is None:
+        return None
+    return {
+        "decision": decision.decision,
+        "decided_by": decision.decided_by.username if decision.decided_by else None,
+        "decided_at": decision.decided_at.isoformat() if decision.decided_at else None,
+        "reason": decision.reason,
+    }
+
+
+def booking_review_dict(booking: VenueBooking) -> Dict[str, Any]:
+    """AC1: the request alongside the venue's capacity, layout, accessibility
+    and facilities, plus the decision once one has been made."""
+    data = booking_detail_dict(booking)
+    data["venue"] = venue_to_dict(booking.venue) if booking.venue else None
+    data["decision"] = decision_to_dict(booking.decision)
+    return data
+
+
+def _get_booking_or_404(booking_id: int, db: Session) -> VenueBooking:
+    booking = db.query(VenueBooking).filter(VenueBooking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    return booking
+
+
+# [SCRUM-37 | Sarah] NEW: request body for /venues/bookings/{id}/reject.
+# Reason is required and cannot be blank (missing/blank reason -> 422).
+class RejectBookingAction(BaseModel):
+    """SCRUM-37: rejecting a venue booking request must always include a reason."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A rejection reason is required")
+        return v.strip()
+
+
+def _decide_booking(
+    booking_id: int,
+    decision: str,
+    new_status: str,
+    staff: User,
+    db: Session,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """AC2-AC4: record an explicit decision by a named Venue Staff member.
+
+    Only Pending requests can be decided, and only once - a decided booking
+    returns 409 and is left unchanged. Approve -> Confirmed (still holds the
+    slot); Reject -> Rejected (frees the slot, the Coordinator sees it on
+    GET /events/{id}/bookings).
+    """
+    booking = _get_booking_or_404(booking_id, db)
+    if booking.status != "Pending" or booking.decision is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Booking has already been decided (status: {booking.status})",
+        )
+
+    booking.status = new_status
+    booking.decision = VenueBookingDecision(
+        decision=decision,
+        decided_by_id=staff.id,
+        reason=reason,
+    )
+    db.commit()
+    db.refresh(booking)
+
+    return {
+        "message": f"Booking request {decision.lower()}",
+        "booking": booking_review_dict(booking),
+    }
+
+
+@router.get("/bookings/{booking_id}")
+def get_booking_for_review(
+    booking_id: int,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-36 AC1: Venue Staff view a request with the venue's details."""
+    return booking_review_dict(_get_booking_or_404(booking_id, db))
+
+
+@router.post("/bookings/{booking_id}/approve")
+def approve_booking(
+    booking_id: int,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-36 AC2, AC4: approve a Pending request -> Confirmed booking."""
+    return _decide_booking(booking_id, "Approved", "Confirmed", current_user, db)
+
+
+@router.post("/bookings/{booking_id}/reject")
+def reject_booking(
+    booking_id: int,
+    action: RejectBookingAction,
+    current_user: User = Depends(require_venue_staff),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-36 AC3, AC4 & SCRUM-37 AC1, AC2: reject a Pending request with mandatory reason."""
+    return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db, reason=action.reason)

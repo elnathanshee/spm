@@ -291,13 +291,17 @@ def test_tc2811_can_update_during_planning_statuses(client, seed_data, db_sessio
 # 4. Cross-Cutting (entitlement / auth)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("token", ["token_org_erin", "token_coord_tom", "token_staff_alex"])
-def test_tc2812_users_not_entitled_cannot_view_or_update(client, seed_data, db_session, token):
-    """TC-2812 (AC1): Another Organiser, an unassigned Coordinator and Venue
-    Staff are not entitled to the event: 403 on view and update."""
+@pytest.mark.parametrize("token, view_status", [
+    ("token_org_erin", 404),   # SCRUM-18 AC1: another Organiser's event is concealed
+    ("token_coord_tom", 200),  # SCRUM-18 AC4: Coordinators can view all events (read-only)
+    ("token_staff_alex", 403),
+])
+def test_tc2812_users_not_entitled_cannot_update(client, seed_data, db_session, token, view_status):
+    """TC-2812 (AC2): Another Organiser, an unassigned Coordinator and Venue
+    Staff cannot update the event (403). Viewing follows SCRUM-18's rules."""
     ev = seed_data["event"]
     _as(client, token)
-    assert client.get(f"/events/{ev.id}").status_code == 403
+    assert client.get(f"/events/{ev.id}").status_code == view_status
     assert client.patch(f"/events/{ev.id}", json={"description": "hacked"}).status_code == 403
 
     db_session.refresh(ev)

@@ -565,16 +565,93 @@ def list_my_events(
     ]
 
 
+@router.get("/{event_id}")
+def get_visible_event(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Read one event when the caller's role and relationship permit it."""
+    role = (current_user.role or "").strip().lower()
+    event = db.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    if role == "organiser":
+        # Deliberately conceal whether another organiser's event exists.
+        if event.organiser_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role in {"coordinator", "lead"}:
+        if event.status == DRAFT:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role == "attendee":
+        if event.status != CONFIRMED:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        confirmed_booking = (
+            db.query(VenueBooking)
+            .filter(
+                VenueBooking.event_id == event.id,
+                VenueBooking.status == "Confirmed",
+            )
+            .order_by(VenueBooking.booking_start.asc(), VenueBooking.id.asc())
+            .first()
+        )
+        return {
+            "name": event.title,
+            "description": event.description,
+            "date": event.proposed_start.date().isoformat() if event.proposed_start else None,
+            "time": event.proposed_start.time().isoformat() if event.proposed_start else None,
+            "venue_name": (
+                confirmed_booking.venue.name
+                if confirmed_booking and confirmed_booking.venue
+                else None
+            ),
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to view this event request",
+        )
+
+    return {
+        "id": event.id,
+        "title": event.title,
+        "purpose": event.purpose,
+        "description": event.description,
+        "proposed_start": event.proposed_start,
+        "expected_attendance": event.expected_attendance,
+        "venue_requirements": event.venue_requirements,
+        "accessibility_needs": event.accessibility_needs,
+        "equipment_requirements": event.equipment_requirements,
+        "registration_needs": event.registration_needs,
+        "status": event.status,
+        "organiser_id": event.organiser_id,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+    }
+
+
 @router.get("/{event_id}/bookings")
 def get_event_bookings(
     event_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """SCRUM-35 AC3: The Coordinator can see that the request is pending."""
+    """Internal booking data for related Coordinators, Leads and Venue Staff."""
+    role = (current_user.role or "").strip().lower()
+    if role not in {"coordinator", "lead", "venue_staff"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only assigned Coordinators, Leads and Venue Staff can view event bookings",
+        )
+
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    if role == "coordinator" and event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can view bookings only for events assigned to them",
+        )
 
     bookings = (
         db.query(VenueBooking)
@@ -592,7 +669,7 @@ def get_event_bookings(
             "booking_start": b.booking_start.isoformat(),
             "booking_end": b.booking_end.isoformat(),
             "status": b.status,
-            "rejection_reason": getattr(b, "rejection_reason", None),
+            "rejection_reason": (b.decision.reason if hasattr(b, "decision") and b.decision else None) or getattr(b, "rejection_reason", None),
             "created_at": b.created_at.isoformat() if hasattr(b, "created_at") and b.created_at else None,
         }
         for b in bookings
@@ -658,8 +735,8 @@ def event_to_dict(event: Event) -> Dict[str, Any]:
 
 
 def _get_entitled_event(event_id: int, user: User, db: Session) -> Event:
-    """AC1/AC3: only the event's Organiser and its assigned Coordinator are
-    entitled to it (the same rule as GET /events)."""
+    """AC2/AC3: only the event's Organiser and its assigned Coordinator may
+    update it. Viewing is GET /events/{event_id} (SCRUM-18 visibility rules)."""
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
@@ -675,16 +752,6 @@ def _get_entitled_event(event_id: int, user: User, db: Session) -> Event:
             detail="You are not authorised to view or update this event",
         )
     return event
-
-
-@router.get("/{event_id}")
-def get_event(
-    event_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """SCRUM-28 AC1: view the full event record."""
-    return event_to_dict(_get_entitled_event(event_id, current_user, db))
 
 
 @router.patch("/{event_id}")
