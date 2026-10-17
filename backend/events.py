@@ -669,7 +669,7 @@ def get_event_bookings(
             "booking_start": b.booking_start.isoformat(),
             "booking_end": b.booking_end.isoformat(),
             "status": b.status,
-            "rejection_reason": getattr(b, "rejection_reason", None),
+            "rejection_reason": (b.decision.reason if hasattr(b, "decision") and b.decision else None) or getattr(b, "rejection_reason", None),
             "created_at": b.created_at.isoformat() if hasattr(b, "created_at") and b.created_at else None,
         }
         for b in bookings
