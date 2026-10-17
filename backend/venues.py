@@ -14,9 +14,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
+from .booking_recheck import recheck_venue_bookings  # [SCRUM-80 | Renee]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .database import get_db
-from .models import Event, User, Venue, VenueBooking, VenueBookingDecision
+from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -392,6 +393,17 @@ class VenueBookingRequest(BaseModel):
         return self
 
 
+# [SCRUM-80 | Renee] A clash found after the venue's setup/turnaround changed
+def conflict_flag_to_dict(flag: Optional[VenueBookingConflictFlag]) -> Optional[Dict[str, Any]]:
+    if flag is None:
+        return None
+    return {
+        "conflicting_booking_id": flag.conflicting_booking_id,
+        "reason": flag.reason,
+        "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
+    }
+
+
 def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     return {
         "booking_id": booking.id,
@@ -416,6 +428,7 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "status": booking.status,
         "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
+        "conflict_flag": conflict_flag_to_dict(booking.conflict_flag),  # [SCRUM-80 | Renee]
     }
 
 
@@ -427,7 +440,11 @@ def update_venue(
     db: Session = Depends(get_db),
 ):
     """SCRUM-31 AC1: update any attribute of a venue. A retired venue can be
-    corrected, but stays retired."""
+    corrected, but stays retired.
+
+    [SCRUM-80 | Renee] AC3: when setup or turnaround time changes, the venue's
+    upcoming bookings are re-checked and any new clash is flagged (never
+    removed). The flagged bookings are returned in flagged_bookings."""
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=422, detail="Send at least one field to update")
@@ -448,6 +465,8 @@ def update_venue(
                 detail=f"A venue named '{changes['name']}' already exists",
             )
 
+    buffers_before = (venue.setup_time_mins, venue.turnaround_time_mins)  # [SCRUM-80 | Renee]
+
     # Stored the same way create_venue stores them.
     for field, value in changes.items():
         if field in ("facilities", "supported_layouts"):
@@ -459,10 +478,17 @@ def update_venue(
     db.commit()
     db.refresh(venue)
 
+    # [SCRUM-80 | Renee] AC3: re-check existing bookings only if a buffer changed
+    flagged = []
+    if (venue.setup_time_mins, venue.turnaround_time_mins) != buffers_before:
+        flagged = recheck_venue_bookings(db, venue)
+        db.commit()
+
     return {
         "message": "Venue updated successfully",
         "venue": venue_to_dict(venue),
         "updated_fields": list(changes),
+        "flagged_bookings": [booking_detail_dict(b) for b in flagged],
     }
 
 
