@@ -6,7 +6,7 @@ Week 7 Customer Change #1: Setup time and turnaround time buffers.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator, model_validator
@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
+from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingDecision
 
@@ -213,42 +214,24 @@ def check_venue_availability(
     to its end plus the venue's turnaround time. Two bookings conflict if those
     occupied windows overlap, so the buffers are applied to the requested slot
     as well as to each existing booking. Windows that only touch do not conflict.
+
+    [SCRUM-38 | Elnathan] The rule itself is in booking_rules.find_conflicts.
+    When several bookings clash, the earliest-starting one is named (then the
+    lowest id); before SCRUM-38 the order was undefined.
     """
-    bookings = (
-        db.query(VenueBooking)
-        .filter(
-            VenueBooking.venue_id == venue.id,
-            VenueBooking.status.in_(["Confirmed", "Approved", "Tentative", "Pending"]),
-        )
-        .all()
+    conflicts = find_conflicts(db, venue, start_time, end_time)
+    if not conflicts:
+        return True, None
+
+    b = conflicts[0]
+    booking_text = f"{b.booking_start.strftime('%Y-%m-%d %H:%M')} - {b.booking_end.strftime('%H:%M')}"
+    if windows_overlap(start_time, end_time, b.booking_start, b.booking_end):
+        return False, f"Direct conflict with existing booking ({booking_text})"
+    return (
+        False,
+        f"Conflicts with booking ({booking_text}) once {venue.setup_time_mins}m setup "
+        f"and {venue.turnaround_time_mins}m turnaround are included",
     )
-
-    setup_delta = timedelta(minutes=venue.setup_time_mins or 0)
-    turnaround_delta = timedelta(minutes=venue.turnaround_time_mins or 0)
-
-    # The window the requested event would occupy, including its own buffers
-    requested_start = start_time - setup_delta
-    requested_end = end_time + turnaround_delta
-
-    for b in bookings:
-        b_start = b.booking_start
-        b_end = b.booking_end
-
-        # The window the existing booking occupies, including its buffers
-        blocked_start = b_start - setup_delta
-        blocked_end = b_end + turnaround_delta
-
-        if requested_start < blocked_end and requested_end > blocked_start:
-            booking_text = f"{b_start.strftime('%Y-%m-%d %H:%M')} - {b_end.strftime('%H:%M')}"
-            if start_time < b_end and end_time > b_start:
-                return False, f"Direct conflict with existing booking ({booking_text})"
-            return (
-                False,
-                f"Conflicts with booking ({booking_text}) once {venue.setup_time_mins}m setup "
-                f"and {venue.turnaround_time_mins}m turnaround are included",
-            )
-
-    return True, None
 
 
 @router.get("/search")
@@ -361,10 +344,6 @@ def get_venue(
 # ---------------------------------------------------------------------------
 # SCRUM-31: Update or retire a venue record (Venue Staff)
 # ---------------------------------------------------------------------------
-
-# Booking statuses that hold a venue. The same list check_venue_availability
-# uses inline; unifying the two is a follow-up.
-BLOCKING_BOOKING_STATUSES = ["Confirmed", "Approved", "Tentative", "Pending"]
 
 # These columns can't be empty, so an update can't set them to null.
 REQUIRED_VENUE_FIELDS = ("name", "location", "capacity", "setup_time_mins", "turnaround_time_mins")
@@ -513,13 +492,14 @@ def retire_venue(
         db.query(VenueBooking)
         .filter(
             VenueBooking.venue_id == venue.id,
-            VenueBooking.status.in_(BLOCKING_BOOKING_STATUSES),
+            VenueBooking.status.in_(BLOCKING_STATUSES),
             VenueBooking.booking_end > now,
         )
         .order_by(VenueBooking.booking_start.asc())
         .all()
     )
-    affected_bookings = [booking_to_dict(b) for b in affected]
+    # [SCRUM-38] The SQL status filter is a first cut; is_blocking has the final say.
+    affected_bookings = [booking_to_dict(b) for b in affected if is_blocking(b)]
 
     venue.is_active = False
     db.commit()

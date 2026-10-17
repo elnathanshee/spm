@@ -6,7 +6,7 @@ For each day in the range (inclusive, at most 31 days) the calendar shows the
 venue's recorded operating hours and its busy blocks. A busy block is a booking
 with a blocking status, shown with its booked period and the window it
 occupies the venue: start minus setup time to end plus turnaround time
-(Week 7 Change 1, the same rule as check_venue_availability). A block appears
+(Week 7 Change 1, booking_rules.occupied_window, since SCRUM-38). A block appears
 on every day its occupied window touches, so a booking over midnight appears
 on both days.
 
@@ -21,15 +21,12 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from .booking_rules import BLOCKING_STATUSES, is_blocking, occupied_window, windows_overlap  # [SCRUM-38]
 from .database import get_db
 from .models import User, Venue, VenueBooking
 from .venues import require_venue_searcher
 
 router = APIRouter(prefix="/venues", tags=["venue calendar"])
-
-# Local copy: check_venue_availability lists these inline, and SCRUM-31's PR
-# adds BLOCKING_BOOKING_STATUSES. Unifying them is a follow-up.
-BLOCKING_BOOKING_STATUSES = ["Confirmed", "Approved", "Tentative", "Pending"]
 
 MAX_DAYS = 31
 
@@ -80,17 +77,17 @@ def venue_calendar(
         db.query(VenueBooking)
         .filter(
             VenueBooking.venue_id == venue.id,
-            VenueBooking.status.in_(BLOCKING_BOOKING_STATUSES),
+            VenueBooking.status.in_(BLOCKING_STATUSES),
             VenueBooking.booking_start < range_end + setup,
             VenueBooking.booking_end > range_start - turnaround,
         )
         .order_by(VenueBooking.booking_start.asc())
         .all()
     )
+    # [SCRUM-38] The SQL status filter is a first cut; is_blocking has the final say.
     blocks = []
-    for b in bookings:
-        occupied_start = b.booking_start - setup
-        occupied_end = b.booking_end + turnaround
+    for b in [b for b in bookings if is_blocking(b)]:
+        occupied_start, occupied_end = occupied_window(b.booking_start, b.booking_end, venue)
         blocks.append((occupied_start, occupied_end, busy_block(b, occupied_start, occupied_end)))
 
     days = []
@@ -102,7 +99,7 @@ def venue_calendar(
             {
                 "date": d.isoformat(),
                 "operating_hours": venue.operating_hours,
-                "busy": [block for start, end, block in blocks if start < day_end and end > day_start],
+                "busy": [block for start, end, block in blocks if windows_overlap(start, end, day_start, day_end)],
             }
         )
 
