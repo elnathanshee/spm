@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User, VenueBooking
-from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
+from .status import APPROVED, CONFIRMED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
@@ -584,6 +584,29 @@ def get_visible_event(
     elif role in {"coordinator", "lead"}:
         if event.status == DRAFT:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role == "attendee":
+        if event.status != CONFIRMED:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        confirmed_booking = (
+            db.query(VenueBooking)
+            .filter(
+                VenueBooking.event_id == event.id,
+                VenueBooking.status == "Confirmed",
+            )
+            .order_by(VenueBooking.booking_start.asc(), VenueBooking.id.asc())
+            .first()
+        )
+        return {
+            "name": event.title,
+            "description": event.description,
+            "date": event.proposed_start.date().isoformat() if event.proposed_start else None,
+            "time": event.proposed_start.time().isoformat() if event.proposed_start else None,
+            "venue_name": (
+                confirmed_booking.venue.name
+                if confirmed_booking and confirmed_booking.venue
+                else None
+            ),
+        }
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
