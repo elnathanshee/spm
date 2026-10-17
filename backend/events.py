@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, EventStatusHistory, User, VenueBooking
-from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
+from .status import APPROVED, CONFIRMED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
@@ -565,16 +565,93 @@ def list_my_events(
     ]
 
 
+@router.get("/{event_id}")
+def get_visible_event(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Read one event when the caller's role and relationship permit it."""
+    role = (current_user.role or "").strip().lower()
+    event = db.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    if role == "organiser":
+        # Deliberately conceal whether another organiser's event exists.
+        if event.organiser_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role in {"coordinator", "lead"}:
+        if event.status == DRAFT:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role == "attendee":
+        if event.status != CONFIRMED:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        confirmed_booking = (
+            db.query(VenueBooking)
+            .filter(
+                VenueBooking.event_id == event.id,
+                VenueBooking.status == "Confirmed",
+            )
+            .order_by(VenueBooking.booking_start.asc(), VenueBooking.id.asc())
+            .first()
+        )
+        return {
+            "name": event.title,
+            "description": event.description,
+            "date": event.proposed_start.date().isoformat() if event.proposed_start else None,
+            "time": event.proposed_start.time().isoformat() if event.proposed_start else None,
+            "venue_name": (
+                confirmed_booking.venue.name
+                if confirmed_booking and confirmed_booking.venue
+                else None
+            ),
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to view this event request",
+        )
+
+    return {
+        "id": event.id,
+        "title": event.title,
+        "purpose": event.purpose,
+        "description": event.description,
+        "proposed_start": event.proposed_start,
+        "expected_attendance": event.expected_attendance,
+        "venue_requirements": event.venue_requirements,
+        "accessibility_needs": event.accessibility_needs,
+        "equipment_requirements": event.equipment_requirements,
+        "registration_needs": event.registration_needs,
+        "status": event.status,
+        "organiser_id": event.organiser_id,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+    }
+
+
 @router.get("/{event_id}/bookings")
 def get_event_bookings(
     event_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """SCRUM-35 AC3: The Coordinator can see that the request is pending."""
+    """Internal booking data for related Coordinators, Leads and Venue Staff."""
+    role = (current_user.role or "").strip().lower()
+    if role not in {"coordinator", "lead", "venue_staff"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only assigned Coordinators, Leads and Venue Staff can view event bookings",
+        )
+
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    if role == "coordinator" and event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can view bookings only for events assigned to them",
+        )
 
     bookings = (
         db.query(VenueBooking)

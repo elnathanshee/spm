@@ -6,12 +6,14 @@ import path from "node:path";
 const frontendDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryDirectory = path.dirname(frontendDirectory);
 const viteEntry = path.join(frontendDirectory, "node_modules", "vite", "bin", "vite.js");
-const localPython = process.platform === "win32"
-  ? path.join(repositoryDirectory, "venv", "Scripts", "python.exe")
-  : path.join(repositoryDirectory, "venv", "bin", "python");
+const localPythons = [".venv", "venv"].map((directory) => (
+  process.platform === "win32"
+    ? path.join(repositoryDirectory, directory, "Scripts", "python.exe")
+    : path.join(repositoryDirectory, directory, "bin", "python")
+));
 const pythonCandidates = [...new Set([
   ...(process.env.PYTHON ? [process.env.PYTHON] : []),
-  ...(existsSync(localPython) ? [localPython] : []),
+  ...localPythons.filter(existsSync),
   ...(process.platform === "win32" ? ["python", "py"] : ["python3", "python"]),
 ])];
 

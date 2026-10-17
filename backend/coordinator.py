@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, User
-from .status import SUBMITTED
+from .status import DRAFT, SUBMITTED
 
 router = APIRouter(prefix="/coordinator", tags=["coordinator"])
 
@@ -129,6 +129,36 @@ def assigned_requests_data(
             "awaiting_first_review": r["awaiting_first_review"],
         }
         for r in requests
+    ]
+
+
+@router.get("/events/all-data")
+def all_non_draft_events_data(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Read-only visibility of every submitted or subsequent event."""
+    require_coordinator(current_user)
+    events = (
+        db.query(Event)
+        .filter(Event.status != DRAFT)
+        .order_by(Event.submitted_at.asc(), Event.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": event.id,
+            "title": event.title,
+            "organiser": event.organiser.username,
+            "proposed_start": event.proposed_start,
+            "expected_attendance": event.expected_attendance,
+            "status": event.status,
+            "assigned_coordinator": (
+                event.assigned_coordinator.username if event.assigned_coordinator else None
+            ),
+            "is_assigned_to_me": event.assigned_coordinator_id == current_user.id,
+        }
+        for event in events
     ]
 
 
