@@ -404,6 +404,7 @@ def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
 
 
 def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+    decision_reason = booking.decision.reason if hasattr(booking, "decision") and booking.decision else None
     return {
         "booking_id": booking.id,
         "id": booking.id,
@@ -413,7 +414,7 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "booking_start": booking.booking_start.isoformat(),
         "booking_end": booking.booking_end.isoformat(),
         "status": booking.status,
-        "rejection_reason": getattr(booking, "rejection_reason", None),
+        "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
     }
 
@@ -617,7 +618,29 @@ def _get_booking_or_404(booking_id: int, db: Session) -> VenueBooking:
     return booking
 
 
-def _decide_booking(booking_id: int, decision: str, new_status: str, staff: User, db: Session) -> Dict[str, Any]:
+# [SCRUM-37 | Sarah] NEW: request body for /venues/bookings/{id}/reject.
+# Reason is required and cannot be blank (missing/blank reason -> 422).
+class RejectBookingAction(BaseModel):
+    """SCRUM-37: rejecting a venue booking request must always include a reason."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A rejection reason is required")
+        return v.strip()
+
+
+def _decide_booking(
+    booking_id: int,
+    decision: str,
+    new_status: str,
+    staff: User,
+    db: Session,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
     """AC2-AC4: record an explicit decision by a named Venue Staff member.
 
     Only Pending requests can be decided, and only once - a decided booking
@@ -633,7 +656,11 @@ def _decide_booking(booking_id: int, decision: str, new_status: str, staff: User
         )
 
     booking.status = new_status
-    booking.decision = VenueBookingDecision(decision=decision, decided_by_id=staff.id)
+    booking.decision = VenueBookingDecision(
+        decision=decision,
+        decided_by_id=staff.id,
+        reason=reason,
+    )
     db.commit()
     db.refresh(booking)
 
@@ -666,8 +693,9 @@ def approve_booking(
 @router.post("/bookings/{booking_id}/reject")
 def reject_booking(
     booking_id: int,
+    action: RejectBookingAction,
     current_user: User = Depends(require_venue_staff),
     db: Session = Depends(get_db),
 ):
-    """SCRUM-36 AC3, AC4: reject a Pending request -> Rejected."""
-    return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db)
+    """SCRUM-36 AC3, AC4 & SCRUM-37 AC1, AC2: reject a Pending request with mandatory reason."""
+    return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db, reason=action.reason)
