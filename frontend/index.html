@@ -77,6 +77,12 @@
           </div>
         </section></template>
 
+        <template x-if="currentPath === '/coordinator/all-events' && user.role === 'Coordinator'"><section>
+          <div class="page-header"><div><p class="eyebrow">Coordinator workspace</p><h1>All submitted events</h1><p>Read-only visibility across the planning pipeline. Management actions remain limited to your assigned requests.</p></div></div>
+          <div x-show="allCoordinatorEvents.length === 0 && !loading" class="state-card compact"><h2>No submitted events</h2><p>Organiser drafts remain private and do not appear here.</p></div>
+          <div class="event-grid"><template x-for="event in allCoordinatorEvents" :key="event.id"><article class="event-card"><div class="event-card-top"><div><p class="card-kicker" x-text="`Event request #${event.id} · ${event.organiser}`"></p><h3 x-text="event.title"></h3></div><span class="status-badge" :class="statusClass(event.status)"><i></i><span x-text="event.status"></span></span></div><dl class="inline-meta"><div><dt>Proposed</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt>Coordinator</dt><dd x-text="event.assigned_coordinator || 'Unassigned'"></dd></div><div><dt>Access</dt><dd x-text="event.is_assigned_to_me ? 'Assigned to you' : 'Read only'"></dd></div></dl></article></template></div>
+        </section></template>
+
         <template x-if="currentPath === '/coordinator/events' && user.role === 'Coordinator'"><section>
           <div class="page-header"><div><p class="eyebrow">Coordinator workspace</p><h1>Assigned requests</h1><p>Review event briefs, record decisions, and keep requests moving.</p></div><div class="attention-pill"><i></i><strong x-text="assignedEvents.filter(event => event.awaiting_first_review).length"></strong> awaiting first review</div></div>
           <div class="summary-strip"><div><span>Assigned to you</span><strong x-text="assignedEvents.length"></strong></div><div><span>Awaiting review</span><strong x-text="assignedEvents.filter(event => event.awaiting_first_review).length"></strong></div><div><span>In progress</span><strong x-text="assignedEvents.filter(event => event.status === 'Under Review').length"></strong></div></div>

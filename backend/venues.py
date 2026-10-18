@@ -14,10 +14,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
+from .booking_recheck import recheck_venue_bookings  # [SCRUM-80 | Renee]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
-from .models import Event, User, Venue, VenueBooking, VenueBookingDecision
+from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
 
 router = APIRouter(prefix="/venues", tags=["venues"])
 
@@ -393,6 +394,17 @@ class VenueBookingRequest(BaseModel):
         return self
 
 
+# [SCRUM-80 | Renee] A clash found after the venue's setup/turnaround changed
+def conflict_flag_to_dict(flag: Optional[VenueBookingConflictFlag]) -> Optional[Dict[str, Any]]:
+    if flag is None:
+        return None
+    return {
+        "conflicting_booking_id": flag.conflicting_booking_id,
+        "reason": flag.reason,
+        "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
+    }
+
+
 def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     return {
         "booking_id": booking.id,
@@ -405,6 +417,7 @@ def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
 
 
 def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+    decision_reason = booking.decision.reason if hasattr(booking, "decision") and booking.decision else None
     return {
         "booking_id": booking.id,
         "id": booking.id,
@@ -414,8 +427,9 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "booking_start": booking.booking_start.isoformat(),
         "booking_end": booking.booking_end.isoformat(),
         "status": booking.status,
-        "rejection_reason": getattr(booking, "rejection_reason", None),
+        "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
+        "conflict_flag": conflict_flag_to_dict(booking.conflict_flag),  # [SCRUM-80 | Renee]
         # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
         **hold_fields(booking),
     }
@@ -429,7 +443,11 @@ def update_venue(
     db: Session = Depends(get_db),
 ):
     """SCRUM-31 AC1: update any attribute of a venue. A retired venue can be
-    corrected, but stays retired."""
+    corrected, but stays retired.
+
+    [SCRUM-80 | Renee] AC3: when setup or turnaround time changes, the venue's
+    upcoming bookings are re-checked and any new clash is flagged (never
+    removed). The flagged bookings are returned in flagged_bookings."""
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=422, detail="Send at least one field to update")
@@ -450,6 +468,8 @@ def update_venue(
                 detail=f"A venue named '{changes['name']}' already exists",
             )
 
+    buffers_before = (venue.setup_time_mins, venue.turnaround_time_mins)  # [SCRUM-80 | Renee]
+
     # Stored the same way create_venue stores them.
     for field, value in changes.items():
         if field in ("facilities", "supported_layouts"):
@@ -461,10 +481,17 @@ def update_venue(
     db.commit()
     db.refresh(venue)
 
+    # [SCRUM-80 | Renee] AC3: re-check existing bookings only if a buffer changed
+    flagged = []
+    if (venue.setup_time_mins, venue.turnaround_time_mins) != buffers_before:
+        flagged = recheck_venue_bookings(db, venue)
+        db.commit()
+
     return {
         "message": "Venue updated successfully",
         "venue": venue_to_dict(venue),
         "updated_fields": list(changes),
+        "flagged_bookings": [booking_detail_dict(b) for b in flagged],
     }
 
 
@@ -539,6 +566,12 @@ def submit_venue_booking_request(
     event = db.query(Event).filter(Event.id == payload.event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    role = (current_user.role or "").strip().lower()
+    if role == "coordinator" and event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can book venues only for events assigned to them",
+        )
 
     start = payload.booking_start.replace(tzinfo=None) if payload.booking_start.tzinfo else payload.booking_start
     end = payload.booking_end.replace(tzinfo=None) if payload.booking_end.tzinfo else payload.booking_end
@@ -620,7 +653,29 @@ def _get_booking_or_404(booking_id: int, db: Session) -> VenueBooking:
     return booking
 
 
-def _decide_booking(booking_id: int, decision: str, new_status: str, staff: User, db: Session) -> Dict[str, Any]:
+# [SCRUM-37 | Sarah] NEW: request body for /venues/bookings/{id}/reject.
+# Reason is required and cannot be blank (missing/blank reason -> 422).
+class RejectBookingAction(BaseModel):
+    """SCRUM-37: rejecting a venue booking request must always include a reason."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("A rejection reason is required")
+        return v.strip()
+
+
+def _decide_booking(
+    booking_id: int,
+    decision: str,
+    new_status: str,
+    staff: User,
+    db: Session,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
     """AC2-AC4: record an explicit decision by a named Venue Staff member.
 
     Only Pending requests can be decided, and only once - a decided booking
@@ -639,7 +694,11 @@ def _decide_booking(booking_id: int, decision: str, new_status: str, staff: User
         )
 
     booking.status = new_status
-    booking.decision = VenueBookingDecision(decision=decision, decided_by_id=staff.id)
+    booking.decision = VenueBookingDecision(
+        decision=decision,
+        decided_by_id=staff.id,
+        reason=reason,
+    )
     db.commit()
     db.refresh(booking)
 
@@ -672,8 +731,9 @@ def approve_booking(
 @router.post("/bookings/{booking_id}/reject")
 def reject_booking(
     booking_id: int,
+    action: RejectBookingAction,
     current_user: User = Depends(require_venue_staff),
     db: Session = Depends(get_db),
 ):
-    """SCRUM-36 AC3, AC4: reject a Pending request -> Rejected."""
-    return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db)
+    """SCRUM-36 AC3, AC4 & SCRUM-37 AC1, AC2: reject a Pending request with mandatory reason."""
+    return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db, reason=action.reason)

@@ -210,6 +210,10 @@ class VenueBooking(Base):
     # [SCRUM-36 | Renee] The Venue Staff decision on this request, if any
     decision = relationship("VenueBookingDecision", back_populates="booking",
                             uselist=False, cascade="all, delete-orphan")
+    # [SCRUM-80 | Renee] Set when a setup/turnaround change makes this booking clash
+    conflict_flag = relationship("VenueBookingConflictFlag", back_populates="booking",
+                                 uselist=False, cascade="all, delete-orphan",
+                                 foreign_keys="VenueBookingConflictFlag.booking_id")
 
 
 # [SCRUM-36 | Renee] NEW: one row per Venue Staff decision on a booking request -
@@ -230,6 +234,25 @@ class VenueBookingDecision(Base):
     # Relationships
     booking = relationship("VenueBooking", back_populates="decision")
     decided_by = relationship("User")
+
+
+# [SCRUM-80 | Renee] NEW: flags a booking that clashes with another after the
+# venue's setup or turnaround time changed (SCRUM-80 AC3 = SCRUM-38 AC8). The
+# booking itself is never removed or changed; Venue Staff see the flag and
+# decide. A new table rather than a column on venue_bookings, because
+# create_all() adds missing tables on Neon but never alters existing ones
+# (same reason as VenueBookingDecision). One flag per booking.
+class VenueBookingConflictFlag(Base):
+    __tablename__ = "venue_booking_conflict_flags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False, unique=True, index=True)
+    conflicting_booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False)
+    reason = Column(Text, nullable=False)
+    flagged_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    booking = relationship("VenueBooking", back_populates="conflict_flag", foreign_keys=[booking_id])
 
 
 # [SCRUM-81 | Elnathan] NEW: one row per hold (Pending booking) whose expiry or

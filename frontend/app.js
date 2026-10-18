@@ -21,6 +21,7 @@ document.addEventListener("alpine:init", () => {
     unbuiltRole: false,
     events: [],
     assignedEvents: [],
+    allCoordinatorEvents: [],
     leadEvents: [],
     coordinators: [],
     notifications: [],
@@ -164,6 +165,7 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
       if (!this.accessDenied && path === "/events") this.fetchEvents();
       if (!this.accessDenied && path === "/coordinator/events") this.fetchAssignedEvents();
+      if (!this.accessDenied && path === "/coordinator/all-events") this.fetchAllCoordinatorEvents();
       if (!this.accessDenied && path === "/lead/events") this.fetchLeadData();
     },
 
@@ -197,6 +199,10 @@ document.addEventListener("alpine:init", () => {
       if (response.ok) this.assignedEvents = response.data;
       this.loading = false;
     },
+    async fetchAllCoordinatorEvents() {
+      const response = await this.apiRequest("/coordinator/events/all-data");
+      if (response.ok) this.allCoordinatorEvents = response.data;
+    },
 
     async fetchLeadData() {
       this.loading = true;
@@ -218,6 +224,7 @@ document.addEventListener("alpine:init", () => {
       if (!this.user || this.loading) return;
       await this.fetchNotifications();
       if (this.currentPath === "/coordinator/events") await this.fetchAssignedEvents();
+      if (this.currentPath === "/coordinator/all-events") await this.fetchAllCoordinatorEvents();
       if (this.currentPath === "/lead/events") await this.fetchLeadData();
     },
 

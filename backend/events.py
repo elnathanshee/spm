@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, EventStatusHistory, User, VenueBooking
-from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
+from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
@@ -566,16 +566,93 @@ def list_my_events(
     ]
 
 
+@router.get("/{event_id}")
+def get_visible_event(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Read one event when the caller's role and relationship permit it."""
+    role = (current_user.role or "").strip().lower()
+    event = db.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    if role == "organiser":
+        # Deliberately conceal whether another organiser's event exists.
+        if event.organiser_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role in {"coordinator", "lead"}:
+        if event.status == DRAFT:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    elif role == "attendee":
+        if event.status != CONFIRMED:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        confirmed_booking = (
+            db.query(VenueBooking)
+            .filter(
+                VenueBooking.event_id == event.id,
+                VenueBooking.status == "Confirmed",
+            )
+            .order_by(VenueBooking.booking_start.asc(), VenueBooking.id.asc())
+            .first()
+        )
+        return {
+            "name": event.title,
+            "description": event.description,
+            "date": event.proposed_start.date().isoformat() if event.proposed_start else None,
+            "time": event.proposed_start.time().isoformat() if event.proposed_start else None,
+            "venue_name": (
+                confirmed_booking.venue.name
+                if confirmed_booking and confirmed_booking.venue
+                else None
+            ),
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to view this event request",
+        )
+
+    return {
+        "id": event.id,
+        "title": event.title,
+        "purpose": event.purpose,
+        "description": event.description,
+        "proposed_start": event.proposed_start,
+        "expected_attendance": event.expected_attendance,
+        "venue_requirements": event.venue_requirements,
+        "accessibility_needs": event.accessibility_needs,
+        "equipment_requirements": event.equipment_requirements,
+        "registration_needs": event.registration_needs,
+        "status": event.status,
+        "organiser_id": event.organiser_id,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+    }
+
+
 @router.get("/{event_id}/bookings")
 def get_event_bookings(
     event_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """SCRUM-35 AC3: The Coordinator can see that the request is pending."""
+    """Internal booking data for related Coordinators, Leads and Venue Staff."""
+    role = (current_user.role or "").strip().lower()
+    if role not in {"coordinator", "lead", "venue_staff"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only assigned Coordinators, Leads and Venue Staff can view event bookings",
+        )
+
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    if role == "coordinator" and event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can view bookings only for events assigned to them",
+        )
 
     bookings = (
         db.query(VenueBooking)
@@ -593,10 +670,149 @@ def get_event_bookings(
             "booking_start": b.booking_start.isoformat(),
             "booking_end": b.booking_end.isoformat(),
             "status": b.status,
-            "rejection_reason": getattr(b, "rejection_reason", None),
+            "rejection_reason": (b.decision.reason if hasattr(b, "decision") and b.decision else None) or getattr(b, "rejection_reason", None),
             "created_at": b.created_at.isoformat() if hasattr(b, "created_at") and b.created_at else None,
             # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
             **hold_fields(b),
         }
         for b in bookings
     ]
+
+
+# ---------------------------------------------------------------------------
+# [SCRUM-28 | Renee] View and update event information during planning
+# ---------------------------------------------------------------------------
+
+# "During planning" = after approval. Before approval the Organiser uses
+# POST /events/{id}/amend (SCRUM-21).
+PLANNING_STATUSES = (APPROVED, PLANNING, CONFIRMED)
+
+# Routine fields can be edited directly (AC2). Significant fields affect
+# arrangements already made and belong to SCRUM-29, so they are refused here.
+ROUTINE_FIELDS = ("title", "purpose", "description", "accessibility_needs", "registration_needs")
+SIGNIFICANT_FIELDS = ("proposed_start", "expected_attendance", "venue_requirements", "equipment_requirements")
+
+
+class EventRoutineUpdate(BaseModel):
+    """Body for PATCH /events/{id}. Unknown fields (e.g. status) are refused."""
+    model_config = ConfigDict(extra="forbid")
+
+    title: Optional[str] = None
+    purpose: Optional[str] = None
+    description: Optional[str] = None
+    accessibility_needs: Optional[str] = None
+    registration_needs: Optional[str] = None
+    # Accepted by the schema only so they can be refused with a clear message
+    proposed_start: Optional[Any] = None
+    expected_attendance: Optional[Any] = None
+    venue_requirements: Optional[Any] = None
+    equipment_requirements: Optional[Any] = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.strip():
+            raise ValueError("Title cannot be empty")
+        return v.strip() if v is not None else None
+
+
+def event_to_dict(event: Event) -> Dict[str, Any]:
+    """AC1: the full event record."""
+    return {
+        "id": event.id,
+        "title": event.title,
+        "purpose": event.purpose,
+        "description": event.description,
+        "proposed_start": event.proposed_start,
+        "expected_attendance": event.expected_attendance,
+        "venue_requirements": event.venue_requirements,
+        "accessibility_needs": event.accessibility_needs,
+        "equipment_requirements": event.equipment_requirements,
+        "registration_needs": event.registration_needs,
+        "status": event.status,
+        "organiser_id": event.organiser_id,
+        "assigned_coordinator_id": event.assigned_coordinator_id,
+        "created_at": event.created_at,
+        "submitted_at": event.submitted_at,
+    }
+
+
+def _get_entitled_event(event_id: int, user: User, db: Session) -> Event:
+    """AC2/AC3: only the event's Organiser and its assigned Coordinator may
+    update it. Viewing is GET /events/{event_id} (SCRUM-18 visibility rules)."""
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    role = (user.role or "").strip().lower()
+    entitled = (
+        (role == "organiser" and event.organiser_id == user.id)
+        or (role == "coordinator" and event.assigned_coordinator_id == user.id)
+    )
+    if not entitled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorised to view or update this event",
+        )
+    return event
+
+
+@router.patch("/{event_id}")
+def update_event_routine_info(
+    event_id: int,
+    payload: EventRoutineUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-28 AC2, AC3: update routine information during planning.
+
+    Significant fields (date/time, attendance, venue or equipment requirements)
+    are refused with 422; they are handled by SCRUM-29. Every update is recorded
+    in the event's history: who changed which fields.
+    """
+    event = _get_entitled_event(event_id, current_user, db)
+
+    update_data = payload.model_dump(exclude_unset=True)
+    significant = [f for f in SIGNIFICANT_FIELDS if f in update_data]
+    if significant:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{', '.join(significant)} cannot be changed here: this is a significant change (SCRUM-29)",
+        )
+
+    if event.status not in PLANNING_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Event information can only be updated during planning "
+                f"({', '.join(PLANNING_STATUSES)}); this event is {event.status}. "
+                f"Before approval, use POST /events/{{id}}/amend."
+            ),
+        )
+
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field is required to update the event",
+        )
+
+    changed_fields = []
+    for field in ROUTINE_FIELDS:
+        if field in update_data:
+            setattr(event, field, update_data[field])
+            changed_fields.append(field)
+
+    db.add(EventStatusHistory(
+        event_id=event.id,
+        previous_status=event.status,
+        new_status=event.status,
+        actor_id=current_user.id,
+        reason=f"Updated: {', '.join(changed_fields)}",
+    ))
+    db.commit()
+    db.refresh(event)
+
+    data = event_to_dict(event)
+    data["message"] = "Event updated successfully"
+    data["changed_fields"] = changed_fields
+    return data
