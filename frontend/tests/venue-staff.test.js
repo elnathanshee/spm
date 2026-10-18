@@ -39,6 +39,7 @@ test("empty catalogue, validation, venue creation and refreshed listing", async 
   };
   await state.fetchVenueWorkspace();
   assert.equal(state.venueWorkspace.loaded, true); assert.equal(state.venueWorkspace.venues.length, 0);
+  assert.equal(state.venueWorkspace.bookingFilter, "All");
   await state.createVenue(); assert.ok(state.fieldErrors.name); assert.equal(created, false);
   Object.assign(state.venueWorkspace.form, { name: " Hall ", location: "Campus", capacity: "100" });
   await state.createVenue(); assert.equal(state.alert.kind, "success");
@@ -92,8 +93,20 @@ test("mark read reuses API; logout clears staff state and discards late results"
 
 test("staff notification rendering uses safe text, unread state, read action and booking link", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  assert.match(html, /notification-unread/); assert.match(html, /markNotificationRead\(notification\)/);
-  assert.match(html, /openStaffBooking\(notification.booking_id\)/);
-  assert.match(html, /x-text="notification.message"/);
-  assert.match(html, /No venues yet/);
+  assert.match(html, /is-unread/); assert.match(html, /markNotificationRead\(notification\)/);
+  assert.match(html, /openNotification\(notification\)/);
+  assert.match(html, /x-text="formatNotificationMessage\(notification\)"/);
+  assert.match(html, /No venues yet/); assert.match(html, /No booking requests/);
+});
+
+test("booking filters use the existing workspace data without extra requests", () => {
+  const state = app();
+  state.venueWorkspace = { bookingFilter: "Pending", bookings: [
+    { id: 1, status: "Pending" }, { id: 2, status: "Confirmed" }, { id: 3, status: "Rejected" },
+  ] };
+  assert.deepEqual(Array.from(state.filteredVenueBookings(), booking => booking.id), [1]);
+  assert.equal(state.bookingFilterCount("All"), 3);
+  assert.equal(state.bookingFilterCount("Confirmed"), 1);
+  state.venueWorkspace.bookingFilter = "All";
+  assert.equal(state.filteredVenueBookings().length, 3);
 });

@@ -30,10 +30,28 @@ test("fetch retains every complete message and polling refreshes notifications",
   await getPoll().fn();
   assert.equal(state.notifications, messages);
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  assert.match(html, /<details class="notification-summary"/);
+  assert.match(html, /class="notification-center"/);
+  assert.match(html, /class="notification-panel"/);
   assert.match(html, /x-for="notification in notifications"/);
-  assert.match(html, /x-text="notification.message"/);
-  assert.match(html, /notifications.length/);
+  assert.match(html, /x-text="formatNotificationMessage\(notification\)"/);
+  assert.match(html, /unreadNotifications\(\)/);
+});
+
+test("booking notification kinds receive clear semantic titles and tones", () => {
+  const { state } = app();
+  assert.equal(state.notificationTitle({ kind: "booking_submitted" }), "New booking request");
+  assert.equal(state.notificationTitle({ kind: "booking_approved" }), "Booking approved");
+  assert.equal(state.notificationTitle({ kind: "booking_rejected" }), "Booking rejected");
+  assert.equal(state.notificationTone({ kind: "booking_approved" }), "success");
+  assert.equal(state.notificationTone({ kind: "booking_rejected" }), "warning");
+  assert.equal(state.notificationTone({ kind: "booking_submitted" }), "action");
+});
+
+test("booking notification timestamps are presented as readable dates", () => {
+  const { state } = app();
+  const message = state.formatNotificationMessage({ message: 'Booking from 2026-10-19 16:38:00 to 2026-10-29T16:38:00 was submitted.' });
+  assert.doesNotMatch(message, /2026-10-19 16:38:00|2026-10-29T16:38:00/);
+  assert.match(message, /2026/);
 });
 
 test("late responses cannot restore notifications after logout or account switch", async () => {

@@ -25,6 +25,7 @@ document.addEventListener("alpine:init", () => {
     leadEvents: [],
     coordinators: [],
     notifications: [],
+    notificationOpen: false,
     bookingDialog: null,
     venueWorkspace: null,
     staffBooking: null,
@@ -145,6 +146,57 @@ document.addEventListener("alpine:init", () => {
     roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "There are no attendee events available right now. Events open to your role will appear here." }[this.user?.role] || "There is no work requiring your attention right now."; },
     roleIcon() { return { "Venue Staff": "building", "Technical Support": "equipment", Attendee: "ticket" }[this.user?.role] || "calendar"; },
     userInitials() { return String(this.user?.username || "U").split(/[._\s-]+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); },
+    unreadNotifications() { return this.notifications.filter(notification => !notification.read).length; },
+    notificationTitle(notification) {
+      return {
+        booking_submitted: "New booking request",
+        booking_approved: "Booking approved",
+        booking_rejected: "Booking rejected",
+        submitted: "Event request submitted",
+        returned: "Clarification requested",
+        approved: "Event request approved",
+        rejected: "Event request rejected",
+        assigned_to_you: "Event assigned to you",
+        reassigned_to_you: "Event reassigned to you",
+        reassigned_away: "Event reassigned",
+        coordinator_changed: "Coordinator changed",
+        coordinator_assigned: "Coordinator assigned",
+      }[notification?.kind] || "Workspace update";
+    },
+    notificationTone(notification) {
+      if (["booking_approved", "approved"].includes(notification?.kind)) return "success";
+      if (["booking_rejected", "rejected", "returned"].includes(notification?.kind)) return "warning";
+      if (["booking_submitted", "assigned_to_you", "reassigned_to_you"].includes(notification?.kind)) return "action";
+      return "info";
+    },
+    notificationIcon(notification) {
+      return this.notificationTone(notification) === "success" ? "check" : this.notificationTone(notification) === "warning" ? "alert" : notification?.booking_id ? "building" : "message";
+    },
+    formatNotificationTime(value) {
+      if (!value) return "Recently";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "Recently";
+      return new Intl.DateTimeFormat("en-SG", { dateStyle: "medium", timeStyle: "short" }).format(date);
+    },
+    formatNotificationMessage(notification) {
+      return String(notification?.message || "")
+        .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g, value => this.formatDate(value.replace(" ", "T")));
+    },
+    bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected" }[status] || "status-neutral"; },
+    formatSchedule(start, end) { return `${this.formatDate(start)} – ${this.formatDate(end)}`; },
+    filteredVenueBookings() {
+      const workspace = this.venueWorkspace;
+      if (!workspace) return [];
+      return workspace.bookingFilter === "All"
+        ? workspace.bookings
+        : workspace.bookings.filter(booking => booking.status === workspace.bookingFilter);
+    },
+    bookingFilterCount(filter) {
+      if (!this.venueWorkspace) return 0;
+      return filter === "All"
+        ? this.venueWorkspace.bookings.length
+        : this.venueWorkspace.bookings.filter(booking => booking.status === filter).length;
+    },
     iconFor(name) {
       const icons = {
         calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4m8-4v4M3 10h18"/></svg>',
@@ -156,6 +208,9 @@ document.addEventListener("alpine:init", () => {
         people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m1-15a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></svg>',
         message: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2V7a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3v8Z"/></svg>',
         logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5m5-4 4-4-4-4m4 4H9"/></svg>',
+        bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>',
+        alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 9v5m0 3h.01"/></svg>',
       };
       return icons[name] || icons.calendar;
     },
@@ -240,7 +295,7 @@ document.addEventListener("alpine:init", () => {
       if (!this.isVenueStaff()) return;
       if (!this.venueWorkspace) this.venueWorkspace = {
         venues: [], bookings: [], busy: false, loaded: false, bookingError: false,
-        showCreate: false, saving: false, form: { name: "", location: "", capacity: "" },
+        bookingFilter: "All", showCreate: false, saving: false, form: { name: "", location: "", capacity: "" },
       };
       const workspace = this.venueWorkspace;
       if (workspace.busy) return;
@@ -334,6 +389,14 @@ document.addEventListener("alpine:init", () => {
       const recipient = this.user;
       const response = await this.apiRequest(`/notifications/${notification.id}/read`, { method: "POST" });
       if (this.user === recipient && response.ok) this.notifications = this.notifications.map(item => item.id === notification.id ? response.data : item);
+    },
+
+    async openNotification(notification) {
+      if (!notification.read) await this.markNotificationRead(notification);
+      if (notification.booking_id && this.isVenueStaff()) {
+        this.notificationOpen = false;
+        await this.openStaffBooking(notification.booking_id);
+      }
     },
 
     canBookEvent(event) {

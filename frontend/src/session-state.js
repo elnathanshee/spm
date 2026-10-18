@@ -7,6 +7,7 @@ export function resetSignedOutState(state) {
   state.unbuiltRole = false;
   state.events = [];
   state.assignedEvents = [];
+  state.notificationOpen = false;
   state.allCoordinatorEvents = [];
   state.leadEvents = [];
   state.coordinators = [];
