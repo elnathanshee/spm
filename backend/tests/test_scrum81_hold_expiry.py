@@ -98,8 +98,10 @@ def client(db_session):
 
 @pytest.fixture
 def clock(monkeypatch):
-    """D7: the one clock, set by the test. clock.now starts at the real UTC now."""
-    c = types.SimpleNamespace(now=datetime.now(timezone.utc).replace(tzinfo=None))
+    """D7: the one clock, set by the test. clock.now starts at the real UTC now (T);
+    clock.d is day D (T + 30 days), fixed when the clock is created."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    c = types.SimpleNamespace(now=now, d=(now + timedelta(days=30)).date())
     monkeypatch.setattr(booking_rules, "utc_now", lambda: c.now, raising=False)
     return c
 
@@ -165,8 +167,9 @@ def v(db_session, users):
 
 
 def d_at(clock, hour, minute=0):
-    """D (T + 30 days) at hour:minute."""
-    return datetime.combine((clock.now + timedelta(days=30)).date(), time(hour, minute))
+    """D (T + 30 days) at hour:minute. D is fixed at T, so moving the clock
+    doesn't move the booked period."""
+    return datetime.combine(clock.d, time(hour, minute))
 
 
 def login(client, username):
@@ -226,14 +229,15 @@ def test_tc8101_a_new_hold_expires_48_hours_after_the_request(client, clock, v, 
     """TC-8101 | Happy Path | AC1 (D2)
     A Coordinator requests V for D 10:00-12:00 at T.
     Expected: Venue Staff's view shows hold_expires_at = created_at + 48 hours
-    (within a second of T + 48 h) and warning_minutes 1440 (24 hours)."""
+    (created_at is when the request was made, between T and now) and
+    warning_minutes 1440 (24 hours)."""
     booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
 
     data = view(client, booking_id)
 
     expires = datetime.fromisoformat(data["hold_expires_at"])
     assert expires == datetime.fromisoformat(data["created_at"]) + timedelta(hours=48)
-    assert abs(expires - (clock.now + timedelta(hours=48))) < timedelta(seconds=1)
+    assert clock.now <= datetime.fromisoformat(data["created_at"]) <= datetime.now(timezone.utc).replace(tzinfo=None)
     assert data["warning_minutes"] == 1440
     assert data["status"] == "Pending"
 
@@ -350,11 +354,15 @@ def test_tc8105_after_expiry_search_calendar_and_retire_treat_the_venue_as_free(
 
 def test_tc8108_first_come_first_served_after_expiry(client, clock, v, e1, e2):
     """TC-8108 | Workflow Variation | AC2
-    coord_a's hold for D 10:00-12:00 expires.
+    coord_a's hold for D 10:00-12:00 is given a 5-minute expiry by Venue Staff,
+    and the clock moves 6 minutes, so it expires. (A short expiry rather than the
+    48-hour default, because created_at uses the real clock: a hold requested
+    after the test clock had jumped 48 hours would be born expired.)
     Expected: coord_b's request for the same period (E2) gets 201; coord_a's
     new request for it (E1) then gets 409, because coord_b's hold now blocks."""
     booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
-    clock.now = expiry_of(client, booking_id) + MINUTE
+    assert set_expiry(client, booking_id, clock.now + 5 * MINUTE).status_code == 200
+    clock.now += 6 * MINUTE
 
     assert request_hold(client, v, e2, d_at(clock, 10), d_at(clock, 12), coordinator="coord_b").status_code == 201
     assert request_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12), coordinator="coord_a").status_code == 409
@@ -406,7 +414,8 @@ def test_tc8113_a_confirmed_hold_never_expires(client, clock, v, e1, e2):
     """TC-8113 | Cross-Cutting | AC3 (D1)
     A hold approved before its expiry; the clock then moves past the old expiry.
     Expected: another event's request for the same period gets 409; the view
-    shows Confirmed with hold_expires_at null; coord_a gets no hold_expired notice."""
+    shows Confirmed with hold_expires_at null; coord_a gets no hold_expired
+    notice; Venue Staff can't set an expiry on it (409, D3: only a Pending hold)."""
     booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
     old_expiry = expiry_of(client, booking_id)
     login(client, "venue1")
@@ -419,6 +428,7 @@ def test_tc8113_a_confirmed_hold_never_expires(client, clock, v, e1, e2):
     assert data["status"] == "Confirmed"
     assert data["hold_expires_at"] is None
     assert notices(client, "coord_a", "hold_expired") == []
+    assert set_expiry(client, booking_id, clock.now + timedelta(days=2)).status_code == 409
 
 
 def test_tc8120_views_show_the_hold_and_the_status_filter_follows_expiry(client, clock, v, e1, e2):
