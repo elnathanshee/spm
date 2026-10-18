@@ -25,6 +25,9 @@ document.addEventListener("alpine:init", () => {
     leadEvents: [],
     coordinators: [],
     notifications: [],
+    bookingDialog: null,
+    venueWorkspace: null,
+    staffBooking: null,
     alert: { message: "", kind: "error" },
     fieldErrors: {},
     loginForm: { username: "", password: "" },
@@ -86,7 +89,7 @@ document.addEventListener("alpine:init", () => {
         this.fieldErrors = this.parseValidationErrors(data.detail);
         return;
       }
-      this.showAlert(data.detail || `Request failed with status ${status}.`);
+      this.showAlert(data.detail || `Request to ${path} failed with status ${status}.`);
     },
 
     parseValidationErrors(detail) {
@@ -167,6 +170,7 @@ document.addEventListener("alpine:init", () => {
       if (!this.accessDenied && path === "/coordinator/events") this.fetchAssignedEvents();
       if (!this.accessDenied && path === "/coordinator/all-events") this.fetchAllCoordinatorEvents();
       if (!this.accessDenied && path === "/lead/events") this.fetchLeadData();
+      if (!this.accessDenied && path === "/venue") this.fetchVenueWorkspace();
     },
 
     async fetchEvents() {
@@ -216,8 +220,9 @@ document.addEventListener("alpine:init", () => {
     },
 
     async fetchNotifications() {
+      const recipient = this.user;
       const response = await this.apiRequest("/notifications");
-      if (response.ok) this.notifications = response.data;
+      if (response.ok && this.user === recipient) this.notifications = response.data;
     },
 
     async refreshWorkspace() {
@@ -226,6 +231,177 @@ document.addEventListener("alpine:init", () => {
       if (this.currentPath === "/coordinator/events") await this.fetchAssignedEvents();
       if (this.currentPath === "/coordinator/all-events") await this.fetchAllCoordinatorEvents();
       if (this.currentPath === "/lead/events") await this.fetchLeadData();
+      if (this.currentPath === "/venue") await this.fetchVenueWorkspace();
+    },
+
+    isVenueStaff() { return this.normalizeRole(this.user?.role) === "Venue Staff"; },
+
+    async fetchVenueWorkspace() {
+      if (!this.isVenueStaff()) return;
+      if (!this.venueWorkspace) this.venueWorkspace = {
+        venues: [], bookings: [], busy: false, loaded: false, bookingError: false,
+        showCreate: false, saving: false, form: { name: "", location: "", capacity: "" },
+      };
+      const workspace = this.venueWorkspace;
+      if (workspace.busy) return;
+      workspace.busy = true;
+      const recipient = this.user;
+      try {
+        const venues = await this.apiRequest("/venues");
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        if (!venues.ok || !Array.isArray(venues.data)) { workspace.loaded = false; return; }
+        workspace.venues = venues.data;
+        workspace.loaded = true;
+        const results = await Promise.all(venues.data.map(async venue => {
+          const response = await this.apiRequest(`/venues/${venue.id}/bookings`);
+          return { venue, response };
+        }));
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        workspace.bookingError = results.some(({ response }) => !response.ok || !Array.isArray(response.data));
+        workspace.bookings = results.flatMap(({ venue, response }) => response.ok && Array.isArray(response.data)
+          ? response.data.map(booking => ({ ...booking, venue_name: venue.name })) : []);
+      } finally {
+        if (this.venueWorkspace === workspace) workspace.busy = false;
+      }
+    },
+
+    async createVenue() {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || workspace.saving || workspace.busy) return;
+      this.fieldErrors = {};
+      const { name, location, capacity } = workspace.form;
+      if (!name.trim()) this.fieldErrors.name = "Venue name is required";
+      if (!location.trim()) this.fieldErrors.location = "Location is required";
+      if (!Number.isInteger(Number(capacity)) || Number(capacity) <= 0) this.fieldErrors.capacity = "Enter a positive whole number";
+      if (Object.keys(this.fieldErrors).length) return;
+      workspace.saving = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest("/venues", { method: "POST", body: { name: name.trim(), location: location.trim(), capacity: Number(capacity) } });
+        if (this.user !== recipient || this.venueWorkspace !== workspace || !response.ok) return;
+        workspace.form = { name: "", location: "", capacity: "" };
+        workspace.showCreate = false;
+        await this.fetchVenueWorkspace();
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        this.showAlert("Venue added. Coordinators and Leads can now request it.", "success");
+      } finally {
+        if (this.venueWorkspace === workspace) workspace.saving = false;
+      }
+    },
+
+    async openStaffBooking(bookingId) {
+      if (!this.isVenueStaff()) return;
+      this.clearAlert(); this.fieldErrors = {};
+      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true };
+      const review = this.staffBooking;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${bookingId}`);
+        if (this.user === recipient && this.staffBooking === review && response.ok) review.detail = response.data;
+      } finally {
+        if (this.staffBooking === review) review.busy = false;
+      }
+    },
+
+    async decideStaffBooking(action) {
+      const review = this.staffBooking;
+      if (!this.isVenueStaff() || !review?.detail || review.busy || review.detail.status !== "Pending" || !["approve", "reject"].includes(action)) return;
+      this.fieldErrors = {};
+      if (action === "reject" && !review.reason.trim()) { this.fieldErrors.reason = "A rejection reason is required"; return; }
+      review.busy = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${review.id}/${action}`, {
+          method: "POST", ...(action === "reject" ? { body: { reason: review.reason.trim() } } : {}),
+        });
+        if (this.user !== recipient || this.staffBooking !== review) return;
+        if (response.ok) {
+          review.detail = response.data.booking;
+          review.reason = "";
+          await this.fetchVenueWorkspace();
+          if (this.user !== recipient || this.staffBooking !== review) return;
+          this.showAlert(action === "approve" ? "Booking approved." : "Booking rejected.", "success");
+        } else if (response.status === 409) {
+          const current = await this.apiRequest(`/venues/bookings/${review.id}`);
+          if (this.user === recipient && this.staffBooking === review && current.ok) review.detail = current.data;
+        }
+      } finally {
+        if (this.staffBooking === review) review.busy = false;
+      }
+    },
+
+    async markNotificationRead(notification) {
+      const recipient = this.user;
+      const response = await this.apiRequest(`/notifications/${notification.id}/read`, { method: "POST" });
+      if (this.user === recipient && response.ok) this.notifications = this.notifications.map(item => item.id === notification.id ? response.data : item);
+    },
+
+    canBookEvent(event) {
+      const role = this.normalizeRole(this.user?.role);
+      const events = role === "Event Coordinator Lead" ? this.leadEvents : role === "Coordinator" ? this.assignedEvents : [];
+      return !!event && events.some(item => item.id === event.id);
+    },
+
+    async openBookings(event) {
+      if (!this.canBookEvent(event)) return;
+      this.clearAlert();
+      this.fieldErrors = {};
+      this.bookingDialog = {
+        event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
+        form: { venue_id: "", booking_start: "", booking_end: "" },
+      };
+      const dialog = this.bookingDialog;
+      const recipient = this.user;
+      try {
+        const [venues, bookings] = await Promise.all([
+          this.apiRequest("/venues"), this.apiRequest(`/events/${event.id}/bookings`),
+        ]);
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        dialog.ready = venues.ok && Array.isArray(venues.data);
+        dialog.bookingsLoaded = bookings.ok && Array.isArray(bookings.data);
+        if (dialog.ready) dialog.venues = venues.data;
+        else if (venues.ok) this.showAlert("Venue service returned an invalid response. Check the frontend API proxy and refresh bookings.");
+        if (dialog.bookingsLoaded) dialog.bookings = bookings.data;
+        else if (bookings.ok) this.showAlert("Booking history returned an invalid response. Refresh bookings to try again.");
+      } finally {
+        if (this.bookingDialog === dialog) dialog.busy = false;
+      }
+    },
+
+    closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
+
+    async submitBooking() {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.busy || !dialog.ready || !this.canBookEvent(dialog.event)) return;
+      this.fieldErrors = {};
+      this.clearAlert();
+      const { venue_id, booking_start, booking_end } = dialog.form;
+      if (!dialog.venues.some(venue => venue.id === Number(venue_id))) this.fieldErrors.venue_id = "Select a venue";
+      if (!booking_start || !Number.isFinite(Date.parse(booking_start))) this.fieldErrors.booking_start = "Enter a valid start date and time";
+      else if (Date.parse(booking_start) <= Date.now()) this.fieldErrors.booking_start = "Start must be in the future";
+      if (!booking_end || !Number.isFinite(Date.parse(booking_end)) || Date.parse(booking_end) <= Date.parse(booking_start)) this.fieldErrors.booking_end = "End must be after start";
+      if (Object.keys(this.fieldErrors).length) return;
+      dialog.busy = true;
+      dialog.submitting = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/${Number(venue_id)}/bookings`, {
+          method: "POST", body: { event_id: dialog.event.id, booking_start, booking_end },
+        });
+        if (this.user !== recipient || this.bookingDialog !== dialog || !response.ok) return;
+        dialog.form = { venue_id: "", booking_start: "", booking_end: "" };
+        this.showAlert("Venue booking request submitted.", "success");
+        const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
+        if (this.user === recipient && this.bookingDialog === dialog) {
+          dialog.bookingsLoaded = bookings.ok && Array.isArray(bookings.data);
+          if (dialog.bookingsLoaded) dialog.bookings = bookings.data;
+        }
+      } finally {
+        if (this.bookingDialog === dialog) {
+          dialog.busy = false;
+          dialog.submitting = false;
+        }
+      }
     },
 
     async saveAssignment(event) {

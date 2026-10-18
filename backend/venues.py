@@ -13,6 +13,8 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
+from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
 from .booking_recheck import recheck_venue_bookings  # [SCRUM-80 | Renee]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
@@ -423,6 +425,7 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "venue_id": booking.venue_id,
         "event_id": booking.event_id,
         "event_title": booking.event.title if booking.event else None,
+        "requester_id": booking.requester_id,
         "booking_start": booking.booking_start.isoformat(),
         "booking_end": booking.booking_end.isoformat(),
         "status": booking.status,
@@ -586,11 +589,14 @@ def submit_venue_booking_request(
     booking = VenueBooking(
         venue_id=venue.id,
         event_id=event.id,
+        requester_id=current_user.id,
         booking_start=start,
         booking_end=end,
         status="Pending",
     )
     db.add(booking)
+    db.flush()
+    notify_booking(db, booking, KIND_BOOKING_SUBMITTED)
     db.commit()
     db.refresh(booking)
 
@@ -693,7 +699,15 @@ def _decide_booking(
         decided_by_id=staff.id,
         reason=reason,
     )
-    db.commit()
+    try:
+        db.flush()  # The unique decision constraint also arbitrates concurrent decisions.
+        notify_booking(db, booking, KIND_BOOKING_APPROVED if decision == "Approved" else KIND_BOOKING_REJECTED)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if db.query(VenueBookingDecision).filter_by(booking_id=booking_id).first():
+            raise HTTPException(status_code=409, detail="Booking has already been decided")
+        raise
     db.refresh(booking)
 
     return {

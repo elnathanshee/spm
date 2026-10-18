@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .database import get_db
-from .models import Event, Notification, User
+from .models import Event, Notification, User, VenueBooking
 from .status import APPROVED, REJECTED, RETURNED, SUBMITTED
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -146,6 +146,7 @@ def _to_dict(n: Notification) -> dict:
     return {
         "id": n.id,
         "event_id": n.event_id,
+        "booking_id": n.booking_id,
         "kind": n.kind,
         "message": n.message,
         "created_at": n.created_at,
@@ -171,7 +172,7 @@ def list_my_notifications(
         .order_by(Notification.created_at.desc(), Notification.id.desc())
         .all()
     )
-    visible = [n for n in rows if n.event is None or can_see_event(current_user, n.event)]
+    visible = [n for n in rows if can_see_notification(current_user, n)]
     return [_to_dict(n) for n in visible]
 
 
@@ -257,3 +258,55 @@ def notify_first_assignment(db: Session, event: Event) -> None:
         KIND_ASSIGNED_TO_YOU,
         f'Event request "{event.title}" has been assigned to you.',
     )
+
+
+KIND_BOOKING_SUBMITTED = "booking_submitted"
+KIND_BOOKING_APPROVED = "booking_approved"
+KIND_BOOKING_REJECTED = "booking_rejected"
+BOOKING_KINDS = {KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED}
+
+
+def can_see_notification(user: User, notification: Notification) -> bool:
+    if notification.booking_id is not None and notification.kind in BOOKING_KINDS:
+        booking = notification.booking
+        if booking is None or notification.user_id != user.id:
+            return False
+        if notification.kind == KIND_BOOKING_SUBMITTED:
+            return _role_of(user) == "venue_staff"
+        return booking.requester_id == user.id
+    return notification.event is None or can_see_event(user, notification.event)
+
+
+def notify_booking(db: Session, booking: VenueBooking, kind: str) -> None:
+    """Queue booking messages in the caller's transaction; uniqueness is DB enforced.
+
+    Historical bookings with no recorded requester produce no outcome message.
+    Do not infer their requester from the event's mutable assignment.
+    """
+    if kind not in BOOKING_KINDS:
+        raise ValueError("Unknown booking notification kind")
+    if kind == KIND_BOOKING_SUBMITTED:
+        recipients = [u for u in db.query(User).all() if _role_of(u) == "venue_staff"]
+        outcome = "was submitted"
+    else:
+        requester = db.get(User, booking.requester_id) if booking.requester_id else None
+        recipients = [requester] if requester else []
+        outcome = "was approved" if kind == KIND_BOOKING_APPROVED else "was rejected"
+    message = (
+        f'Booking for "{booking.venue.name}" from '
+        f'{booking.booking_start.isoformat(sep=" ")} to '
+        f'{booking.booking_end.isoformat(sep=" ")} {outcome}.'
+    )
+    if kind == KIND_BOOKING_REJECTED:
+        reason = (booking.decision.reason if booking.decision else None) or booking.rejection_reason
+        if reason:
+            message += f" Reason: {reason}"
+    for recipient in recipients:
+        # Flush also makes repeated helper calls in one transaction observable.
+        db.flush()
+        exists = db.query(Notification.id).filter_by(
+            booking_id=booking.id, kind=kind, user_id=recipient.id
+        ).first()
+        if exists is None:
+            db.add(Notification(user_id=recipient.id, event_id=booking.event_id,
+                                booking_id=booking.id, kind=kind, message=message))

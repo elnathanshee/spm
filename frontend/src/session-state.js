@@ -11,6 +11,9 @@ export function resetSignedOutState(state) {
   state.leadEvents = [];
   state.coordinators = [];
   state.notifications = [];
+  state.bookingDialog = null;
+  state.venueWorkspace = null;
+  state.staffBooking = null;
   state.alert = null;
   state.fieldErrors = {};
   state.loginForm = { username: "", password: "" };
