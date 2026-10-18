@@ -588,14 +588,16 @@ def test_tc8114_only_the_assigned_coordinator_receives_hold_notices(client, cloc
 
 def test_tc8119_holds_with_no_entitled_coordinator_notify_nobody(client, clock, db_session, users, v):
     """TC-8119 | Cross-Cutting | D8
-    E3 has no assigned Coordinator; E4 is assigned to coord_c, whose role is then
-    changed to organiser (so coord_c is no longer entitled to see E4). Both have
-    holds; Venue Staff extend both, and the clock passes both expiries.
+    E3 has no assigned Coordinator, so the Lead requests its hold (since SCRUM-18,
+    a Coordinator may request only for events assigned to them). E4 is assigned
+    to coord_c, who requests its hold; coord_c's role is then changed to
+    organiser (so coord_c is no longer entitled to see E4). Venue Staff extend
+    both holds, and the clock passes both expiries.
     Expected: every request succeeds (200), and no hold notice is stored for anyone."""
     e3 = add_event(db_session, users, "Unassigned Talk", None)
     e4 = add_event(db_session, users, "Orphaned Talk", "coord_c")
-    h3 = new_hold(client, v, e3, d_at(clock, 9), d_at(clock, 10))
-    h4 = new_hold(client, v, e4, d_at(clock, 14), d_at(clock, 15))
+    h3 = new_hold(client, v, e3, d_at(clock, 9), d_at(clock, 10), coordinator="lead1")
+    h4 = new_hold(client, v, e4, d_at(clock, 14), d_at(clock, 15), coordinator="coord_c")
     coord_c = db_session.get(User, users["coord_c"].id)
     coord_c.role = "organiser"
     db_session.commit()
