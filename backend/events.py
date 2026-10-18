@@ -5,6 +5,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
+from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, EventStatusHistory, User, VenueBooking
 from .status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
@@ -594,6 +595,8 @@ def get_event_bookings(
             "status": b.status,
             "rejection_reason": getattr(b, "rejection_reason", None),
             "created_at": b.created_at.isoformat() if hasattr(b, "created_at") and b.created_at else None,
+            # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
+            **hold_fields(b),
         }
         for b in bookings
     ]

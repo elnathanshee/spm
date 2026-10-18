@@ -15,8 +15,8 @@ do not clash.
 Plain functions only: no router, no endpoint.
 """
 
-from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,68 @@ from .models import Venue, VenueBooking
 # Booking statuses that hold a venue. Pending is how SCRUM-35 stores a
 # tentative hold. Renaming statuses is a team decision for later.
 BLOCKING_STATUSES = ["Confirmed", "Approved", "Tentative", "Pending"]
+
+# [SCRUM-81] Tentative holds expire. A hold is a Pending booking (D1); once its
+# expiry has passed it is stored and shown as Expired.
+HOLD_STATUS = "Pending"
+EXPIRED_STATUS = "Expired"
+DEFAULT_HOLD_HOURS = 48  # team assumption (option O-31)
+DEFAULT_WARNING_MINUTES = 24 * 60  # team assumption (option O-33)
+
+
+def utc_now() -> datetime:
+    """SCRUM-81 D7: the one clock: UTC without a time zone, like the stored dates.
+
+    Always call it as booking_rules.utc_now(), so tests can set the clock in
+    one place.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def to_naive_utc(moment: datetime) -> datetime:
+    """SCRUM-81 D7: a time sent with a time zone is converted to UTC, then the
+    zone is dropped. A time without one is taken as UTC already."""
+    if moment.tzinfo is None:
+        return moment
+    return moment.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _is_hold(booking: VenueBooking) -> bool:
+    return booking.status in (HOLD_STATUS, EXPIRED_STATUS)
+
+
+def hold_expires_at(booking: VenueBooking) -> Optional[datetime]:
+    """SCRUM-81 D2: when the hold expires: the time Venue Staff set, if any;
+    otherwise 48 hours after the request, or the booking's start if that is
+    sooner. None for a booking that isn't a hold (Pending or Expired), or that
+    hasn't been saved yet (no created_at)."""
+    if not _is_hold(booking):
+        return None
+    if booking.hold is not None and booking.hold.expires_at is not None:
+        return booking.hold.expires_at
+    if booking.created_at is None:
+        return None
+    return min(booking.created_at + timedelta(hours=DEFAULT_HOLD_HOURS), booking.booking_start)
+
+
+def warning_minutes(booking: VenueBooking) -> Optional[int]:
+    """SCRUM-81 D4: how long before expiry the Coordinator is warned (default
+    24 hours). None for a booking that isn't a hold."""
+    if not _is_hold(booking):
+        return None
+    if booking.hold is not None and booking.hold.warning_minutes is not None:
+        return booking.hold.warning_minutes
+    return DEFAULT_WARNING_MINUTES
+
+
+def is_expired_hold(booking: VenueBooking) -> bool:
+    """SCRUM-81 D5: True for a hold stored as Expired, or a Pending hold whose
+    expiry has come (at exactly the expiry it has expired). Confirmed bookings
+    never expire."""
+    if booking.status == EXPIRED_STATUS:
+        return True
+    expires = hold_expires_at(booking)
+    return expires is not None and utc_now() >= expires
 
 
 def occupied_window(start: datetime, end: datetime, venue: Venue) -> Tuple[datetime, datetime]:
@@ -47,14 +109,36 @@ def windows_overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end
 
 
 def is_blocking(booking: VenueBooking) -> bool:
-    """True when the booking holds its venue: its status is in BLOCKING_STATUSES.
+    """True when the booking holds its venue: its status is in BLOCKING_STATUSES
+    and it isn't an expired hold (SCRUM-81 AC2, SCRUM-38 AC7).
 
     This is the one gate every caller uses (find_conflicts, retire_venue and
     the calendar). Callers may filter on BLOCKING_STATUSES in SQL first, but the
-    final answer is always this function, so SCRUM-81 only has to change
-    is_blocking to make expired holds stop blocking. No expiry yet.
+    final answer is always this function.
     """
-    return booking.status in BLOCKING_STATUSES
+    return booking.status in BLOCKING_STATUSES and not is_expired_hold(booking)
+
+
+def hold_fields(booking: VenueBooking) -> Dict[str, Any]:
+    """SCRUM-81 AC1, AC3: what every booking view shows about the hold: status
+    ("Expired" once the hold has expired), hold_expires_at and warning_minutes."""
+    expires = hold_expires_at(booking)
+    return {
+        "status": EXPIRED_STATUS if is_expired_hold(booking) else booking.status,
+        "hold_expires_at": expires.isoformat() if expires else None,
+        "warning_minutes": warning_minutes(booking),
+    }
+
+
+def expired_hold_refusal(booking: VenueBooking) -> Optional[str]:
+    """SCRUM-81 D5: the 409 message for approving, rejecting or changing a hold
+    that has expired, or None if it hasn't."""
+    if not is_expired_hold(booking):
+        return None
+    return (
+        f"This hold expired at {hold_expires_at(booking).strftime('%Y-%m-%d %H:%M')} UTC. "
+        "The Coordinator must submit a new request."
+    )
 
 
 def find_conflicts(

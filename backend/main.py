@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import router as auth_router
@@ -11,7 +11,13 @@ from .notifications import router as notifications_router
 from .reassignment import router as reassignment_router
 from .suitability import router as suitability_router
 from .venue_calendar import router as venue_calendar_router
+from .venue_holds import router as venue_holds_router, run_hold_checks  # [SCRUM-81 | Elnathan]
 from .venues import router as venues_router
+
+# [SCRUM-81] Hold expiry needs no timer: the check that sends hold warnings and
+# expiry notices, and stores "Expired", runs at the start of every request on
+# these routers (one query; it commits only when something changed).
+HOLD_CHECKS = [Depends(run_hold_checks)]
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -32,14 +38,15 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(events_router)
+app.include_router(events_router, dependencies=HOLD_CHECKS)
 app.include_router(coordinator_router)
 app.include_router(lead_router)
-app.include_router(notifications_router)
+app.include_router(notifications_router, dependencies=HOLD_CHECKS)
 app.include_router(reassignment_router)
-app.include_router(venues_router)
+app.include_router(venues_router, dependencies=HOLD_CHECKS)
 app.include_router(venue_calendar_router)
 app.include_router(suitability_router)
+app.include_router(venue_holds_router, dependencies=HOLD_CHECKS)  # [SCRUM-81]
 
 
 @app.get("/")

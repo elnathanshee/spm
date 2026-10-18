@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from .auth import get_current_user
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
+from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingDecision
 
@@ -415,6 +416,8 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "status": booking.status,
         "rejection_reason": getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
+        # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
+        **hold_fields(booking),
     }
 
 
@@ -626,6 +629,9 @@ def _decide_booking(booking_id: int, decision: str, new_status: str, staff: User
     GET /events/{id}/bookings).
     """
     booking = _get_booking_or_404(booking_id, db)
+    refusal = expired_hold_refusal(booking)  # [SCRUM-81] an expired hold can't be decided
+    if refusal:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
     if booking.status != "Pending" or booking.decision is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
