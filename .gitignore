@@ -216,3 +216,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+*.db
+*.db-shm
+*.db-wal
+dev.db
+
+# Node dependencies and build artifacts
+node_modules/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and OS files
+.env.local
+.DS_Store
+Thumbs.db

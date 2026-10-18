@@ -19,7 +19,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(100), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(50), nullable=False)  # e.g., 'organiser', 'coordinator', 'admin'
+    role = Column(String(50), nullable=False)  # e.g., 'organiser', 'coordinator', 'lead', 'admin'
     is_active_coordinator = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -28,6 +28,7 @@ class User(Base):
     organised_events = relationship("Event", foreign_keys="Event.organiser_id", back_populates="organiser")
     assigned_events = relationship("Event", foreign_keys="Event.assigned_coordinator_id", back_populates="assigned_coordinator")
     coordinator_assignments = relationship("CoordinatorAssignmentHistory", back_populates="coordinator")
+    notifications = relationship("Notification", back_populates="recipient", cascade="all, delete-orphan")
 
 
 class Event(Base):
@@ -54,6 +55,8 @@ class Event(Base):
     assigned_coordinator = relationship("User", foreign_keys=[assigned_coordinator_id], back_populates="assigned_events")
     assignment_history = relationship("CoordinatorAssignmentHistory", back_populates="event", cascade="all, delete-orphan")
     status_history = relationship("EventStatusHistory", back_populates="event", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="event", cascade="all, delete-orphan")
+    venue_bookings = relationship("VenueBooking", back_populates="event", cascade="all, delete-orphan")
 
 
 class LoginSession(Base):
@@ -96,3 +99,157 @@ class EventStatusHistory(Base):
     # Relationships
     event = relationship("Event", back_populates="status_history")
     actor = relationship("User")
+
+
+# [SCRUM-51 | Renee] NEW: in-app notifications. The customer left the delivery
+# channel to the team, so a notification is a row the recipient reads through
+# GET /notifications. SCRUM-63 and later stories reuse this table.
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=True, index=True)
+    kind = Column(String(50), nullable=True)  # e.g. 'submitted', 'returned', 'approved', 'rejected'
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    read_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id], back_populates="notifications")
+    recipient = relationship("User", foreign_keys=[user_id], overlaps="notifications,user")
+    event = relationship("Event", back_populates="notifications")
+
+    def __init__(self, **kwargs):
+        if "recipient_id" in kwargs and "user_id" not in kwargs:
+            kwargs["user_id"] = kwargs.pop("recipient_id")
+        if "read" in kwargs and "read_at" not in kwargs:
+            read_val = kwargs.pop("read")
+            kwargs["read_at"] = datetime.utcnow() if read_val else None
+        if "kind" not in kwargs:
+            kwargs["kind"] = "info"
+        super().__init__(**kwargs)
+
+    @property
+    def recipient_id(self):
+        return self.user_id
+
+    @recipient_id.setter
+    def recipient_id(self, val):
+        self.user_id = val
+
+    @property
+    def read(self):
+        return self.read_at is not None
+
+    @read.setter
+    def read(self, val):
+        if val:
+            self.read_at = datetime.utcnow()
+        else:
+            self.read_at = None
+
+
+# [SCRUM-23 | Renee] NEW: one row per reassignment - who moved which event from
+# whom to whom, and when. A new table rather than new columns on
+# CoordinatorAssignmentHistory, because create_all() adds missing tables on Neon
+# but never alters existing ones, so new columns would need a migration.
+class CoordinatorReassignment(Base):
+    __tablename__ = "coordinator_reassignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    from_coordinator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    to_coordinator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reassigned_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reassigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    event = relationship("Event")
+    from_coordinator = relationship("User", foreign_keys=[from_coordinator_id])
+    to_coordinator = relationship("User", foreign_keys=[to_coordinator_id])
+    reassigned_by = relationship("User", foreign_keys=[reassigned_by_id])
+
+
+# [SCRUM-30 | Sarah] NEW: Venues and Venue Bookings catalogue
+class Venue(Base):
+    __tablename__ = "venues"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, index=True, nullable=False)
+    location = Column(String(255), nullable=False)
+    capacity = Column(Integer, nullable=False)
+    facilities = Column(Text, nullable=True)  # JSON-encoded list of strings
+    accessibility = Column(Text, nullable=True)
+    supported_layouts = Column(Text, nullable=True)  # JSON-encoded list of strings
+    operating_hours = Column(String(100), nullable=True)
+    setup_time_mins = Column(Integer, default=30, nullable=False)
+    turnaround_time_mins = Column(Integer, default=45, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    bookings = relationship("VenueBooking", back_populates="venue", cascade="all, delete-orphan")
+
+
+class VenueBooking(Base):
+    __tablename__ = "venue_bookings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    venue_id = Column(Integer, ForeignKey("venues.id"), nullable=False)
+    booking_start = Column(DateTime, nullable=False)
+    booking_end = Column(DateTime, nullable=False)
+    status = Column(String(50), default="Pending", nullable=False)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    event = relationship("Event", back_populates="venue_bookings")
+    venue = relationship("Venue", back_populates="bookings")
+    # [SCRUM-36 | Renee] The Venue Staff decision on this request, if any
+    decision = relationship("VenueBookingDecision", back_populates="booking",
+                            uselist=False, cascade="all, delete-orphan")
+    # [SCRUM-80 | Renee] Set when a setup/turnaround change makes this booking clash
+    conflict_flag = relationship("VenueBookingConflictFlag", back_populates="booking",
+                                 uselist=False, cascade="all, delete-orphan",
+                                 foreign_keys="VenueBookingConflictFlag.booking_id")
+
+
+# [SCRUM-36 | Renee] NEW: one row per Venue Staff decision on a booking request -
+# who approved or rejected it, and when. A new table rather than new columns on
+# venue_bookings, because create_all() adds missing tables on Neon but never
+# alters existing ones (same reason as CoordinatorReassignment, SCRUM-23).
+# booking_id is unique, so a request can only ever be decided once.
+class VenueBookingDecision(Base):
+    __tablename__ = "venue_booking_decisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False, unique=True, index=True)
+    decision = Column(String(20), nullable=False)  # "Approved" or "Rejected"
+    decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reason = Column(Text, nullable=True)  # left for SCRUM-37 (rejection reason)
+
+    # Relationships
+    booking = relationship("VenueBooking", back_populates="decision")
+    decided_by = relationship("User")
+
+
+# [SCRUM-80 | Renee] NEW: flags a booking that clashes with another after the
+# venue's setup or turnaround time changed (SCRUM-80 AC3 = SCRUM-38 AC8). The
+# booking itself is never removed or changed; Venue Staff see the flag and
+# decide. A new table rather than a column on venue_bookings, because
+# create_all() adds missing tables on Neon but never alters existing ones
+# (same reason as VenueBookingDecision). One flag per booking.
+class VenueBookingConflictFlag(Base):
+    __tablename__ = "venue_booking_conflict_flags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False, unique=True, index=True)
+    conflicting_booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False)
+    reason = Column(Text, nullable=False)
+    flagged_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    booking = relationship("VenueBooking", back_populates="conflict_flag", foreign_keys=[booking_id])

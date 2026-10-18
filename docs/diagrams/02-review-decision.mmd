@@ -1,0 +1,34 @@
+---
+title: "Sequence 2 - Coordinator returns / approves / rejects (SCRUM-25/26/27/51)"
+---
+sequenceDiagram
+    autonumber
+    actor Co as Assigned Coordinator
+    participant API as events.py<br/>POST /events/{id}/return | approve | reject
+    participant SR as status_rules.py<br/>change_status
+    participant N as notifications.py
+    participant DB as Database
+
+    Co->>API: decision (+ note / reason)
+    API->>API: body check: return & reject need a non-blank note (else 422)
+    API->>API: role must be coordinator (else 403)
+    API->>DB: load Event (else 404)
+
+    API->>SR: change_status(event, new_status, coordinator, reason)
+    SR->>SR: is (current -> new) in TRANSITIONS?
+    alt move not allowed from current status
+        SR-->>API: InvalidTransition
+        API-->>Co: 400
+    else caller is not the assigned coordinator
+        SR-->>API: NotPermitted
+        API-->>Co: 403
+    end
+    SR->>DB: set status, add EventStatusHistory (actor, reason)
+    SR-->>API: ok
+
+    API->>N: notify_organiser_of_status(new_status, note)
+    N->>DB: add Notification -> Organiser<br/>returned: includes note / approved / rejected: includes reason
+
+    API->>DB: commit (status + history + notification together)
+    API-->>Co: 200 {status}
+    Note over API,N: A refused action raises before notify, so it never sends a notification

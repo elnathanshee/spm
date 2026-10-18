@@ -23,7 +23,7 @@ Test case numbering starts at TC-101 so it does not collide with TC-001..TC-006
 in test_spine.py.
 
 Note on AC2: the notification stories (SCRUM-51, SCRUM-63) were dropped from
-Sprint 1, so nothing in this system notifies anyone. The amendment writes an
+Sprint 1, so amendments do not notify the Coordinator. The amendment writes an
 EventStatusHistory row instead, which is an audit trail rather than a
 notification. TC-104 evidences that audit row. The "is notified" half of AC2 is
 not satisfied by this code.
@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, EventStatusHistory, User
+from backend.models import Event, EventStatusHistory, LoginSession, User
 from backend.security import hash_password
 from backend.status import APPROVED, DRAFT, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 
@@ -86,7 +86,7 @@ def client(db_session):
 
 @pytest.fixture
 def seed_data(db_session):
-    """Two organisers (AC4 needs a second one) and one active coordinator."""
+    """Two organisers, an active coordinator, and a lead for explicit assignment."""
     organiser_a = User(
         username="org_a_amend",
         password_hash=hash_password("pass123"),
@@ -105,7 +105,13 @@ def seed_data(db_session):
         role="coordinator",
         is_active_coordinator=True,
     )
-    db_session.add_all([organiser_a, organiser_b, coordinator])
+    lead = User(
+        username="lead_amend",
+        password_hash=hash_password("pass123"),
+        role="lead",
+        is_active_coordinator=False,
+    )
+    db_session.add_all([organiser_a, organiser_b, coordinator, lead])
     db_session.commit()
     return {
         "organiser_a_id": organiser_a.id,
@@ -152,6 +158,14 @@ def create_submitted_event(client, username="org_a_amend", **extra):
     response = client.post(f"/events/{event_id}/submit")
     assert response.status_code == 200
     assert response.json()["status"] == SUBMITTED
+    # Main requires a Lead to assign requests before a Coordinator can review them.
+    login(client, "lead_amend")
+    coordinators = client.get("/lead/coordinators")
+    assert coordinators.status_code == 200
+    coordinator_id = next(c["id"] for c in coordinators.json() if c["username"] == "coord_amend")
+    assigned = client.post(f"/events/{event_id}/assign", json={"coordinator_id": coordinator_id})
+    assert assigned.status_code == 200
+    login(client, username)
     return event_id
 
 
@@ -351,7 +365,7 @@ def test_tc114_amend_with_empty_body_is_refused_dod15(client, seed_data, db_sess
 
     assert response.status_code == 400
     assert response.json()["detail"] == (
-        "No fields supplied to amend. Send at least one field to change."
+        "At least one field is required to amend the request"
     )
     assert snapshot(read_event_fresh(db_session, event_id)) == before
 
@@ -574,3 +588,300 @@ def test_tc115_amendment_cannot_change_workflow_fields_dod14(client, seed_data, 
     assert event.status == SUBMITTED
     assert event.organiser_id == owner_before
     assert event.assigned_coordinator_id == coordinator_before
+
+
+# Additional amendment coverage from main.
+@pytest.fixture(scope="function")
+def main_db_session():
+    Base.metadata.create_all(bind=engine)
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(scope="function")
+def main_client(main_db_session):
+    def override_get_db():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def main_seed_data(main_db_session):
+    organiser1 = User(
+        username="organiser1",
+        password_hash=hash_password("pass123"),
+        role="organiser",
+        is_active_coordinator=False,
+    )
+    organiser2 = User(
+        username="organiser2",
+        password_hash=hash_password("pass123"),
+        role="organiser",
+        is_active_coordinator=False,
+    )
+    coord1 = User(
+        username="coord1",
+        password_hash=hash_password("pass123"),
+        role="coordinator",
+        is_active_coordinator=True,
+    )
+    main_db_session.add_all([organiser1, organiser2, coord1])
+    main_db_session.commit()
+
+    # Create sessions
+    s1 = LoginSession(user_id=organiser1.id, token="token_org1", valid=True)
+    s2 = LoginSession(user_id=organiser2.id, token="token_org2", valid=True)
+    sc = LoginSession(user_id=coord1.id, token="token_coord1", valid=True)
+    main_db_session.add_all([s1, s2, sc])
+    main_db_session.commit()
+
+    return {
+        "organiser1": organiser1,
+        "organiser2": organiser2,
+        "coord1": coord1,
+    }
+
+
+def main_create_and_submit_event(main_client, token="token_org1"):
+    main_client.cookies.set("connectsphere_session", token)
+    start = (datetime.utcnow() + timedelta(days=14)).isoformat()
+    create_res = main_client.post(
+        "/events",
+        json={
+            "title": "Original Gala",
+            "purpose": "Fundraising",
+            "description": "Annual Charity Gala",
+            "proposed_start": start,
+            "expected_attendance": 100,
+        },
+    )
+    assert create_res.status_code == 201
+    event_id = create_res.json()["id"]
+
+    sub_res = main_client.post(f"/events/{event_id}/submit")
+    assert sub_res.status_code == 200
+    return event_id
+
+
+# ---------------------------------------------------------------------------
+# Test Cases: TC-101 to TC-115 (Elnathan - SCRUM-21)
+# ---------------------------------------------------------------------------
+
+def test_main_tc101_amend_while_submitted(main_client, main_db_session, main_seed_data):
+    """TC-101 (SCRUM-21 AC1): Organiser amends own Submitted request."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_org1")
+
+    payload = {
+        "title": "Updated Annual Gala",
+        "expected_attendance": 150,
+    }
+    response = main_client.post(f"/events/{event_id}/amend", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Updated Annual Gala"
+    assert data["expected_attendance"] == 150
+    assert data["purpose"] == "Fundraising"  # untouched field preserved
+
+
+def test_main_tc102_amend_while_under_review(main_client, main_db_session, main_seed_data):
+    """TC-102 (SCRUM-21 AC1): Organiser amends own Under Review request."""
+    event_id = main_create_and_submit_event(main_client)
+    event = main_db_session.get(Event, event_id)
+    event.status = UNDER_REVIEW
+    main_db_session.commit()
+
+    main_client.cookies.set("connectsphere_session", "token_org1")
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Under Review Gala"})
+    assert response.status_code == 200
+    assert response.json()["title"] == "Under Review Gala"
+
+
+def test_main_tc103_status_unchanged(main_client, main_db_session, main_seed_data):
+    """TC-103 (SCRUM-21 AC2): Amendment does not revert status to Draft."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_org1")
+
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Title Modified"})
+    assert response.status_code == 200
+    assert response.json()["status"] == SUBMITTED
+
+    # Check database
+    main_db_session.expire_all()
+    event = main_db_session.get(Event, event_id)
+    assert event.status == SUBMITTED
+
+
+def test_main_tc104_amendment_recorded_in_history(main_client, main_db_session, main_seed_data):
+    """TC-104 (SCRUM-21 AC2): Amendment writes one status-history row."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_org1")
+
+    main_client.post(f"/events/{event_id}/amend", json={"title": "New Title", "expected_attendance": 200})
+
+    main_db_session.expire_all()
+    history = (
+        main_db_session.query(EventStatusHistory)
+        .filter_by(event_id=event_id)
+        .order_by(EventStatusHistory.id.desc())
+        .first()
+    )
+    assert history.previous_status == SUBMITTED
+    assert history.new_status == SUBMITTED
+    assert history.actor_id == main_seed_data["organiser1"].id
+    assert "title" in history.reason
+    assert "expected_attendance" in history.reason
+
+
+def test_main_tc105_refused_after_approval(main_client, main_db_session, main_seed_data):
+    """TC-105 (SCRUM-21 AC3): Amending an Approved request is refused."""
+    event_id = main_create_and_submit_event(main_client)
+    event = main_db_session.get(Event, event_id)
+    event.status = APPROVED
+    main_db_session.commit()
+
+    main_client.cookies.set("connectsphere_session", "token_org1")
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Illegal Change"})
+    assert response.status_code == 400
+    assert "change request" in response.json()["detail"].lower()
+
+
+def test_main_tc106_refused_after_rejection(main_client, main_db_session, main_seed_data):
+    """TC-106 (SCRUM-21 AC3): Amending a Rejected request is refused."""
+    event_id = main_create_and_submit_event(main_client)
+    event = main_db_session.get(Event, event_id)
+    event.status = REJECTED
+    main_db_session.commit()
+
+    main_client.cookies.set("connectsphere_session", "token_org1")
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Illegal Change"})
+    assert response.status_code == 400
+    assert "change request" in response.json()["detail"].lower()
+
+
+def test_main_tc107_ownership_guard(main_client, main_db_session, main_seed_data):
+    """TC-107 (SCRUM-21 AC4): An Organiser cannot amend another Organiser's request."""
+    event_id = main_create_and_submit_event(main_client, token="token_org1")
+
+    # Log in as Organiser B
+    main_client.cookies.set("connectsphere_session", "token_org2")
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Hijacked Event"})
+    assert response.status_code == 403
+    assert "not authorized" in response.json()["detail"].lower()
+
+
+def test_main_tc108_draft_amendment_refused(main_client, main_db_session, main_seed_data):
+    """TC-108 (SCRUM-21 AC1 boundary): Amending a Draft is refused with the correct advice."""
+    main_client.cookies.set("connectsphere_session", "token_org1")
+    draft_res = main_client.post("/events", json={"title": "Draft Only", "expected_attendance": 50})
+    event_id = draft_res.json()["id"]
+
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Trying to amend Draft"})
+    assert response.status_code == 400
+    assert "draft" in response.json()["detail"].lower()
+
+
+def test_main_tc109_amend_while_returned(main_client, main_db_session, main_seed_data):
+    """TC-109 (SCRUM-21 AC1): Organiser amends a Returned request."""
+    event_id = main_create_and_submit_event(main_client)
+    event = main_db_session.get(Event, event_id)
+    event.status = RETURNED
+    main_db_session.commit()
+
+    main_client.cookies.set("connectsphere_session", "token_org1")
+    response = main_client.post(
+        f"/events/{event_id}/amend",
+        json={"title": "Returned Gala", "equipment_requirements": "Sound board"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == RETURNED
+    assert response.json()["equipment_requirements"] == "Sound board"
+
+
+def test_main_tc110_coordinator_cannot_amend(main_client, main_db_session, main_seed_data):
+    """TC-110 (SCRUM-21 DoD item 14): A Coordinator cannot amend an event request."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_coord1")
+
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "Coord trying to amend"})
+    assert response.status_code == 403
+    assert "Only organisers" in response.json()["detail"]
+
+
+def test_main_tc111_unauthenticated_amendment_refused(main_client, main_db_session, main_seed_data):
+    """TC-111 (SCRUM-21 DoD item 14): Unauthenticated amendment is refused."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.clear()
+
+    response = main_client.post(f"/events/{event_id}/amend", json={"title": "No Auth"})
+    assert response.status_code == 401
+
+
+def test_main_tc112_event_not_found(main_client, main_seed_data):
+    """TC-112 (SCRUM-21 DoD item 15): Amending an event that does not exist returns 404."""
+    main_client.cookies.set("connectsphere_session", "token_org1")
+    response = main_client.post("/events/999999/amend", json={"title": "Ghost Event"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Event not found"
+
+
+def test_main_tc113_invalid_values_refused(main_client, main_db_session, main_seed_data):
+    """TC-113 (SCRUM-21 DoD item 15): Amendment with invalid values is refused."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_org1")
+
+    # 1. Blank title -> 422
+    res_blank = main_client.post(f"/events/{event_id}/amend", json={"title": "   "})
+    assert res_blank.status_code == 422
+
+    # 2. Attendance <= 0 -> 400
+    res_att = main_client.post(f"/events/{event_id}/amend", json={"expected_attendance": 0})
+    assert res_att.status_code == 400
+
+    # 3. Past date -> 400
+    past_date = (datetime.utcnow() - timedelta(days=2)).isoformat()
+    res_date = main_client.post(f"/events/{event_id}/amend", json={"proposed_start": past_date})
+    assert res_date.status_code == 400
+
+
+def test_main_tc114_empty_body_refused(main_client, main_db_session, main_seed_data):
+    """TC-114 (SCRUM-21 DoD item 15): Amendment with an empty body is refused."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_org1")
+
+    response = main_client.post(f"/events/{event_id}/amend", json={})
+    assert response.status_code == 400
+    assert "at least one field" in response.json()["detail"].lower()
+
+
+def test_main_tc115_privilege_escalation_prevented(main_client, main_db_session, main_seed_data):
+    """TC-115 (SCRUM-21 DoD item 14): Workflow fields cannot be changed by an amendment."""
+    event_id = main_create_and_submit_event(main_client)
+    main_client.cookies.set("connectsphere_session", "token_org1")
+
+    payload = {
+        "title": "Legitimate Title",
+        "status": "Approved",
+        "organiser_id": main_seed_data["organiser2"].id,
+        "assigned_coordinator_id": 9999,
+    }
+    response = main_client.post(f"/events/{event_id}/amend", json=payload)
+    assert response.status_code == 200
+
+    main_db_session.expire_all()
+    event = main_db_session.get(Event, event_id)
+    assert event.title == "Legitimate Title"
+    assert event.status == SUBMITTED  # status was NOT changed to Approved
+    assert event.organiser_id == main_seed_data["organiser1"].id  # organiser was NOT changed

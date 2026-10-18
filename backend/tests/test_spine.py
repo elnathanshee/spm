@@ -148,6 +148,20 @@ def test_tc006_direct_url_while_logged_out(client):
 
 
 def test_event_draft_creation_and_validation(client, seed_data):
+    """CONTRADICTS SCRUM-20 AC1 (conflict K2) - do not treat as evidence.
+
+    SCRUM-20 AC1: "An incomplete request can be saved without passing
+    submission validation."
+
+    This test asserts the opposite: that creating a DRAFT with a past date or
+    with expected_attendance of 0 is refused with 400. It passes, which means
+    the code and the test agree with each other while both disagree with the
+    story. Passing here is not evidence that the behaviour is correct.
+
+    Either SCRUM-20 AC1 is wrong or the draft validation is. That is a Product
+    Owner decision and is still open, so neither the test nor the endpoint has
+    been changed. Raised in the Week 6 test audit as K2.
+    """
     # Login as organiser
     client.post("/auth/login", json={"username": "org_test", "password": "pass123"})
 
@@ -196,7 +210,7 @@ def test_event_draft_creation_and_validation(client, seed_data):
     assert data["assigned_coordinator_id"] is None
 
 
-def test_event_submit_and_round_robin_assignment(client, seed_data, db_session):
+def test_event_submission_leaves_requests_unassigned_for_lead(client, seed_data, db_session):
     # Login as organiser
     client.post("/auth/login", json={"username": "org_test", "password": "pass123"})
 
@@ -212,25 +226,21 @@ def test_event_submit_and_round_robin_assignment(client, seed_data, db_session):
     assert resp2.status_code == 201
     event2_id = resp2.json()["id"]
 
-    # Submit event 1 -> assigned to first active coordinator (coord1)
+    # Change #5: submissions wait for manual Lead assignment.
     sub1 = client.post(f"/events/{event1_id}/submit")
     assert sub1.status_code == 200
     data1 = sub1.json()
     assert data1["status"] == SUBMITTED
-    assigned_1 = data1["assigned_coordinator_id"]
-    assert assigned_1 in [seed_data["coord1"].id, seed_data["coord2"].id]
+    assert data1["assigned_coordinator_id"] is None
 
-    # Submit event 2 -> round-robin assigns to the other active coordinator (coord2)
     sub2 = client.post(f"/events/{event2_id}/submit")
     assert sub2.status_code == 200
     data2 = sub2.json()
     assert data2["status"] == SUBMITTED
-    assigned_2 = data2["assigned_coordinator_id"]
-    assert assigned_2 in [seed_data["coord1"].id, seed_data["coord2"].id]
-    assert assigned_1 != assigned_2  # Different coordinators assigned!
+    assert data2["assigned_coordinator_id"] is None
 
 
-def test_submit_fails_when_no_coordinator_available(client, db_session):
+def test_submit_succeeds_unassigned_when_no_coordinator_available(client, db_session):
     # Create organiser but NO active coordinator
     organiser = User(
         username="org_alone",
@@ -249,8 +259,8 @@ def test_submit_fails_when_no_coordinator_available(client, db_session):
     event_id = resp.json()["id"]
 
     sub = client.post(f"/events/{event_id}/submit")
-    assert sub.status_code == 400
-    assert "No active coordinator available" in sub.json()["detail"]
+    assert sub.status_code == 200
+    assert sub.json()["assigned_coordinator_id"] is None
 
 
 def test_event_coordinator_return_and_resubmit_option_a(client, seed_data, db_session):
@@ -266,6 +276,10 @@ def test_event_coordinator_return_and_resubmit_option_a(client, seed_data, db_se
     sub_resp = client.post(f"/events/{event_id}/submit")
     assert sub_resp.status_code == 200
     assert sub_resp.json()["status"] == SUBMITTED
+
+    event = db_session.get(Event, event_id)
+    event.assigned_coordinator_id = seed_data["coord1"].id
+    db_session.commit()
 
     # 3. Coordinator logs in and returns event with a note -> status: Returned (Option A)
     client.post("/auth/login", json={"username": "coord1_test", "password": "pass123"})
