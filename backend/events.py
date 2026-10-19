@@ -82,6 +82,14 @@ class EventCreate(BaseModel):
 
 # [SCRUM-21 | Elnathan] Request body for /amend
 class EventAmend(BaseModel):
+    """Fields an Organiser is allowed to correct on a request awaiting review.
+
+    Workflow columns (status, organiser_id, assigned_coordinator_id,
+    submitted_at) are deliberately absent. Pydantic drops keys it does not
+    declare, so a body such as {"status": "Approved"} is discarded before it can
+    reach the event.
+    """
+
     title: Optional[str] = None
     purpose: Optional[str] = None
     description: Optional[str] = None
@@ -95,9 +103,12 @@ class EventAmend(BaseModel):
     @field_validator("title")
     @classmethod
     def validate_title(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and (not v or not v.strip()):
+        # A title that was not supplied at all is fine; a supplied blank one is not.
+        if v is None:
+            return v
+        if not v.strip():
             raise ValueError("Title cannot be empty")
-        return v.strip() if v is not None else None
+        return v.strip()
 
 
 def validate_event_business_rules(
@@ -258,11 +269,10 @@ def submit_event(
 @router.post("/{event_id}/amend")
 def amend_event(
     event_id: int,
-    payload: EventAmend,
+    amendment: EventAmend,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """SCRUM-21: Organiser amends own event request while Submitted, Under Review, or Returned."""
     if (current_user.role or "").strip().lower() != "organiser":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -276,58 +286,83 @@ def amend_event(
             detail="Event not found",
         )
 
+    # AC4: an Organiser may only amend a request they own.
     if event.organiser_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to amend this event request",
         )
 
-    if event.status == DRAFT:
+    # AC3: once a decision has been made the request is final, and the Organiser
+    # is told what to do instead. This is checked before anything is written, so
+    # the existing request is left unchanged.
+    if event.status in [APPROVED, REJECTED]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Draft requests cannot be amended. Please edit the draft and submit.",
-        )
-    if event.status == APPROVED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot amend an approved event request. Please raise a change request.",
-        )
-    if event.status == REJECTED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot amend a rejected event request. Please raise a change request.",
-        )
-    if event.status not in [SUBMITTED, UNDER_REVIEW, RETURNED]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot amend an event request in {event.status} status.",
+            detail=(
+                f"This request has already been {event.status.lower()} and can no "
+                f"longer be amended. Please raise a change request instead."
+            ),
         )
 
-    update_data = payload.model_dump(exclude_unset=True)
-    if not update_data:
+    # AC1: amendment is for requests still awaiting review, which includes
+    # Returned. Anything else is refused, so a status that a later sprint adds
+    # cannot be amended by default.
+    if event.status not in [SUBMITTED, UNDER_REVIEW, RETURNED]:
+        # The message names the actual status so the Organiser can see why they
+        # were refused, not just that they were.
+        refusal = (
+            f"This request has status '{event.status}' and cannot be amended. "
+            f"Only a request awaiting review (Submitted, Under Review or "
+            f"Returned) can be amended."
+        )
+        # A Draft has not been submitted yet, so the way forward is to finish and
+        # submit it. Telling the Organiser to raise a change request would be
+        # wrong advice here, so that wording is deliberately not used.
+        if event.status == DRAFT:
+            refusal = refusal + " A Draft should be completed and submitted instead."
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=refusal,
+        )
+
+    # exclude_unset keeps only the fields the Organiser actually sent, so an
+    # omitted field is left alone rather than being overwritten with None.
+    changes = amendment.model_dump(exclude_unset=True)
+    if not changes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one field is required to amend the request",
         )
 
+    # Only the values actually supplied are validated. Re-checking the stored
+    # proposed_start would wrongly refuse an unrelated amendment to a request
+    # whose start date has since passed.
     validate_event_business_rules(
-        payload.proposed_start,
-        payload.expected_attendance,
+        changes.get("proposed_start"),
+        changes.get("expected_attendance"),
     )
 
     changed_fields = []
-    for field, val in update_data.items():
-        if hasattr(event, field):
-            setattr(event, field, val)
-            changed_fields.append(field)
+    for field_name, new_value in changes.items():
+        if getattr(event, field_name) != new_value:
+            setattr(event, field_name, new_value)
+            changed_fields.append(field_name)
 
-    # Record status history row: previous_status == new_status == current_status
+    if changed_fields:
+        reason_text = "Request amended by organiser. Fields changed: " + ", ".join(changed_fields)
+    else:
+        reason_text = "Request amended by organiser. No field values changed."
+
+    # AC2: the status is carried across unchanged. Recording the same value as
+    # both previous and new status is the audit evidence that amending a request
+    # does not send it back to Draft.
     status_history = EventStatusHistory(
         event_id=event.id,
         previous_status=event.status,
         new_status=event.status,
         actor_id=current_user.id,
-        reason=f"Amended: {', '.join(changed_fields)}",
+        reason=reason_text,
     )
     db.add(status_history)
     db.commit()
@@ -345,9 +380,10 @@ def amend_event(
         "accessibility_needs": event.accessibility_needs,
         "equipment_requirements": event.equipment_requirements,
         "registration_needs": event.registration_needs,
-        "status": event.status,
         "organiser_id": event.organiser_id,
+        "status": event.status,
         "assigned_coordinator_id": event.assigned_coordinator_id,
+        "amended_fields": changed_fields,
         "changed_fields": changed_fields,
     }
 
