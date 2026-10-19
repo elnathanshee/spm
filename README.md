@@ -130,11 +130,15 @@ Neon and creating or deciding records changes live data.
 Application startup initializes missing tables from the SQLAlchemy models with
 `Base.metadata.create_all()`. A fresh empty database receives the SCRUM-64 requester
 reference and notification uniqueness constraint without a separate migration.
-This does not upgrade existing tables: older databases missing
-`venue_bookings.requester_id`, `notifications.booking_id`, or uniqueness on
-`(booking_id, kind, user_id)` require a separately managed schema upgrade before
-deploying this version. The repository no longer includes a SCRUM-64 upgrade
-script. Removing that script does not change an already upgraded database.
+This does not upgrade existing tables. **Before deploying SCRUM-64, the database
+owner must run `python -m backend.migrate_scrum64 --check` against the intended
+target and obtain a successful result.** Older databases can be upgraded with the
+restored, explicit `--apply` command only after approval, a verified recovery point,
+and stopped application writers. The configured development/test Neon branch was
+verified compatible on 19 Oct 2026; no migration was applied during that check.
+Other branches must be checked independently. See
+[SCRUM-64 migration and verification](docs/SCRUM-64-MIGRATION.md) for the required
+columns, constraints, evidence, Windows commands, and deployment order.
 
 ## Developer Standards & SOP
 
