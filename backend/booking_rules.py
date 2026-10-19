@@ -55,18 +55,26 @@ def _is_hold(booking: VenueBooking) -> bool:
     return booking.status in (HOLD_STATUS, EXPIRED_STATUS)
 
 
+def default_expiry(booking: VenueBooking) -> Optional[datetime]:
+    """SCRUM-81 D2: a hold's default expiry: 48 hours after the request, or the
+    booking's start if that is sooner. None if the booking hasn't been saved
+    yet (no created_at)."""
+    if booking.created_at is None:
+        return None
+    return min(booking.created_at + timedelta(hours=DEFAULT_HOLD_HOURS), booking.booking_start)
+
+
 def hold_expires_at(booking: VenueBooking) -> Optional[datetime]:
-    """SCRUM-81 D2: when the hold expires: the time Venue Staff set, if any;
-    otherwise 48 hours after the request, or the booking's start if that is
-    sooner. None for a booking that isn't a hold (Pending or Expired), or that
-    hasn't been saved yet (no created_at)."""
+    """SCRUM-81 D2: when the hold expires: the expiry stored in venue_holds
+    (the default is stored when the request is made, and Venue Staff can change
+    it). Holds without a stored expiry, such as rows from before that change,
+    fall back to default_expiry. None for a booking that isn't a hold (Pending
+    or Expired), or that hasn't been saved yet."""
     if not _is_hold(booking):
         return None
     if booking.hold is not None and booking.hold.expires_at is not None:
         return booking.hold.expires_at
-    if booking.created_at is None:
-        return None
-    return min(booking.created_at + timedelta(hours=DEFAULT_HOLD_HOURS), booking.booking_start)
+    return default_expiry(booking)
 
 
 def warning_minutes(booking: VenueBooking) -> Optional[int]:

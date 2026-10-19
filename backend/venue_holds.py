@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import booking_rules
+from . import booking_rules, hold_store
 from .auth import get_current_user
 from .database import get_db
 from .models import User, VenueBooking, VenueHold
@@ -55,13 +55,6 @@ def _describe(booking: VenueBooking) -> str:
     return f'{booking.venue.name} for "{booking.event.title}" ({period})'
 
 
-def _hold_row(booking: VenueBooking) -> VenueHold:
-    """The booking's venue_holds row, created when first needed."""
-    if booking.hold is None:
-        booking.hold = VenueHold()
-    return booking.hold
-
-
 def _tell_coordinator(db: Session, booking: VenueBooking, kind: str, message: str) -> None:
     """D8: notify the event's assigned Coordinator. Nobody is told if the event
     has no Coordinator, or if they may no longer see it (so notify never raises
@@ -85,37 +78,64 @@ def _refuse_unless_live_hold(booking: VenueBooking) -> None:
         )
 
 
-def run_hold_checks(db: Session = Depends(get_db)) -> None:
-    """D4, D5: for each Pending hold, send the Coordinator the warning once it
-    is due, and at expiry send the expiry notice and store the status Expired.
+def check_hold(db: Session, booking: VenueBooking, now: datetime) -> bool:
+    """D4, D5 for one Pending hold. Returns whether anything changed.
 
-    Each notice is sent once: the warning is recorded in venue_holds, and an
-    expired hold is no longer Pending, so it isn't checked again. If a hold has
-    already expired when this runs, only the expiry notice is sent. One query;
-    commits only when something changed.
+    At expiry, the hold is claimed with an UPDATE that sets its status to
+    Expired only WHERE it is still Pending; the expiry notice is sent only if
+    that changed a row. At the warning time, the warning is claimed with an
+    UPDATE that sets warning_sent_at only WHERE it is still null; the warning is
+    sent only if that changed a row. So each notice is sent exactly once, even
+    when two checks overlap (PR 26 review item 1): the database, not what this
+    session loaded earlier, decides who sends it. If the hold has already
+    expired, only the expiry notice is sent.
     """
+    expires = booking_rules.hold_expires_at(booking)
+    if now >= expires:
+        claimed = (
+            db.query(VenueBooking)
+            .filter(VenueBooking.id == booking.id, VenueBooking.status == booking_rules.HOLD_STATUS)
+            .update({VenueBooking.status: booking_rules.EXPIRED_STATUS}, synchronize_session=False)
+        )
+        if not claimed:
+            return False
+        db.expire(booking, ["status"])
+        _tell_coordinator(
+            db, booking, KIND_HOLD_EXPIRED,
+            f"The hold on {_describe(booking)} expired at {_fmt(expires)} UTC. The venue is free "
+            "for other requests; submit a new request if you still need it.",
+        )
+        hold_store.get_or_create_hold(db, booking).expiry_notice_sent_at = now
+        return True
+
+    if now < expires - timedelta(minutes=booking_rules.warning_minutes(booking)):
+        return False
+    hold = hold_store.get_or_create_hold(db, booking)
+    claimed = (
+        db.query(VenueHold)
+        .filter(VenueHold.id == hold.id, VenueHold.warning_sent_at.is_(None))
+        .update({VenueHold.warning_sent_at: now}, synchronize_session=False)
+    )
+    if not claimed:
+        return False
+    db.expire(hold, ["warning_sent_at"])
+    _tell_coordinator(
+        db, booking, KIND_HOLD_WARNING,
+        f"The hold on {_describe(booking)} expires at {_fmt(expires)} UTC. "
+        "Ask Venue Staff to confirm or extend it.",
+    )
+    return True
+
+
+def run_hold_checks(db: Session = Depends(get_db)) -> None:
+    """D4, D5: check every Pending hold (check_hold): send the Coordinator the
+    warning once it is due, and at expiry the expiry notice, storing the status
+    Expired. One query; commits only when something changed, so each claim and
+    its notice are saved together."""
     now = booking_rules.utc_now()
     changed = False
     for booking in db.query(VenueBooking).filter(VenueBooking.status == booking_rules.HOLD_STATUS).all():
-        expires = booking_rules.hold_expires_at(booking)
-        warn_from = expires - timedelta(minutes=booking_rules.warning_minutes(booking))
-        if now >= expires:
-            _tell_coordinator(
-                db, booking, KIND_HOLD_EXPIRED,
-                f"The hold on {_describe(booking)} expired at {_fmt(expires)} UTC. The venue is free "
-                "for other requests; submit a new request if you still need it.",
-            )
-            _hold_row(booking).expiry_notice_sent_at = now
-            booking.status = booking_rules.EXPIRED_STATUS
-            changed = True
-        elif now >= warn_from and not (booking.hold and booking.hold.warning_sent_at):
-            _tell_coordinator(
-                db, booking, KIND_HOLD_WARNING,
-                f"The hold on {_describe(booking)} expires at {_fmt(expires)} UTC. "
-                "Ask Venue Staff to confirm or extend it.",
-            )
-            _hold_row(booking).warning_sent_at = now
-            changed = True
+        changed = check_hold(db, booking, now) or changed
     if changed:
         db.commit()
 
@@ -143,7 +163,7 @@ def set_hold_expiry(
             detail=f"The new expiry can't be later than the booking's start ({_fmt(booking.booking_start)})",
         )
 
-    hold = _hold_row(booking)
+    hold = hold_store.get_or_create_hold(db, booking)
     hold.expires_at = expires_at
     hold.expires_set_by_id = current_user.id
     hold.expires_set_at = now
@@ -175,7 +195,7 @@ def set_hold_warning(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refused)
     _refuse_unless_live_hold(booking)
 
-    hold = _hold_row(booking)
+    hold = hold_store.get_or_create_hold(db, booking)
     hold.warning_minutes = payload.warning_minutes
     hold.warning_sent_at = None
     db.commit()
