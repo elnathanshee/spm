@@ -836,3 +836,93 @@ def test_tc8133_with_no_use_between_warning_and_expiry_only_the_expiry_notice_sh
     clock.now = expiry_of(client, booking_id) + MINUTE
 
     assert [n["kind"] for n in notices(client, "coord_a")] == ["hold_expired"]
+
+
+# ================================================================ PR 26 review, round 2 (TC-8134 onward)
+
+
+def make_expiry_write_fail(monkeypatch):
+    """Stand in for a failed write to venue_holds: creating the row raises."""
+    from sqlalchemy.exc import OperationalError
+
+    from backend import hold_store
+
+    def failing(db, booking):
+        raise OperationalError("INSERT INTO venue_holds", {}, Exception("simulated write failure"))
+
+    monkeypatch.setattr(hold_store, "get_or_create_hold", failing)
+
+
+def counts_from_a_fresh_session():
+    """(bookings, venue_holds rows), read by a new session."""
+    fresh = TestingSessionLocal()
+    try:
+        return fresh.query(VenueBooking).count(), fresh.query(VenueHold).count()
+    finally:
+        fresh.close()
+
+
+def request_without_raising(clock, venue, event):
+    """coord_a requests D 10:00-12:00 through a client that returns the 500
+    instead of raising it."""
+    with TestClient(app, raise_server_exceptions=False) as other_client:
+        other_client.cookies.set(COOKIE, "tok_coord_a")
+        return other_client.post(
+            f"/venues/{venue.id}/bookings",
+            json={"event_id": event.id, "booking_start": d_at(clock, 10).isoformat(),
+                  "booking_end": d_at(clock, 12).isoformat()},
+        )
+
+
+def test_tc8134_a_failed_expiry_write_rolls_back_the_whole_request(client, clock, monkeypatch, v, e1):
+    """TC-8134 | Negative Path | PR 26 review item 3, round 2
+    The write of the default expiry fails (creating the venue_holds row raises).
+    coord_a requests V for D 10:00-12:00.
+    Expected: 500; read from a fresh session, no booking and no venue_holds row
+    remain (the booking and its expiry are saved together or not at all)."""
+    make_expiry_write_fail(monkeypatch)
+
+    resp = request_without_raising(clock, v, e1)
+
+    assert resp.status_code == 500
+    assert counts_from_a_fresh_session() == (0, 0)
+
+
+def test_tc8135_a_retry_after_the_failure_succeeds(client, clock, db_session, monkeypatch, v, e1):
+    """TC-8135 | Workflow Variation | PR 26 review item 3, round 2
+    A first request fails because the expiry write fails; the write is then
+    restored and coord_a sends the same request again.
+    Expected: 201; exactly one booking and one venue_holds row, whose expiry is
+    the default (min(created_at + 48 h, booking_start))."""
+    make_expiry_write_fail(monkeypatch)
+    assert request_without_raising(clock, v, e1).status_code == 500
+    monkeypatch.undo()
+
+    resp = request_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+
+    assert resp.status_code == 201, resp.text
+    assert counts_from_a_fresh_session() == (1, 1)
+    row = stored_row(db_session, resp.json()["booking"]["booking_id"])
+    booking = db_session.get(VenueBooking, row.booking_id)
+    assert row.expires_at == min(booking.created_at + timedelta(hours=48), booking.booking_start)
+
+
+def test_tc8136_store_default_expiry_leaves_the_commit_to_the_caller(clock, db_session, v, e1):
+    """TC-8136 | Cross-Cutting | PR 26 review item 3, round 2
+    An old-style hold with no venue_holds row. store_default_expiry is called,
+    then the caller rolls back.
+    Expected: read from a fresh session, the hold has no venue_holds row:
+    store_default_expiry did not commit."""
+    from backend import hold_store
+
+    booking = old_style_hold(db_session, v, e1, clock, d_at(clock, 10), d_at(clock, 12))
+    booking_id = booking.id
+
+    hold_store.store_default_expiry(db_session, booking)
+    db_session.rollback()
+
+    fresh = TestingSessionLocal()
+    try:
+        assert fresh.query(VenueHold).filter(VenueHold.booking_id == booking_id).count() == 0
+    finally:
+        fresh.close()
