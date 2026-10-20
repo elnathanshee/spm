@@ -17,6 +17,7 @@ from .auth import get_current_user
 from .booking_recheck import recheck_venue_bookings  # [SCRUM-80 | Renee]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
+from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
 
@@ -599,6 +600,8 @@ def submit_venue_booking_request(
         status="Pending",
     )
     db.add(booking)
+    db.flush()  # [SCRUM-81] gives the booking its id and created_at
+    store_default_expiry(db, booking)  # [SCRUM-81] same transaction as the booking (PR 26 review)
     db.commit()
     db.refresh(booking)
 

@@ -46,10 +46,10 @@ from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend import booking_rules
+from backend import booking_rules, venue_holds
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, LoginSession, Notification, User, Venue, VenueBooking
+from backend.models import Event, LoginSession, Notification, User, Venue, VenueBooking, VenueHold
 from backend.security import hash_password
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -637,3 +637,290 @@ def test_tc8115_an_unsaved_hold_is_not_expired(clock):
     assert booking_rules.is_expired_hold(booking) is False
     assert booking_rules.is_blocking(booking) is True
     assert booking_rules.hold_expires_at(booking) is None
+
+
+# ================================================================ PR 26 review fixes (TC-8124 onward)
+# New functions (hold_store, venue_holds.check_hold) are looked up inside the
+# tests, so the file still imports while they don't exist (RED).
+
+
+def stored_row(db_session, booking_id):
+    db_session.expire_all()
+    return db_session.query(VenueHold).filter(VenueHold.booking_id == booking_id).one()
+
+
+def old_style_hold(db_session, venue, event, clock, start, end):
+    """A Pending booking with no venue_holds row, like rows made before review item 3."""
+    booking = VenueBooking(venue_id=venue.id, event_id=event.id, booking_start=start, booking_end=end,
+                           status="Pending", created_at=clock.now)
+    db_session.add(booking)
+    db_session.commit()
+    return booking
+
+
+def hold_notices(db_session, kind):
+    db_session.expire_all()
+    return db_session.query(Notification).filter(Notification.kind == kind).count()
+
+
+def test_tc8124_a_request_stores_its_default_expiry(client, clock, db_session, v, e1):
+    """TC-8124 | Happy Path | AC1 (PR 26 review item 3)
+    coord_a requests V for D 10:00-12:00.
+    Expected: the request has a venue_holds row with expires_at =
+    min(created_at + 48 h, booking_start) and no "set by" (the default); the
+    view shows the same expiry."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+
+    row = stored_row(db_session, booking_id)
+    booking = db_session.get(VenueBooking, booking_id)
+    assert row.expires_at == min(booking.created_at + timedelta(hours=48), booking.booking_start)
+    assert row.expires_set_by_id is None
+    assert expiry_of(client, booking_id) == row.expires_at
+
+
+def test_tc8125_a_stored_default_is_capped_at_the_booking_start(client, clock, db_session, v, e1):
+    """TC-8125 | Boundary Path | AC1 (PR 26 review item 3)
+    A request starting at T + 24 h, one hour long.
+    Expected: the stored expires_at is the booking's start."""
+    start = (clock.now + timedelta(hours=24)).replace(microsecond=0)
+    booking_id = new_hold(client, v, e1, start, start + timedelta(hours=1))
+
+    assert stored_row(db_session, booking_id).expires_at == start
+
+
+def test_tc8126_a_rule_change_does_not_move_a_stored_expiry(client, clock, db_session, monkeypatch, v, e1):
+    """TC-8126 | Cross-Cutting | AC1 (PR 26 review item 3)
+    One hold made through the request endpoint (expiry stored), and one inserted
+    directly with no venue_holds row (like data from before this change). The
+    48-hour rule is then changed to 24 hours for this test.
+    Expected: the stored hold still expires at created_at + 48 h; the old-style
+    hold uses the computed fallback, created_at + 24 h."""
+    stored_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    old = old_style_hold(db_session, v, e1, clock, d_at(clock, 14), d_at(clock, 15))
+    stored_created = db_session.get(VenueBooking, stored_id).created_at
+    old_created = old.created_at
+    monkeypatch.setattr(booking_rules, "DEFAULT_HOLD_HOURS", 24)
+
+    assert expiry_of(client, stored_id) == stored_created + timedelta(hours=48)
+    assert expiry_of(client, old.id) == old_created + timedelta(hours=24)
+
+
+def test_tc8127_extending_updates_the_same_row(client, clock, db_session, v, e1, users):
+    """TC-8127 | Workflow Variation | D3 (PR 26 review item 3)
+    A hold with its stored default; Venue Staff extend it to T + 5 days.
+    Expected: still exactly one venue_holds row, the one the request created,
+    with expires_at T + 5 days and expires_set_by_id = venue1."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    first_row_id = stored_row(db_session, booking_id).id
+    new_expiry = (clock.now + timedelta(days=5)).replace(microsecond=0)
+
+    assert set_expiry(client, booking_id, new_expiry).status_code == 200
+
+    db_session.expire_all()
+    rows = db_session.query(VenueHold).filter(VenueHold.booking_id == booking_id).all()
+    assert [r.id for r in rows] == [first_row_id]
+    assert rows[0].expires_at == new_expiry
+    assert rows[0].expires_set_by_id == users["venue1"].id
+
+
+def test_tc8128_two_requests_creating_the_hold_row_at_once(clock, db_session, v, e1):
+    """TC-8128 | Cross-Cutting | PR 26 review item 1
+    An old-style hold with no venue_holds row; session A has loaded it. Session B
+    creates the row and commits; then A asks for the row.
+    Expected: no error; A gets B's row; exactly one row."""
+    from backend import hold_store
+
+    booking = old_style_hold(db_session, v, e1, clock, d_at(clock, 10), d_at(clock, 12))
+    assert booking.hold is None  # A has loaded it: no row yet
+    other = TestingSessionLocal()
+    theirs = VenueHold(booking_id=booking.id, warning_minutes=60)
+    other.add(theirs)
+    other.commit()
+    theirs_id = theirs.id
+    other.close()
+
+    hold = hold_store.get_or_create_hold(db_session, booking)
+
+    assert hold.id == theirs_id
+    assert hold.warning_minutes == 60
+    assert db_session.query(VenueHold).filter(VenueHold.booking_id == booking.id).count() == 1
+
+
+def test_tc8129_the_warning_is_sent_once_when_two_checks_overlap(client, clock, db_session, v, e1):
+    """TC-8129 | Cross-Cutting | PR 26 review item 1
+    A hold; the clock is at its warning time (X - 24 h). Session A has loaded the
+    hold (warning not yet sent). Session B runs the hold check and commits; then
+    A runs the hold check with what it loaded.
+    Expected: exactly one hold_warning notice, and no error."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    x = expiry_of(client, booking_id)
+    clock.now = x - timedelta(hours=24)
+    db_session.expire_all()
+    booking = db_session.get(VenueBooking, booking_id)
+    assert booking.hold is None or booking.hold.warning_sent_at is None  # A has loaded it, unsent
+
+    other = TestingSessionLocal()
+    venue_holds.run_hold_checks(db=other)
+    other.close()
+    venue_holds.run_hold_checks(db=db_session)
+
+    assert hold_notices(db_session, "hold_warning") == 1
+
+
+def test_tc8130_the_expiry_notice_is_sent_once_when_two_checks_overlap(client, clock, db_session, v, e1):
+    """TC-8130 | Cross-Cutting | PR 26 review item 1
+    A hold; the clock is at its expiry X. Session A has loaded the hold (still
+    Pending). Session B runs the hold check and commits; then A checks the hold
+    it loaded.
+    Expected: A reports no change; exactly one hold_expired notice; status Expired."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    clock.now = expiry_of(client, booking_id)
+    db_session.expire_all()
+    booking = db_session.get(VenueBooking, booking_id)
+    assert booking.status == "Pending"  # A has loaded it
+
+    other = TestingSessionLocal()
+    venue_holds.run_hold_checks(db=other)
+    other.close()
+    changed = venue_holds.check_hold(db_session, booking, clock.now)
+
+    assert changed is False
+    assert hold_notices(db_session, "hold_expired") == 1
+    assert db_session.get(VenueBooking, booking_id).status == "Expired"
+
+
+def test_tc8131_storing_the_default_reuses_a_row_that_already_exists(clock, db_session, v, e1):
+    """TC-8131 | Cross-Cutting | PR 26 review items 1 and 3
+    A booking whose venue_holds row was created first by another session, with an
+    expiry already set (T + 3 days); then its default expiry is stored.
+    Expected: no error; the existing expiry is kept; exactly one row."""
+    from backend import hold_store
+
+    booking = old_style_hold(db_session, v, e1, clock, d_at(clock, 10), d_at(clock, 12))
+    assert booking.hold is None
+    kept = (clock.now + timedelta(days=3)).replace(microsecond=0)
+    other = TestingSessionLocal()
+    other.add(VenueHold(booking_id=booking.id, expires_at=kept))
+    other.commit()
+    other.close()
+
+    hold_store.store_default_expiry(db_session, booking)
+
+    row = stored_row(db_session, booking.id)
+    assert row.expires_at == kept
+    assert db_session.query(VenueHold).filter(VenueHold.booking_id == booking.id).count() == 1
+
+
+def test_tc8132_the_coordinators_own_poll_delivers_notices_on_time(client, clock, v, e1):
+    """TC-8132 | Happy Path | AC4 (PR 26 review item 2)
+    A default hold expiring at X. Nothing else happens except coord_a's own
+    GET /notifications, at exactly X - 24 h and then at exactly X.
+    Expected: the response at X - 24 h includes hold_warning; the response at X
+    includes hold_expired."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    x = expiry_of(client, booking_id)
+    login(client, "coord_a")
+
+    clock.now = x - timedelta(hours=24)
+    assert "hold_warning" in [n["kind"] for n in client.get("/notifications").json()]
+    clock.now = x
+    assert "hold_expired" in [n["kind"] for n in client.get("/notifications").json()]
+
+
+def test_tc8133_with_no_use_between_warning_and_expiry_only_the_expiry_notice_shows(client, clock, v, e1):
+    """TC-8133 | Boundary Path | AC4 (PR 26 review item 2; the limitation in D4)
+    A default hold expiring at X; nobody uses the app between the warning time
+    and the expiry. coord_a's first GET /notifications is at X + 1 minute.
+    Expected: only hold_expired, with no warning."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    clock.now = expiry_of(client, booking_id) + MINUTE
+
+    assert [n["kind"] for n in notices(client, "coord_a")] == ["hold_expired"]
+
+
+# ================================================================ PR 26 review, round 2 (TC-8134 onward)
+
+
+def make_expiry_write_fail(monkeypatch):
+    """Stand in for a failed write to venue_holds: creating the row raises."""
+    from sqlalchemy.exc import OperationalError
+
+    from backend import hold_store
+
+    def failing(db, booking):
+        raise OperationalError("INSERT INTO venue_holds", {}, Exception("simulated write failure"))
+
+    monkeypatch.setattr(hold_store, "get_or_create_hold", failing)
+
+
+def counts_from_a_fresh_session():
+    """(bookings, venue_holds rows), read by a new session."""
+    fresh = TestingSessionLocal()
+    try:
+        return fresh.query(VenueBooking).count(), fresh.query(VenueHold).count()
+    finally:
+        fresh.close()
+
+
+def request_without_raising(clock, venue, event):
+    """coord_a requests D 10:00-12:00 through a client that returns the 500
+    instead of raising it."""
+    with TestClient(app, raise_server_exceptions=False) as other_client:
+        other_client.cookies.set(COOKIE, "tok_coord_a")
+        return other_client.post(
+            f"/venues/{venue.id}/bookings",
+            json={"event_id": event.id, "booking_start": d_at(clock, 10).isoformat(),
+                  "booking_end": d_at(clock, 12).isoformat()},
+        )
+
+
+def test_tc8134_a_failed_expiry_write_rolls_back_the_whole_request(client, clock, monkeypatch, v, e1):
+    """TC-8134 | Negative Path | PR 26 review item 3, round 2
+    The write of the default expiry fails (creating the venue_holds row raises).
+    coord_a requests V for D 10:00-12:00.
+    Expected: 500; read from a fresh session, no booking and no venue_holds row
+    remain (the booking and its expiry are saved together or not at all)."""
+    make_expiry_write_fail(monkeypatch)
+
+    resp = request_without_raising(clock, v, e1)
+
+    assert resp.status_code == 500
+    assert counts_from_a_fresh_session() == (0, 0)
+
+
+def test_tc8135_a_retry_after_the_failure_succeeds(client, clock, db_session, monkeypatch, v, e1):
+    """TC-8135 | Workflow Variation | PR 26 review item 3, round 2
+    A first request fails because the expiry write fails; the write is then
+    restored and coord_a sends the same request again.
+    Expected: 201; exactly one booking and one venue_holds row, whose expiry is
+    the default (min(created_at + 48 h, booking_start))."""
+    make_expiry_write_fail(monkeypatch)
+    assert request_without_raising(clock, v, e1).status_code == 500
+    monkeypatch.undo()
+
+    resp = request_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+
+    assert resp.status_code == 201, resp.text
+    assert counts_from_a_fresh_session() == (1, 1)
+    row = stored_row(db_session, resp.json()["booking"]["booking_id"])
+    booking = db_session.get(VenueBooking, row.booking_id)
+    assert row.expires_at == min(booking.created_at + timedelta(hours=48), booking.booking_start)
+
+
+def test_tc8136_store_default_expiry_leaves_the_commit_to_the_caller(clock, db_session, v, e1):
+    """TC-8136 | Cross-Cutting | PR 26 review item 3, round 2
+    As the request endpoint does: a new Pending booking is added and flushed
+    (not committed), store_default_expiry is called, then the caller rolls back.
+    Expected: read from a fresh session, neither the booking nor a venue_holds
+    row exists: store_default_expiry did not commit."""
+    from backend import hold_store
+
+    booking = VenueBooking(venue_id=v.id, event_id=e1.id, booking_start=d_at(clock, 10),
+                           booking_end=d_at(clock, 12), status="Pending")
+    db_session.add(booking)
+    db_session.flush()
+
+    hold_store.store_default_expiry(db_session, booking)
+    db_session.rollback()
+
+    assert counts_from_a_fresh_session() == (0, 0)
