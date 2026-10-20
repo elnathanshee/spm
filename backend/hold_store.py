@@ -34,8 +34,11 @@ def store_default_expiry(db: Session, booking: VenueBooking) -> None:
     """Review item 3: save a new request's default expiry (booking_rules.
     default_expiry) in venue_holds, with no "set by", which marks it as the
     default. Once stored, a later change to the 48-hour rule never moves it.
-    An expiry that is already stored is kept. Commits."""
+    An expiry that is already stored is kept.
+
+    Does not commit: the caller commits, so the booking and its expiry are
+    saved in one transaction (PR 26 review, round 2). The booking must be
+    flushed first, so it has an id and a created_at."""
     hold = get_or_create_hold(db, booking)
     if hold.expires_at is None:
         hold.expires_at = booking_rules.default_expiry(booking)
-    db.commit()

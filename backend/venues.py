@@ -595,9 +595,10 @@ def submit_venue_booking_request(
         status="Pending",
     )
     db.add(booking)
+    db.flush()  # [SCRUM-81] gives the booking its id and created_at
+    store_default_expiry(db, booking)  # [SCRUM-81] same transaction as the booking (PR 26 review)
     db.commit()
     db.refresh(booking)
-    store_default_expiry(db, booking)  # [SCRUM-81] persist the default expiry (PR 26 review item 3)
 
     return {
         "message": "Venue booking request submitted successfully",
