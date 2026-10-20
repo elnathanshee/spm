@@ -909,20 +909,18 @@ def test_tc8135_a_retry_after_the_failure_succeeds(client, clock, db_session, mo
 
 def test_tc8136_store_default_expiry_leaves_the_commit_to_the_caller(clock, db_session, v, e1):
     """TC-8136 | Cross-Cutting | PR 26 review item 3, round 2
-    An old-style hold with no venue_holds row. store_default_expiry is called,
-    then the caller rolls back.
-    Expected: read from a fresh session, the hold has no venue_holds row:
-    store_default_expiry did not commit."""
+    As the request endpoint does: a new Pending booking is added and flushed
+    (not committed), store_default_expiry is called, then the caller rolls back.
+    Expected: read from a fresh session, neither the booking nor a venue_holds
+    row exists: store_default_expiry did not commit."""
     from backend import hold_store
 
-    booking = old_style_hold(db_session, v, e1, clock, d_at(clock, 10), d_at(clock, 12))
-    booking_id = booking.id
+    booking = VenueBooking(venue_id=v.id, event_id=e1.id, booking_start=d_at(clock, 10),
+                           booking_end=d_at(clock, 12), status="Pending")
+    db_session.add(booking)
+    db_session.flush()
 
     hold_store.store_default_expiry(db_session, booking)
     db_session.rollback()
 
-    fresh = TestingSessionLocal()
-    try:
-        assert fresh.query(VenueHold).filter(VenueHold.booking_id == booking_id).count() == 0
-    finally:
-        fresh.close()
+    assert counts_from_a_fresh_session() == (0, 0)
