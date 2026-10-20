@@ -6,11 +6,11 @@ This register documents all automated test cases across **Sprint 1** and **Sprin
 
 ## Summary Statistics
 
-- **Total Test Cases:** 213
+- **Total Test Cases:** 216
 - **Sprint 1:** 28 Test Cases (SCRUM-16: 6, SCRUM-22 & 27: 7, SCRUM-21: 15)
 - **Sprint 2:** 64 Test Cases (SCRUM-51: 15, SCRUM-23: 18, SCRUM-63: 8, SCRUM-30: 10, SCRUM-33: 13)
-- **Sprint 3:** 121 Test Cases (SCRUM-35: 15, SCRUM-18: 11, SCRUM-36: 13, SCRUM-37: 9, SCRUM-38: 14, SCRUM-28: 14, SCRUM-80: 12, SCRUM-81: 33)
-- **Pass Rate:** 100% (213 / 213 Passed)
+- **Sprint 3:** 124 Test Cases (SCRUM-35: 15, SCRUM-18: 11, SCRUM-36: 13, SCRUM-37: 9, SCRUM-38: 14, SCRUM-28: 14, SCRUM-80: 12, SCRUM-81: 36)
+- **Pass Rate:** 100% (216 / 216 Passed)
 - **Automation:** 100% automated via `pytest`
 
 ---
@@ -232,3 +232,6 @@ This register documents all automated test cases across **Sprint 1** and **Sprin
 | **TC-8131** | SCRUM-81 | Cross-Cutting | Review items 1 and 3 | Storing the default reuses a row that already exists | V = Grand Hall (30 min setup, 45 min turnaround); T = clock at test start; D = T + 30 days; E1 assigned to coord_a; row created first by another session with expiry T + 3 days | 1. Call store_default_expiry | row exists | No error; the existing expiry is kept; one row. | As expected. | Automated test (pytest) | Passed | Sprint 3 | Elnathan | 19-Oct-26 |
 | **TC-8132** | SCRUM-81 | Happy Path | AC4 (review item 2) | The Coordinator's own poll delivers notices on time | V = Grand Hall (30 min setup, 45 min turnaround); T = clock at test start; D = T + 30 days; E1 assigned to coord_a; default hold expiring at X; no other activity | 1. coord_a calls GET /notifications at exactly X - 24 h<br>2. coord_a calls it again at exactly X | own poll only | First response includes hold_warning; second includes hold_expired. | As expected. | Automated test (pytest) | Passed | Sprint 3 | Elnathan | 19-Oct-26 |
 | **TC-8133** | SCRUM-81 | Boundary Path | AC4 (review item 2, D4) | No use between warning and expiry: only the expiry notice | V = Grand Hall (30 min setup, 45 min turnaround); T = clock at test start; D = T + 30 days; E1 assigned to coord_a; default hold expiring at X; nobody uses the app before then | 1. coord_a's first GET /notifications at X + 1 minute | gap in use | Only hold_expired; no warning. | [hold_expired]. | Automated test (pytest) | Passed | Sprint 3 | Elnathan | 19-Oct-26 |
+| **TC-8134** | SCRUM-81 | Negative Path | Review item 3, round 2 | A failed expiry write rolls back the whole request | V = Grand Hall (30 min setup, 45 min turnaround); T = clock at test start; D = T + 30 days; E1 assigned to coord_a; the venue_holds write made to fail | 1. coord_a requests V for D 10:00-12:00 (client returns the 500)<br>2. Count bookings and venue_holds rows from a fresh session | simulated OperationalError on the venue_holds write | 500; no booking and no venue_holds row remain. | HTTP 500; 0 bookings, 0 hold rows. | Automated test (pytest) | Passed | Sprint 3 | Elnathan | 20-Oct-26 |
+| **TC-8135** | SCRUM-81 | Workflow Variation | Review item 3, round 2 | A retry after the failure succeeds | V = Grand Hall (30 min setup, 45 min turnaround); T = clock at test start; D = T + 30 days; E1 assigned to coord_a; one failed attempt as in TC-8134 | 1. Restore the venue_holds write<br>2. coord_a sends the same request again<br>3. Count from a fresh session | same period | 201; exactly one booking and one venue_holds row, with the default expiry. | HTTP 201; 1 booking, 1 hold row, default expiry. | Automated test (pytest) | Passed | Sprint 3 | Elnathan | 20-Oct-26 |
+| **TC-8136** | SCRUM-81 | Cross-Cutting | Review item 3, round 2 | store_default_expiry leaves the commit to the caller | V = Grand Hall (30 min setup, 45 min turnaround); T = clock at test start; D = T + 30 days; E1 assigned to coord_a; a new Pending booking added and flushed, not committed | 1. Call store_default_expiry<br>2. Roll back<br>3. Count from a fresh session | flushed booking | No booking and no venue_holds row: nothing was committed. | 0 bookings, 0 hold rows. | Automated test (pytest) | Passed | Sprint 3 | Elnathan | 20-Oct-26 |
