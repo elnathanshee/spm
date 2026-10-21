@@ -23,6 +23,7 @@ export default defineConfig({
     proxy: {
       "/auth": backendProxy,
       "/events": backendProxy,
+      "/venues": backendProxy,
       "/coordinator": backendProxy,
       "/lead": backendProxy,
       "/notifications": backendProxy,

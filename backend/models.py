@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import backref, relationship
 
@@ -106,10 +107,13 @@ class EventStatusHistory(Base):
 # GET /notifications. SCRUM-63 and later stories reuse this table.
 class Notification(Base):
     __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("booking_id", "kind", "user_id", name="uq_booking_notification"),)
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=True, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=True)
+    booking = relationship("VenueBooking")
     kind = Column(String(50), nullable=True)  # e.g. 'submitted', 'returned', 'approved', 'rejected'
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -194,6 +198,8 @@ class Venue(Base):
 
 class VenueBooking(Base):
     __tablename__ = "venue_bookings"
+
+    requester_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     id = Column(Integer, primary_key=True, index=True)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
