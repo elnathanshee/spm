@@ -140,6 +140,16 @@ Other branches must be checked independently. See
 [SCRUM-64 migration and verification](docs/SCRUM-64-MIGRATION.md) for the required
 columns, constraints, evidence, Windows commands, and deployment order.
 
+## Venue Holds and Expiry (SCRUM-81)
+
+A venue booking request is a **tentative hold** (status `Pending`) until Venue Staff approve or reject it. Holds expire, so a venue is never reserved indefinitely.
+
+- **Default expiry:** 48 hours after the request, or the booking's start if that is sooner. It is stored with the request. Venue Staff can set or extend it with `PUT /venues/bookings/{booking_id}/hold`.
+- **After expiry:** the hold stops blocking the venue (search, new requests, the calendar and retire all treat it as free), it shows as `Expired`, and it can no longer be approved, rejected or extended. The Coordinator must submit a new request if they still need the venue. Confirmed bookings never expire.
+- **Coordinator notices (in-app):** a warning before expiry, 24 hours ahead by default, which the event's assigned Coordinator can change per hold with `PUT /venues/bookings/{booking_id}/hold/warning`; and a notice at expiry. Each is sent once.
+- **When notices are created:** there is no background job (the app runs on serverless hosting). Due notices are created at the start of any request to the events, notifications or venues API, which includes every signed-in user's notification poll (every 15 seconds in the web app). Any user's activity creates everyone's due notices.
+- **Limitation:** if nobody uses the app between a hold's warning time and its expiry, only the expiry notice is shown.
+
 ## Developer Standards & SOP
 
 To maintain code quality, TDD commit traceability, and trunk stability, all team members must follow the **[ConnectSphere Developer SOP](docs/DEVELOPER_SOP.md)**:
