@@ -31,7 +31,7 @@ def submit(client, data):
         "booking_end": (start + timedelta(hours=2)).isoformat()})
 
 
-@pytest.mark.parametrize("outcome", ["approve", "reject"])
+@pytest.mark.parametrize("outcome", ["approve", "reject"], ids=["TC-6401", "TC-6402"])
 def test_booking_lifecycle(client, db_session, seed_data, outcome):
     other, lead = setup_users(db_session, seed_data)
     coord = seed_data['coord']
@@ -78,7 +78,7 @@ def test_booking_lifecycle(client, db_session, seed_data, outcome):
     db_session.rollback()
 
 
-def test_lead_and_failed_operations(client, db_session, seed_data, monkeypatch):
+def test_tc6403_lead_and_failed_operations(client, db_session, seed_data, monkeypatch):
     _, lead = setup_users(db_session, seed_data)
     as_user(client, seed_data['organiser'])
     assert submit(client, seed_data).status_code == 403
@@ -101,7 +101,7 @@ def test_lead_and_failed_operations(client, db_session, seed_data, monkeypatch):
     assert db_session.get(VenueBooking, response.json()['booking']['id']).requester_id == lead.id
 
 
-def test_historical_decision(client, db_session, seed_data):
+def test_tc6404_historical_decision(client, db_session, seed_data):
     setup_users(db_session, seed_data)
     as_user(client, seed_data['staff'])
     assert seed_data['booking'].requester_id is None
@@ -109,7 +109,7 @@ def test_historical_decision(client, db_session, seed_data):
     assert db_session.query(Notification).count() == 0
 
 
-def test_schema_initialization_preserves_historical_records_and_is_idempotent(db_session, seed_data):
+def test_tc6405_schema_initialization_preserves_historical_records_and_is_idempotent(db_session, seed_data):
     from backend.database import Base
     booking = seed_data['booking']
     notification = Notification(user_id=seed_data['coord'].id, kind='submitted', message='Existing message')
@@ -134,7 +134,7 @@ def test_schema_initialization_preserves_historical_records_and_is_idempotent(db
                for key in inspect(engine).get_foreign_keys('venue_bookings'))
 
 
-def test_fallback_reason_and_unrelated_notification_permissions(client, db_session, seed_data):
+def test_tc6406_fallback_reason_and_unrelated_notification_permissions(client, db_session, seed_data):
     from backend.notifications import notify, NotEntitled, can_see_event
     setup_users(db_session, seed_data)
     booking = seed_data['booking']
@@ -149,7 +149,7 @@ def test_fallback_reason_and_unrelated_notification_permissions(client, db_sessi
         notify(db_session, seed_data['staff'], seed_data['event'], 'submitted', 'unrelated')
 
 
-def test_decision_transaction_failure_rolls_back(client, db_session, seed_data, monkeypatch):
+def test_tc6407_decision_transaction_failure_rolls_back(client, db_session, seed_data, monkeypatch):
     setup_users(db_session, seed_data)
     booking = seed_data['booking']
     booking.requester_id = seed_data['coord'].id

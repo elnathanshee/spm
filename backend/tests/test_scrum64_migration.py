@@ -62,7 +62,7 @@ def snapshot(engine, columns=None):
     return names, rows
 
 
-def test_legacy_upgrade_preserves_rows_adds_nullable_foreign_keys_and_is_repeatable():
+def test_tc6430_legacy_upgrade_preserves_rows_adds_nullable_foreign_keys_and_is_repeatable():
     engine=database(legacy=True); seed(engine)
     columns,before=snapshot(engine)
     assert len(check(engine))==3
@@ -76,7 +76,7 @@ def test_legacy_upgrade_preserves_rows_adds_nullable_foreign_keys_and_is_repeata
         assert any(fk['constrained_columns']==[column] and fk['referred_table']==target for fk in inspect(engine).get_foreign_keys(table))
 
 
-def test_upgraded_database_can_submit_decide_and_deliver_booking_notifications():
+def test_tc6431_upgraded_database_can_submit_decide_and_deliver_booking_notifications():
     engine=database(legacy=True); seed(engine); migrate(engine)
     def get_test_db():
         with Session(engine) as db:
@@ -103,7 +103,7 @@ def test_upgraded_database_can_submit_decide_and_deliver_booking_notifications()
         app.dependency_overrides.pop(get_db,None)
 
 
-def test_fresh_database_needs_no_upgrade_and_equivalent_index_name_is_reused():
+def test_tc6432_fresh_database_needs_no_upgrade_and_equivalent_index_name_is_reused():
     engine=database(unique=False)
     with engine.begin() as connection:
         connection.execute(text('CREATE UNIQUE INDEX existing_neon_name ON notifications (user_id,booking_id,kind)'))
@@ -113,7 +113,7 @@ def test_fresh_database_needs_no_upgrade_and_equivalent_index_name_is_reused():
     assert check(fresh)==[] and migrate(fresh)==[]
 
 
-def test_duplicate_booking_notifications_abort_without_deleting_rows():
+def test_tc6433_duplicate_booking_notifications_abort_without_deleting_rows():
     engine=database(unique=False); seed(engine)
     with engine.begin() as connection:
         connection.execute(text("UPDATE notifications SET booking_id=1 WHERE id IN (1,2)"))
@@ -124,7 +124,7 @@ def test_duplicate_booking_notifications_abort_without_deleting_rows():
     assert inspect(engine).get_indexes('notifications')==[]
 
 
-def test_missing_index_deduplicates_bookings_but_preserves_null_event_links():
+def test_tc6434_missing_index_deduplicates_bookings_but_preserves_null_event_links():
     engine=database(unique=False); seed(engine)
     assert migrate(engine)==['Add booking notification uniqueness']
     with engine.begin() as connection:
@@ -135,7 +135,7 @@ def test_missing_index_deduplicates_bookings_but_preserves_null_event_links():
     assert len(snapshot(engine)[1]['notifications'])==3
 
 
-def test_orphan_reference_is_reported_without_data_repair():
+def test_tc6435_orphan_reference_is_reported_without_data_repair():
     engine=database(unique=False); seed(engine)
     with engine.begin() as connection:
         connection.execute(text('UPDATE venue_bookings SET requester_id=999 WHERE id=1'))
@@ -145,7 +145,7 @@ def test_orphan_reference_is_reported_without_data_repair():
     assert snapshot(engine)[1]==before
 
 
-def test_wrong_existing_column_and_missing_sqlite_fk_abort_before_ddl():
+def test_tc6436_wrong_existing_column_and_missing_sqlite_fk_abort_before_ddl():
     engine=create_engine('sqlite:///:memory:')
     with engine.begin() as c:
         c.execute(text('CREATE TABLE users (id INTEGER PRIMARY KEY)'))
@@ -159,7 +159,7 @@ def test_wrong_existing_column_and_missing_sqlite_fk_abort_before_ddl():
         migrate(engine)
 
 
-def test_check_is_read_only_and_conflicting_index_name_is_not_silently_accepted():
+def test_tc6437_check_is_read_only_and_conflicting_index_name_is_not_silently_accepted():
     engine=database(legacy=True); seed(engine)
     before=snapshot(engine)
     assert len(check(engine))==3
@@ -171,7 +171,7 @@ def test_check_is_read_only_and_conflicting_index_name_is_not_silently_accepted(
         migrate(engine)
 
 
-def test_schema_ddl_failure_rolls_back_all_added_columns(monkeypatch):
+def test_tc6438_schema_ddl_failure_rolls_back_all_added_columns(monkeypatch):
     from sqlalchemy import event
     engine=database(legacy=True); seed(engine)
     before=snapshot(engine)
@@ -189,7 +189,7 @@ def test_schema_ddl_failure_rolls_back_all_added_columns(monkeypatch):
     assert 'booking_id' not in {c['name'] for c in inspect(engine).get_columns('notifications')}
 
 
-def test_partial_upgrade_adds_only_the_missing_requester_reference():
+def test_tc6439_partial_upgrade_adds_only_the_missing_requester_reference():
     engine=database(legacy=True); seed(engine)
     with engine.begin() as connection:
         connection.execute(text('ALTER TABLE notifications ADD COLUMN booking_id INTEGER REFERENCES venue_bookings(id)'))

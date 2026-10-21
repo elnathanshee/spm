@@ -23,7 +23,7 @@ function app(role) {
 const form = { venue_id: "3", booking_start: "2099-04-10T10:00", booking_end: "2099-04-11T12:00" };
 
 for (const role of ["coordinator", "lead"]) {
-  test(`${role} uses the shared interface, existing APIs and complete booking information`, async () => {
+  test(`${role === "coordinator" ? "TC-3516" : "TC-3517"} ${role} uses the shared interface, existing APIs and complete booking information`, async () => {
     const state = app(role);
     const event = role === "lead" ? state.leadEvents[0] : state.assignedEvents[0];
     const booking = { id: 10, venue_name: "Hall", status: "Rejected", rejection_reason: "Reason ".repeat(500) };
@@ -50,7 +50,7 @@ for (const role of ["coordinator", "lead"]) {
   });
 }
 
-test("unrelated roles and unassigned Coordinator events cannot open or submit bookings", async () => {
+test("TC-3518 unrelated roles and unassigned Coordinator events cannot open or submit bookings", async () => {
   for (const role of ["organiser", "venue_staff", "attendee", "technical_support", "admin", "coordinator"]) {
     const state = app(role);
     state.apiRequest = () => assert.fail("unauthorized API call");
@@ -60,7 +60,7 @@ test("unrelated roles and unassigned Coordinator events cannot open or submit bo
   }
 });
 
-test("validation, rejected API requests and busy state preserve the form", async () => {
+test("TC-3519 validation, rejected API requests and busy state preserve the form", async () => {
   const state = app("lead");
   state.apiRequest = async path => ({ ok: true, data: path === "/venues" ? [{ id: 3 }] : [] });
   await state.openBookings(state.leadEvents[0]);
@@ -83,7 +83,7 @@ test("validation, rejected API requests and busy state preserve the form", async
   assert.equal(state.bookingDialog.busy, false);
 });
 
-test("failed retrieval disables submission and logout discards pending booking state", async () => {
+test("TC-3520 failed retrieval disables submission and logout discards pending booking state", async () => {
   const state = app("lead");
   state.apiRequest = async () => ({ ok: false });
   await state.openBookings(state.leadEvents[0]);
@@ -100,7 +100,7 @@ test("failed retrieval disables submission and logout discards pending booking s
 });
 
 for (const assigned of [false, true]) {
-  test(`Lead ${assigned ? "reassignment" : "assignment"} still uses the existing API`, async () => {
+  test(`${assigned ? "TC-3522" : "TC-3521"} Lead ${assigned ? "reassignment" : "assignment"} still uses the existing API`, async () => {
     const state = app("lead");
     let refreshed = false;
     state.fetchLeadData = async () => { refreshed = true; };
@@ -115,7 +115,7 @@ for (const assigned of [false, true]) {
   });
 }
 
-test("one shared dialog safely renders status and complete rejection messages without decision controls", () => {
+test("TC-3523 one shared dialog safely renders status and complete rejection messages without decision controls", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   assert.equal((html.match(/id="booking-title"/g) || []).length, 1);
   assert.equal((html.match(/@click="openBookings\(event\)"/g) || []).length, 2);
@@ -126,7 +126,7 @@ test("one shared dialog safely renders status and complete rejection messages wi
 });
 
 
-test("requesters keep seeing their returned notifications after assignment changes", async () => {
+test("TC-6426 requesters keep seeing their returned notifications after assignment changes", async () => {
   for (const role of ["coordinator", "lead"]) {
     const state = app(role);
     state.assignedEvents = [];
@@ -143,7 +143,7 @@ test("requesters keep seeing their returned notifications after assignment chang
 
 
 for (const role of ["coordinator", "lead"]) {
-  test(`${role}: empty venues and failed history do not disable date/time fields`, async () => {
+  test(`${role === "coordinator" ? "TC-3524" : "TC-3525"} ${role}: empty venues and failed history do not disable date/time fields`, async () => {
     const state = app(role);
     const event = role === "lead" ? state.leadEvents[0] : state.assignedEvents[0];
     state.apiRequest = async path => path === "/venues" ? { ok: true, data: [] } : { ok: false };
@@ -172,7 +172,7 @@ for (const role of ["coordinator", "lead"]) {
   });
 }
 
-test("date/time fieldset depends only on submission, with independent empty and error states", () => {
+test("TC-3526 date/time fieldset depends only on submission, with independent empty and error states", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /<fieldset :disabled="bookingDialog.submitting">/);
   assert.doesNotMatch(html, /<fieldset :disabled="bookingDialog.busy/);
@@ -182,7 +182,7 @@ test("date/time fieldset depends only on submission, with independent empty and 
 });
 
 
-test("non-JSON venue/history responses never enable invalid booking state", async () => {
+test("TC-3527 non-JSON venue/history responses never enable invalid booking state", async () => {
   const state = app("lead");
   // apiRequest parses the Vite HTML fallback as {}; HTTP 200 alone is insufficient.
   state.apiRequest = async () => ({ ok: true, data: {} });
@@ -197,7 +197,7 @@ test("non-JSON venue/history responses never enable invalid booking state", asyn
 });
 
 
-test("HTTP failures identify the request endpoint", () => {
+test("TC-3528 HTTP failures identify the request endpoint", () => {
   const state = app("lead");
   state.handleHttpError(500, {}, "/events/8/bookings");
   assert.ok(state.alert.message.includes("/events/8/bookings"));

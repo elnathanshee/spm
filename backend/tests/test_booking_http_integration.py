@@ -16,7 +16,7 @@ from backend.database import Base
 from backend.models import User, LoginSession, Event
 
 
-def test_booking_through_real_frontend_proxy(tmp_path):
+def test_tc6442_booking_through_real_frontend_proxy(tmp_path):
     root = Path(__file__).resolve().parents[2]
     node = shutil.which("node") or str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "nodejs/node.exe")
     if not Path(node).exists() or not (root / "frontend/node_modules/vite").exists():

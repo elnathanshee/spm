@@ -8,8 +8,12 @@ from backend.models import User, LoginSession, Event
 from backend.tests.test_scrum37_rejection_reason import db_session, client
 
 
-@pytest.mark.parametrize("role", ["coordinator", "lead"])
-@pytest.mark.parametrize("decision", ["approve", "reject"])
+@pytest.mark.parametrize("role,decision", [
+    pytest.param("coordinator", "approve", id="TC-3530"),
+    pytest.param("lead", "approve", id="TC-3531"),
+    pytest.param("coordinator", "reject", id="TC-3532"),
+    pytest.param("lead", "reject", id="TC-3533"),
+])
 def test_empty_catalogue_to_complete_booking_workflow(client, db_session, role, decision):
     requester = User(username="requester", role=role, password_hash="unused")
     staff = User(username="staff", role="venue_staff", password_hash="unused")
@@ -53,7 +57,7 @@ def test_empty_catalogue_to_complete_booking_workflow(client, db_session, role, 
         assert "Persisted rejection" in message["message"]
 
 
-def test_create_all_does_not_upgrade_an_existing_booking_table():
+def test_tc6440_create_all_does_not_upgrade_an_existing_booking_table():
     from backend.database import Base
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as c:
@@ -67,7 +71,7 @@ def test_create_all_does_not_upgrade_an_existing_booking_table():
         assert c.execute(text("SELECT id FROM venue_bookings")).all() == [(1,)]
 
 
-def test_fresh_schema_initializes_requester_and_notification_uniqueness():
+def test_tc6441_fresh_schema_initializes_requester_and_notification_uniqueness():
     from backend.database import Base
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

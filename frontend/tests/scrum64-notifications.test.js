@@ -19,7 +19,7 @@ function app() {
   return { state: factory(), getPoll: () => poll };
 }
 
-test("fetch retains every complete message and polling refreshes notifications", async () => {
+test("TC-6421 fetch retains every complete message and polling refreshes notifications", async () => {
   const { state, getPoll } = app();
   const messages = [{ id: 1, message: "reason ".repeat(500) }, { id: 2, message: "<script>text</script>" }];
   state.user = { role: "Venue Staff" };
@@ -37,7 +37,7 @@ test("fetch retains every complete message and polling refreshes notifications",
   assert.match(html, /unreadNotifications\(\)/);
 });
 
-test("booking notification kinds receive clear semantic titles and tones", () => {
+test("TC-6422 booking notification kinds receive clear semantic titles and tones", () => {
   const { state } = app();
   assert.equal(state.notificationTitle({ kind: "booking_submitted" }), "New booking request");
   assert.equal(state.notificationTitle({ kind: "booking_approved" }), "Booking approved");
@@ -47,14 +47,14 @@ test("booking notification kinds receive clear semantic titles and tones", () =>
   assert.equal(state.notificationTone({ kind: "booking_submitted" }), "action");
 });
 
-test("booking notification timestamps are presented as readable dates", () => {
+test("TC-6423 booking notification timestamps are presented as readable dates", () => {
   const { state } = app();
   const message = state.formatNotificationMessage({ message: 'Booking from 2026-10-19 16:38:00 to 2026-10-29T16:38:00 was submitted.' });
   assert.doesNotMatch(message, /2026-10-19 16:38:00|2026-10-29T16:38:00/);
   assert.match(message, /2026/);
 });
 
-test("late responses cannot restore notifications after logout or account switch", async () => {
+test("TC-6424 late responses cannot restore notifications after logout or account switch", async () => {
   const { state } = app();
   state.user = { user_id: 1 };
   let resolve;

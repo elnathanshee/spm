@@ -16,7 +16,7 @@ function app(role = "venue_staff") {
   const state = factory(); state.user = { user_id: 3, role }; return state;
 }
 
-test("Venue Staff have a functional route; other roles cannot use staff actions", async () => {
+test("TC-3011 Venue Staff have a functional route; other roles cannot use staff actions", async () => {
   assert.equal(resolveRolePath("/venue", "venue_staff").unbuiltRole, false);
   for (const role of ["lead", "coordinator", "organiser", "attendee", "technical_support"]) {
     assert.equal(resolveRolePath("/venue", role).accessDenied, true);
@@ -27,7 +27,7 @@ test("Venue Staff have a functional route; other roles cannot use staff actions"
   }
 });
 
-test("empty catalogue, validation, venue creation and refreshed listing", async () => {
+test("TC-3012 empty catalogue, validation, venue creation and refreshed listing", async () => {
   const state = app();
   let created = false;
   state.apiRequest = async (path, options) => {
@@ -47,7 +47,7 @@ test("empty catalogue, validation, venue creation and refreshed listing", async 
   assert.equal(state.venueWorkspace.form.name, "");
 });
 
-test("review uses existing decisions, validates reason, blocks repeated clicks and decisions", async () => {
+test("TC-3614 review uses existing decisions, validates reason, blocks repeated clicks and decisions", async () => {
   const state = app();
   state.apiRequest = async path => ({ ok: true, data: { id: 9, status: "Pending" } });
   await state.openStaffBooking(9);
@@ -66,7 +66,7 @@ test("review uses existing decisions, validates reason, blocks repeated clicks a
   state.apiRequest = () => assert.fail("already decided"); await state.decideStaffBooking("approve");
 });
 
-test("409 refreshes current decision; catalogue errors do not leave loading stuck", async () => {
+test("TC-3615 409 refreshes current decision; catalogue errors do not leave loading stuck", async () => {
   const state = app();
   state.apiRequest = async () => ({ ok: false, status: 500 });
   await state.fetchVenueWorkspace(); assert.equal(state.venueWorkspace.busy, false);
@@ -76,7 +76,7 @@ test("409 refreshes current decision; catalogue errors do not leave loading stuc
   await state.decideStaffBooking("reject"); assert.equal(state.staffBooking.detail.status, "Confirmed");
 });
 
-test("mark read reuses API; logout clears staff state and discards late results", async () => {
+test("TC-6427 mark read reuses API; logout clears staff state and discards late results", async () => {
   const state = app();
   state.notifications = [{ id: 4, read: false }];
   state.apiRequest = async (path, options) => {
@@ -91,7 +91,7 @@ test("mark read reuses API; logout clears staff state and discards late results"
   assert.equal(state.venueWorkspace, null); assert.equal(state.staffBooking, null);
 });
 
-test("staff notification rendering uses safe text, unread state, read action and booking link", () => {
+test("TC-6428 staff notification rendering uses safe text, unread state, read action and booking link", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /is-unread/); assert.match(html, /markNotificationRead\(notification\)/);
   assert.match(html, /openNotification\(notification\)/);
@@ -99,7 +99,7 @@ test("staff notification rendering uses safe text, unread state, read action and
   assert.match(html, /No venues yet/); assert.match(html, /No booking requests/);
 });
 
-test("booking filters use the existing workspace data without extra requests", () => {
+test("TC-3616 booking filters use the existing workspace data without extra requests", () => {
   const state = app();
   state.venueWorkspace = { bookingFilter: "Pending", bookings: [
     { id: 1, status: "Pending" }, { id: 2, status: "Confirmed" }, { id: 3, status: "Rejected" },
