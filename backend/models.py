@@ -8,7 +8,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import backref, relationship
 
 from .database import Base
 
@@ -253,3 +253,26 @@ class VenueBookingConflictFlag(Base):
 
     # Relationships
     booking = relationship("VenueBooking", back_populates="conflict_flag", foreign_keys=[booking_id])
+
+
+# [SCRUM-81 | Elnathan] NEW: one row per hold (Pending booking) whose expiry or
+# warning time has been set, or that has had a notice sent. A new table rather
+# than new columns on venue_bookings, because create_all() adds missing tables
+# on Neon but never alters existing ones. A null expires_at or warning_minutes
+# means the default (48 hours after the request, capped at the booking's start;
+# a 24-hour warning). booking_id is unique, so a hold has at most one row.
+class VenueHold(Base):
+    __tablename__ = "venue_holds"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=True)
+    expires_set_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    expires_set_at = Column(DateTime, nullable=True)
+    warning_minutes = Column(Integer, nullable=True)
+    warning_sent_at = Column(DateTime, nullable=True)
+    expiry_notice_sent_at = Column(DateTime, nullable=True)
+
+    # Relationships. The backref gives booking.hold without changing VenueBooking.
+    booking = relationship("VenueBooking", backref=backref("hold", uselist=False, cascade="all, delete-orphan"))
+    expires_set_by = relationship("User")
