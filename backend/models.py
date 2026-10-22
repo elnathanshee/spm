@@ -282,3 +282,40 @@ class VenueHold(Base):
     # Relationships. The backref gives booking.hold without changing VenueBooking.
     booking = relationship("VenueBooking", backref=backref("hold", uselist=False, cascade="all, delete-orphan"))
     expires_set_by = relationship("User")
+
+
+# [SCRUM-39 | Melvin] NEW: one row per equipment line item on an event - what
+# kind of equipment, how many, and any technical notes. A new table rather than
+# new columns on events, because create_all() adds missing tables on Neon but
+# never alters existing ones (same reason as VenueBookingDecision, SCRUM-36,
+# and VenueHold, SCRUM-81).
+#
+# The free-text events.equipment_requirements column is deliberately left
+# alone. SCRUM-29 treats it as a significant field, so removing or repurposing
+# it would break that story. This table is the structured record Technical
+# Support work from; the old column stays as the Organiser's own wording.
+#
+# The unique constraint is a database backstop against an exact duplicate. The
+# endpoint additionally refuses a duplicate that differs only in case.
+class EquipmentRequest(Base):
+    __tablename__ = "equipment_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    equipment_type = Column(String(100), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    technical_requirements = Column(Text, nullable=True)
+    requested_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "equipment_type", name="uq_equipment_request_event_type"),
+    )
+
+    # Relationships. The backref gives event.equipment_requests without
+    # changing the Event class.
+    event = relationship(
+        "Event",
+        backref=backref("equipment_requests", cascade="all, delete-orphan"),
+    )
+    requested_by = relationship("User")
