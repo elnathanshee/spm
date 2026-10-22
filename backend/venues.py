@@ -212,6 +212,8 @@ def check_venue_availability(
     start_time: datetime,
     end_time: datetime,
     db: Session,
+    *,
+    exclude_booking_id: Optional[int] = None,
 ) -> Tuple[bool, Optional[str]]:
     """AC1 & AC4: Check venue availability against existing bookings and buffers (Week 7 Change #1).
 
@@ -223,8 +225,11 @@ def check_venue_availability(
     [SCRUM-38 | Elnathan] The rule itself is in booking_rules.find_conflicts.
     When several bookings clash, the earliest-starting one is named (then the
     lowest id); before SCRUM-38 the order was undefined.
+
+    [SCRUM-38 part 2] exclude_booking_id leaves one booking out, so an existing
+    booking can be checked against the venue's other bookings (at approval).
     """
-    conflicts = find_conflicts(db, venue, start_time, end_time)
+    conflicts = find_conflicts(db, venue, start_time, end_time, exclude_booking_id=exclude_booking_id)
     if not conflicts:
         return True, None
 
@@ -692,6 +697,15 @@ def _decide_booking(
     GET /events/{id}/bookings).
     """
     booking = _get_booking_or_404(booking_id, db)
+    approving = decision == "Approved"
+    if approving:
+        # [SCRUM-38 part 2, PR 27 review] Lock the venue row, so approvals at one
+        # venue run one at a time, then re-read the booking and its hold: what this
+        # request read before the lock may be out of date. FOR UPDATE does nothing
+        # on SQLite; there the tests exercise the re-check and the conditional
+        # update below. On Neon (Postgres) the lock is what serializes approvals.
+        db.query(Venue).filter(Venue.id == booking.venue_id).with_for_update().one()
+        db.expire_all()
     refusal = expired_hold_refusal(booking)  # [SCRUM-81] an expired hold can't be decided
     if refusal:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
@@ -700,8 +714,30 @@ def _decide_booking(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Booking has already been decided (status: {booking.status})",
         )
-
-    booking.status = new_status
+    # [SCRUM-38 part 2] AC2-AC4: approving re-checks clashes with the venue's
+    # current setup and turnaround. Reject is never blocked: it is how Venue
+    # Staff resolve a clash (D6).
+    if approving:
+        available, clash = check_venue_availability(
+            booking.venue, booking.booking_start, booking.booking_end, db, exclude_booking_id=booking.id
+        )
+        if not available:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cannot approve: {clash}")
+        # Confirm only while the booking is still Pending. If another request got
+        # there first (it expired, or was decided), nothing changes: 409.
+        confirmed = (
+            db.query(VenueBooking)
+            .filter(VenueBooking.id == booking.id, VenueBooking.status == "Pending")
+            .update({VenueBooking.status: new_status}, synchronize_session=False)
+        )
+        db.expire(booking)
+        if not confirmed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=expired_hold_refusal(booking) or f"Booking has already been decided (status: {booking.status})",
+            )
+    else:
+        booking.status = new_status
     booking.decision = VenueBookingDecision(
         decision=decision,
         decided_by_id=staff.id,
