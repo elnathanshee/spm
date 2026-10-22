@@ -697,6 +697,15 @@ def _decide_booking(
     GET /events/{id}/bookings).
     """
     booking = _get_booking_or_404(booking_id, db)
+    approving = decision == "Approved"
+    if approving:
+        # [SCRUM-38 part 2, PR 27 review] Lock the venue row, so approvals at one
+        # venue run one at a time, then re-read the booking and its hold: what this
+        # request read before the lock may be out of date. FOR UPDATE does nothing
+        # on SQLite; there the tests exercise the re-check and the conditional
+        # update below. On Neon (Postgres) the lock is what serializes approvals.
+        db.query(Venue).filter(Venue.id == booking.venue_id).with_for_update().one()
+        db.expire_all()
     refusal = expired_hold_refusal(booking)  # [SCRUM-81] an expired hold can't be decided
     if refusal:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
@@ -708,14 +717,27 @@ def _decide_booking(
     # [SCRUM-38 part 2] AC2-AC4: approving re-checks clashes with the venue's
     # current setup and turnaround. Reject is never blocked: it is how Venue
     # Staff resolve a clash (D6).
-    if decision == "Approved":
+    if approving:
         available, clash = check_venue_availability(
             booking.venue, booking.booking_start, booking.booking_end, db, exclude_booking_id=booking.id
         )
         if not available:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cannot approve: {clash}")
-
-    booking.status = new_status
+        # Confirm only while the booking is still Pending. If another request got
+        # there first (it expired, or was decided), nothing changes: 409.
+        confirmed = (
+            db.query(VenueBooking)
+            .filter(VenueBooking.id == booking.id, VenueBooking.status == "Pending")
+            .update({VenueBooking.status: new_status}, synchronize_session=False)
+        )
+        db.expire(booking)
+        if not confirmed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=expired_hold_refusal(booking) or f"Booking has already been decided (status: {booking.status})",
+            )
+    else:
+        booking.status = new_status
     booking.decision = VenueBookingDecision(
         decision=decision,
         decided_by_id=staff.id,
