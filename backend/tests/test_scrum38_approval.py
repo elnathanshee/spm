@@ -497,6 +497,8 @@ def test_tc3826_an_approval_overtaken_by_expiry_and_a_new_confirmation_is_refuse
     assert hook["ran"] is True
     assert hook["error"] is None, repr(hook["error"])
     assert refused is not None and refused.status_code == 409, "A's approval was not refused"
+    # Refused for the right reason: its hold expired, or it now clashes with B.
+    assert "expired" in refused.detail.lower() or refused.detail.startswith("Cannot approve"), refused.detail
     fresh = TestingSessionLocal()
     try:
         assert fresh.get(VenueBooking, a).status != "Confirmed"
