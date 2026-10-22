@@ -396,3 +396,148 @@ def test_tc3825_exclude_booking_id_leaves_one_booking_out(db_session, v, e1):
         False, f"Direct conflict with existing booking ({D.isoformat()} 10:00 - 12:00)",
     )
     assert check_venue_availability(v, at(10), at(12), db_session, exclude_booking_id=b.id) == (True, None)
+
+
+# ================================================================ PR 27 review: concurrency-safe approval
+# Interleaving without threads: a hook wraps check_venue_availability, so the
+# first time the approval under test calls it (its clash check, before it has
+# written anything), the hook runs another session's work to completion. That
+# is the window between an approval's checks and its commit.
+
+
+def run_once_after_clash_check(monkeypatch, other_work):
+    """Wrap venues.check_venue_availability: return the real answer, but the
+    first time only, run other_work() first. An error in other_work is recorded
+    in state["error"] rather than raised, so it can't pass for the refusal of
+    the approval under test."""
+    from backend import venues
+
+    real = venues.check_venue_availability
+    state = {"ran": False, "error": None}
+
+    def hooked(*args, **kwargs):
+        result = real(*args, **kwargs)
+        if not state["ran"]:
+            state["ran"] = True
+            try:
+                other_work()
+            except Exception as error:  # noqa: BLE001 - recorded for the test to assert on
+                state["error"] = error
+        return result
+
+    monkeypatch.setattr(venues, "check_venue_availability", hooked)
+    return state
+
+
+def decide_in_new_session(booking_id, decision, new_status, staff_username, reason=None):
+    """One complete decision in its own session, as another request would make it."""
+    from backend.venues import _decide_booking
+
+    other = TestingSessionLocal()
+    try:
+        staff = other.query(User).filter(User.username == staff_username).one()
+        return _decide_booking(booking_id, decision, new_status, staff, other, reason=reason)
+    finally:
+        other.close()
+
+
+def request_in_new_session(venue_id, event_id, coordinator_username, start, end):
+    """One complete booking request in its own session, as another request would make it."""
+    from backend.venue_holds import run_hold_checks
+    from backend.venues import VenueBookingRequest, submit_venue_booking_request
+
+    other = TestingSessionLocal()
+    try:
+        run_hold_checks(db=other)  # the router-level hold check every venues request runs first
+        coordinator = other.query(User).filter(User.username == coordinator_username).one()
+        payload = VenueBookingRequest(event_id=event_id, booking_start=start, booking_end=end)
+        return submit_venue_booking_request(venue_id, payload, coordinator, other)["booking"]["booking_id"]
+    finally:
+        other.close()
+
+
+def test_tc3826_an_approval_overtaken_by_expiry_and_a_new_confirmation_is_refused(
+    client, clock, db_session, monkeypatch, v, e1, e2
+):
+    """TC-3826 | Cross-Cutting | AC2, AC4 (PR 27 review: concurrent expiry and approval)
+    A is a hold for E1 at V, D 10:00-12:00, with a 5-minute expiry. Venue Staff
+    start approving A, and A passes its checks. Before A's approval commits: A's hold expires, B (E2) is
+    requested for the same venue and period in another session, and B is
+    approved there.
+    Expected: A's approval gets 409 and A is not Confirmed; the slot ends with
+    exactly one Confirmed booking (B)."""
+    from fastapi import HTTPException
+
+    from backend.venues import _decide_booking
+
+    a = hold(client, v, e1, at(10), at(12), "coord_a")
+    # A short expiry (rather than the 48-hour default): created_at uses the real
+    # clock, so a hold requested after a 48-hour jump of the test clock (B) would
+    # be born expired.
+    expires = clock.now + timedelta(minutes=5)
+    login(client, "venue1")
+    assert client.put(f"/venues/bookings/{a}/hold", json={"expires_at": expires.isoformat()}).status_code == 200
+    other_ids = {}
+
+    def a_expires_and_b_is_confirmed():
+        clock.now = expires + timedelta(minutes=1)
+        b = request_in_new_session(v.id, e2.id, "coord_b", at(10), at(12))
+        decide_in_new_session(b, "Approved", "Confirmed", "venue1")
+        other_ids["b"] = b
+
+    hook = run_once_after_clash_check(monkeypatch, a_expires_and_b_is_confirmed)
+    staff = db_session.query(User).filter(User.username == "venue1").one()
+
+    try:
+        _decide_booking(a, "Approved", "Confirmed", staff, db_session)
+        refused = None
+    except HTTPException as error:
+        refused = error
+
+    assert hook["ran"] is True
+    assert hook["error"] is None, repr(hook["error"])
+    assert refused is not None and refused.status_code == 409, "A's approval was not refused"
+    fresh = TestingSessionLocal()
+    try:
+        assert fresh.get(VenueBooking, a).status != "Confirmed"
+        confirmed_ids = [
+            b.id for b in fresh.query(VenueBooking).filter(VenueBooking.venue_id == v.id,
+                                                           VenueBooking.status == "Confirmed")
+        ]
+        assert confirmed_ids == [other_ids["b"]]
+    finally:
+        fresh.close()
+
+
+def test_tc3827_two_interleaved_approvals_of_one_booking_record_one_decision(
+    client, db_session, monkeypatch, v, e1
+):
+    """TC-3827 | Cross-Cutting | AC4 (PR 27 review)
+    A is a hold at V. Venue Staff start approving A, and A passes its checks.
+    Before that approval commits, a second approval of A completes in another
+    session.
+    Expected: the first approval gets 409; A is Confirmed once, with exactly one
+    decision row."""
+    from fastapi import HTTPException
+
+    from backend.venues import _decide_booking
+
+    a = hold(client, v, e1, at(10), at(12), "coord_a")
+    hook = run_once_after_clash_check(monkeypatch, lambda: decide_in_new_session(a, "Approved", "Confirmed", "venue1"))
+    staff = db_session.query(User).filter(User.username == "venue1").one()
+
+    try:
+        _decide_booking(a, "Approved", "Confirmed", staff, db_session)
+        refused = None
+    except HTTPException as error:
+        refused = error
+
+    assert hook["ran"] is True
+    assert hook["error"] is None, repr(hook["error"])
+    assert refused is not None and refused.status_code == 409, "A's approval was not refused"
+    fresh = TestingSessionLocal()
+    try:
+        assert fresh.get(VenueBooking, a).status == "Confirmed"
+        assert fresh.query(VenueBookingDecision).filter(VenueBookingDecision.booking_id == a).count() == 1
+    finally:
+        fresh.close()
