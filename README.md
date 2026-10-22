@@ -101,6 +101,45 @@ Configure Vercel with the project root set to `frontend/`, Build Command set to
 must use a backend URL whose CORS policy allows the Vercel origin with
 credentials enabled.
 
+## Venue booking workflow
+
+Venue Staff use **Venue operations** to add a venue (name, location, capacity),
+view venues and booking requests, and review a pending request. Approval uses the
+existing booking endpoint; rejection requires a reason. All Venue Staff can
+manage all venues. No venue-to-staff assignment is required.
+
+Coordinators use **Assigned requests > Venue bookings**; Leads use **Assignment
+oversight > Venue bookings**. Refresh the booking dialog to load venues added
+since it was opened. The same dialog submits requests and displays status and
+rejection reasons for both roles.
+
+The Venue Staff dashboard reuses the existing 15-second notification polling.
+Unread messages are highlighted; staff can mark their own messages as read and
+open the corresponding booking. Approval/rejection messages continue to reach
+the original requester. Historical bookings without a recorded requester display
+that fact and do not infer a requester from the current event assignment.
+
+Venue creation/review are supporting workflow functionality. Notification display,
+read handling, and notification-to-booking links are the SCRUM-64 integration.
+The backend decision and notification delivery rules are unchanged. Automated
+HTTP integration tests use disposable SQLite; running the application against
+Neon and creating or deciding records changes live data.
+
+## Database initialization
+
+Application startup initializes missing tables from the SQLAlchemy models with
+`Base.metadata.create_all()`. A fresh empty database receives the SCRUM-64 requester
+reference and notification uniqueness constraint without a separate migration.
+This does not upgrade existing tables. **Before deploying SCRUM-64, the database
+owner must run `python -m backend.migrate_scrum64 --check` against the intended
+target and obtain a successful result.** Older databases can be upgraded with the
+restored, explicit `--apply` command only after approval, a verified recovery point,
+and stopped application writers. The configured development/test Neon branch was
+verified compatible on 19 Oct 2026; no migration was applied during that check.
+Other branches must be checked independently. See
+[SCRUM-64 migration and verification](docs/SCRUM-64-MIGRATION.md) for the required
+columns, constraints, evidence, Windows commands, and deployment order.
+
 ## Venue Holds and Expiry (SCRUM-81)
 
 A venue booking request is a **tentative hold** (status `Pending`) until Venue Staff approve or reject it. Holds expire, so a venue is never reserved indefinitely.

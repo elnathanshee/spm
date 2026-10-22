@@ -7,10 +7,14 @@ export function resetSignedOutState(state) {
   state.unbuiltRole = false;
   state.events = [];
   state.assignedEvents = [];
+  state.notificationOpen = false;
   state.allCoordinatorEvents = [];
   state.leadEvents = [];
   state.coordinators = [];
   state.notifications = [];
+  state.bookingDialog = null;
+  state.venueWorkspace = null;
+  state.staffBooking = null;
   state.alert = null;
   state.fieldErrors = {};
   state.loginForm = { username: "", password: "" };
