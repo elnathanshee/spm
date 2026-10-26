@@ -286,7 +286,7 @@ def assigned_requests_page(
 
     Deprecated (SCRUM-98): the app's Coordinator screen reads
     /coordinator/events/data instead. Kept because SCRUM-24's tests
-    (TC-301 to TC-311) request this page and are that story's evidence.
+    (TC-2401 to TC-2411) request this page and are that story's evidence.
     """
     require_coordinator(current_user)
     requests = assigned_requests(db, current_user)
