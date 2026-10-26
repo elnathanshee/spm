@@ -433,6 +433,8 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "event_id": booking.event_id,
         "event_title": booking.event.title if booking.event else None,
         "requester_id": booking.requester_id,
+        # [SCRUM-89 | Renee] AC5: the requester by name (None if none was recorded)
+        "requester_name": booking.requester.username if booking.requester else None,
         "booking_start": booking.booking_start.isoformat(),
         "booking_end": booking.booking_end.isoformat(),
         "status": booking.status,
