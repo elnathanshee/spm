@@ -424,7 +424,9 @@ document.addEventListener("alpine:init", () => {
         });
         if (this.user !== recipient || this.staffBooking !== review) return;
         if (response.ok) {
-          review.detail = response.data.booking;
+          // PUT /hold returns the booking without its venue or decision, so
+          // update the hold fields and keep the rest of the review's detail.
+          review.detail = { ...review.detail, ...response.data.booking };
           review.holdExpiry = "";
           await this.fetchVenueWorkspace();
           if (this.user !== recipient || this.staffBooking !== review) return;
