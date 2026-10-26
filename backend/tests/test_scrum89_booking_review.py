@@ -15,7 +15,7 @@ Acceptance criteria covered here (backend):
        requester's name. New in SCRUM-89.
 
 AC3 and AC4, and the screen side of AC1, AC2 and AC5, are tested in
-frontend/tests/venue-staff.test.js (TC-8904 to TC-8910).
+frontend/tests/scrum89-booking-review.test.js (TC-8904 to TC-8912).
 
 Bookings, at Grand Hall on day D (30 days ahead):
   P  Pending    10:00-12:00  requested by coord_sarah, with a conflict flag

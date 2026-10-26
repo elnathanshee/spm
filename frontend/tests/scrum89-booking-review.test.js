@@ -177,3 +177,19 @@ test("TC-8910 the requester is shown by name, with a fallback when none was reco
   assert.match(html, /requesterLabel\(staffBooking\.detail\)/);
   assert.doesNotMatch(html, /Requester #/);
 });
+
+// Found in the SCRUM-89 manual run (26 Oct): the dialog's error sits above the
+// details, far from the Approve/Reject buttons, and the clash was named twice.
+test("TC-8911 the in-dialog error scrolls into view when it appears", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const errorArea = html.match(/<div class="dialog-error"(?:[^>"]|"[^"]*")*>/)?.[0] || "";
+  assert.match(errorArea, /x-show="staffBooking\.error"/);
+  assert.match(errorArea, /x-effect="[^"]*staffBooking\?\.error[^"]*scrollIntoView/, "the error area scrolls itself into view when an error is set");
+});
+
+test("TC-8912 the clash callout names the clashing booking once", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const callout = html.match(/<div class="conflict-callout"[\s\S]*?<\/div>/)?.[0] || "";
+  assert.match(callout, /staffBooking\.detail\.conflict_flag\?\.reason/);
+  assert.doesNotMatch(callout, /Clashes with booking #/, "the reason already names the booking");
+});
