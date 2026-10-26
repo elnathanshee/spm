@@ -6,12 +6,12 @@ This register documents all automated test cases across **Sprint 1**, **Sprint 2
 
 ## Summary Statistics
 
-- **Total Test Cases:** 394 rows in this file, recounted on 26 Oct 2026 (SCRUM-98; +12 SCRUM-89) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
+- **Total Test Cases:** 395 rows in this file, recounted on 26 Oct 2026 (SCRUM-98; +13 SCRUM-89) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
 - **Sprint 1:** 40 Test Cases (SCRUM-16: 6, SCRUM-22 & 27: 7, SCRUM-21: 15, SCRUM-24: 11, SCRUM-24 & 27: 1; the 12 SCRUM-24 rows were registered in Sprint 4)
 - **Sprint 2:** 121 Test Cases (SCRUM-51: 15, SCRUM-23: 18, SCRUM-63: 8, SCRUM-30: 10, SCRUM-33: 13, SCRUM-31: 21, SCRUM-32: 16, SCRUM-34: 20)
 - **Sprint 3:** 219 Test Cases (SCRUM-35: 23, SCRUM-18: 11, SCRUM-36: 13, SCRUM-37: 9, SCRUM-38: 27, SCRUM-28: 14, SCRUM-80: 12, SCRUM-81: 36, SCRUM-64: 36, SCRUM-39: 23, SCRUM-30: 1; 14 rows shared across venue stories or unmapped)
-- **Sprint 4:** 14 Test Cases (SCRUM-98: 2, SCRUM-89: 12)
-- **CSV:** `TEST_CASES.csv` holds 314 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
+- **Sprint 4:** 15 Test Cases (SCRUM-98: 2, SCRUM-89: 13)
+- **CSV:** `TEST_CASES.csv` holds 315 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
 - **Current PR verification (SCRUM-98):** full backend suite 538 passed, 1 skipped, and frontend 37/37, on 26 Oct 2026. Historical statuses are preserved; they are not new execution claims.
 - **Automation:** `pytest` and Node test runner; see per-case execution evidence.
 
@@ -349,7 +349,7 @@ SCRUM-24 and TC-223 (registered in Sprint 4), and SCRUM-98 (14 rows)
 | TC-9801 | SCRUM-98 | Cross-Cutting | Done-when 1 | Only lead.py's reassign handler is registered | The app as built by backend/main.py (no database rows needed) | 1. Walk the app's mounted routes, including those inside included routers<br>2. Keep the POST /events/{event_id}/reassign routes | Route table only | Exactly one handler, from module backend.lead. | As expected | pytest backend/tests/test_scrum98_cleanup.py::test_tc9801_only_the_lead_reassign_handler_is_registered | Passed | Sprint 4 | Elnathan (automated, pytest) | 26-Oct-26 |
 | TC-9802 | SCRUM-98 | Cross-Cutting | Done-when 2 | The kept legacy coordinator page is marked deprecated | The app as built by backend/main.py (no database rows needed) | 1. Generate the OpenAPI schema<br>2. Read GET /coordinator/events, /coordinator/events/data and /coordinator/events/all-data | OpenAPI schema only | GET /coordinator/events has deprecated: true; /coordinator/events/data and /coordinator/events/all-data are not deprecated. | As expected | pytest backend/tests/test_scrum98_cleanup.py::test_tc9802_legacy_coordinator_page_is_marked_deprecated | Passed | Sprint 4 | Elnathan (automated, pytest) | 26-Oct-26 |
 
-SCRUM-89 (12 rows, Sprint 4)
+SCRUM-89 (13 rows, Sprint 4)
 
 | Test Case ID | Story | Test Path / Classification | Acceptance Criterion | Test Scenario | Pre-conditions | Test Steps | Test Data | Expected Result | Actual Result (PDFs / API) | Evidence | Status | Build / Sprint | Executed By | Date Executed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- | :--- |
@@ -365,3 +365,4 @@ SCRUM-89 (12 rows, Sprint 4)
 | TC-8910 | SCRUM-89 | Boundary Path | AC5 | The requester is shown by name, with a fallback when none was recorded | Venue Staff app state loaded from app.js in a Node vm; API mocked; no rendered browser | 1. requesterLabel with a name<br>2. requesterLabel with none<br>3. Read the dialog markup | coord_sarah; null | coord_sarah; Not recorded; the dialog uses requesterLabel and no longer shows Requester #id. | As expected | node --test frontend/tests/scrum89-booking-review.test.js (TC-8910) | Passed | Sprint 4 | Renee (automated) | 26-Oct-26 |
 | TC-8911 | SCRUM-89 | Cross-Cutting | AC3 (found in the manual run, 26 Oct) | The in-dialog error scrolls into view when it appears | frontend/index.html | 1. Read the review dialog's error area | index.html | The error area shows staffBooking.error and scrolls itself into view (x-effect, scrollIntoView) whenever an error is set, so it is seen from the Approve/Reject buttons. | As expected | node --test frontend/tests/scrum89-booking-review.test.js (TC-8911) | Passed | Sprint 4 | Renee (automated, Node test runner) | 26-Oct-26 |
 | TC-8912 | SCRUM-89 | Boundary Path | AC1 (found in the manual run, 26 Oct) | The clash callout names the clashing booking once | frontend/index.html | 1. Read the review dialog's clash callout | index.html | The callout shows the conflict reason (which names the booking) and no second Clashes with booking # line. | As expected | node --test frontend/tests/scrum89-booking-review.test.js (TC-8912) | Passed | Sprint 4 | Renee (automated, Node test runner) | 26-Oct-26 |
+| TC-8913 | SCRUM-89 | Workflow Variation | AC1, AC2 (found in the manual run, 26 Oct) | Updating the hold keeps the venue details in the dialog | Venue Staff app state loaded from app.js in a Node vm; API mocked; review detail with venue, requester and conflict flag | 1. Set a valid new expiry; PUT /hold answers with the short booking (no venue) | Expiry 1 day ahead | Hold expiry updated; venue capacity, layouts, accessibility, facilities and the requester stay in the dialog. | As expected | node --test frontend/tests/scrum89-booking-review.test.js (TC-8913) | Passed | Sprint 4 | Renee (automated, Node test runner) | 26-Oct-26 |
