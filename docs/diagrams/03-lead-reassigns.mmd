@@ -4,7 +4,7 @@ title: "Sequence 3 - Event Coordinator Lead reassigns an event (SCRUM-23, Week 7
 sequenceDiagram
     autonumber
     actor Lead as Event Coordinator Lead
-    participant API as reassignment.py<br/>POST /events/{id}/reassign
+    participant API as lead.py + assignment.py<br/>POST /events/{id}/reassign
     participant N as notifications.py
     participant DB as Database
     actor Prev as Previous Coordinator
@@ -15,11 +15,11 @@ sequenceDiagram
     API->>API: body must have coordinator_id (else 422)
     API->>API: role must be lead (else 403, checked before the event is loaded)
     API->>DB: load Event (else 404)
-    alt Draft / Rejected / Cancelled / Completed, or no Coordinator yet
+    alt not Submitted / Under Review / Returned (SCRUM-85: Approved is refused too)
         API-->>Lead: 400
     end
     API->>DB: load target user
-    alt not an active coordinator, or same as current
+    alt not an active coordinator, no Coordinator yet, or same as current
         API-->>Lead: 400
     end
 
@@ -36,7 +36,7 @@ sequenceDiagram
     N->>DB: add "coordinator_changed" -> Organiser (names New)
 
     API->>DB: commit (all or nothing)
-    API-->>Lead: 200 {assigned, previous, reassigned_by}
+    API-->>Lead: 200 {event row, previous, reassigned_by}
 
     Note over Prev,NewC: status_rules.py checks the ASSIGNED coordinator,<br/>so from now on the previous one gets 403 and the new one can act
     DB-->>Prev: GET /notifications shows removal notice
