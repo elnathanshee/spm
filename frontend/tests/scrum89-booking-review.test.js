@@ -193,3 +193,20 @@ test("TC-8912 the clash callout names the clashing booking once", () => {
   assert.match(callout, /staffBooking\.detail\.conflict_flag\?\.reason/);
   assert.doesNotMatch(callout, /Clashes with booking #/, "the reason already names the booking");
 });
+
+// Found in the SCRUM-89 manual run (26 Oct): PUT /hold returns the short
+// booking (no venue), and replacing the detail with it blanked the venue facts.
+test("TC-8913 updating the hold keeps the venue details in the dialog", async () => {
+  const state = app();
+  const venue = { name: "Manual Run Hall", capacity: 150, supported_layouts: ["Theatre"], accessibility: "Step-free", facilities: ["Projector"] };
+  state.staffBooking = pendingReview();
+  state.staffBooking.detail = { ...state.staffBooking.detail, venue, requester_name: "coord1", conflict_flag: { conflicting_booking_id: 1, reason: "Clash" }, hold_expires_at: "2026-10-29T14:00:00" };
+  state.staffBooking.holdExpiry = localInput(new Date(Date.now() + DAY));
+  const { venue: _omitted, ...shortBooking } = state.staffBooking.detail;
+  state.apiRequest = async () => ({ ok: true, status: 200, data: { booking: { ...shortBooking, hold_expires_at: "2026-10-27T14:43:00" } } });
+  state.fetchVenueWorkspace = async () => {};
+  await state.setStaffHold();
+  assert.equal(state.staffBooking.detail.hold_expires_at, "2026-10-27T14:43:00", "the hold is updated");
+  assert.deepEqual(state.staffBooking.detail.venue, venue, "the venue details are kept");
+  assert.equal(state.staffBooking.detail.requester_name, "coord1");
+});
