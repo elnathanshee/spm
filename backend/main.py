@@ -9,7 +9,6 @@ from .events import router as events_router
 from .lead import router as lead_router
 from .models import Base
 from .notifications import router as notifications_router
-from .reassignment import router as reassignment_router
 from .suitability import router as suitability_router
 from .venue_calendar import router as venue_calendar_router
 from .venue_holds import router as venue_holds_router, run_hold_checks  # [SCRUM-81 | Elnathan]
@@ -44,7 +43,6 @@ app.include_router(coordinator_router)
 app.include_router(equipment_router)  # [SCRUM-39 | Melvin]
 app.include_router(lead_router)
 app.include_router(notifications_router, dependencies=HOLD_CHECKS)
-app.include_router(reassignment_router)
 app.include_router(venues_router, dependencies=HOLD_CHECKS)
 app.include_router(venue_calendar_router)
 app.include_router(suitability_router)

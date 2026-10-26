@@ -72,6 +72,9 @@ Open `http://localhost:5173`. Vite proxies `/auth`, `/events`, and
 `/coordinator`, `/lead`, and `/notifications` to `http://localhost:8000`, preserving same-origin cookie
 behavior during development.
 
+The backend's `GET /coordinator/events` (what `/coordinator/events` without the `#` reaches) is SCRUM-24's Sprint 1 server-rendered page, deprecated and kept as that story's test evidence; the app's Coordinator screen reads `/coordinator/events/data`.
+`coordinator_page_preview.html` in the repository root is a static snapshot of that page, kept as Sprint 1 evidence.
+
 Credentialed CORS is currently enabled for `http://localhost:3000`,
 `http://127.0.0.1:3000`, `http://localhost:5173`, and
 `http://127.0.0.1:5173`. Serve the frontend over HTTP rather than opening
