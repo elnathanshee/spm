@@ -489,3 +489,18 @@ TC-3826,SCRUM-38,Cross-Cutting,"AC2, AC4 (PR 27 review)",An approval overtaken b
 TC-3827,SCRUM-38,Cross-Cutting,AC4 (PR 27 review),Two interleaved approvals of one booking record one decision,"V = Grand Hall (30 min setup, 45 min turnaround); D = today + 30 days; E1 assigned to coord_a, E2 to coord_b; A (E1) is a hold","1. Venue Staff start approving A; A passes its checks
 2. Before it commits, a second approval of A completes in another session
 3. The first approval continues",interleaved sessions via a hook (no threads),"The first approval gets 409; A is Confirmed once, with exactly one decision row.",HTTP 409; A Confirmed; 1 decision row.,Automated test (pytest),Passed,Sprint 3,Elnathan,22-Oct-26
+TC-9001,SCRUM-90,Happy Path,AC1,New request form captures and sends all nine content fields with POST /events,Logged in as Organiser,"1. Fill out all 9 fields in /events/new
+2. Submit draft form
+3. Inspect POST /events payload",All 9 event fields: title purpose description proposed_start expected_attendance venue_requirements accessibility_needs equipment_requirements registration_needs,POST /events receives complete 9-field payload; status 201; redirects to /events with success alert,POST /events verified with all 9 fields; alert shown,Automated test (node:test),Passed,Sprint 4,Sarah,26-Oct-26
+TC-9002,SCRUM-90,Happy Path,AC2,Amend request opens with all nine content fields prefilled,Organiser owns event in Submitted or Under Review or Returned,"1. Click Amend request on event card
+2. Inspect open amend modal fields",Event with all 9 fields populated,"Modal opens with all 9 fields prefilled, proposed_start correctly formatted for datetime-local input",All 9 fields prefilled matching event attributes,Automated test (node:test),Passed,Sprint 4,Sarah,26-Oct-26
+TC-9003,SCRUM-90,Happy Path,AC2,Amend saves changes with POST /events/{id}/amend and preserves untouched fields,Organiser owns event in Submitted or Under Review or Returned,"1. Open amend modal
+2. Modify subset of fields (e.g. accessibility_needs)
+3. Submit amend form",accessibility_needs modified; other 8 fields untouched,"POST /events/{id}/amend called with complete 9 fields; untouched fields preserved, modal closes, success alert shown",POST /events/{id}/amend payload verified; modal closed,Automated test (node:test),Passed,Sprint 4,Sarah,26-Oct-26
+TC-9004,SCRUM-90,Negative Path / Boundary,AC3,Server validation errors map to the right fields and keep typed input,Logged in as Organiser,"1. Trigger 422 error
+2. Trigger 400 past date error
+3. Trigger 400 attendance error
+4. Check field error bindings and draft state",Validation error responses from backend,fieldErrors maps 422 loc and 400 past date and non-positive attendance; draft form input remains intact,fieldErrors mapped accurately; form state preserved,Automated test (node:test),Passed,Sprint 4,Sarah,26-Oct-26
+TC-9005,SCRUM-90,Cross-Cutting,DoD (Session State),resetSignedOutState clears all 9 fields on draft and amendForm,Active session with draft or amend data populated,"1. Call resetSignedOutState(state)
+2. Verify draft and amendForm properties",draft and amendForm populated,"All 9 fields reset to empty strings / null, no residual state remains",All 9 fields verified reset to clean default state,Automated test (node:test),Passed,Sprint 4,Sarah,26-Oct-26
+
