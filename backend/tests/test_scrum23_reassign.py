@@ -1,7 +1,42 @@
 """SCRUM-23: Event Coordinator Lead reassigns an event to a different Coordinator.
 
-Each test names the acceptance criterion it proves (numbering as in
-backend/reassignment.py).
+Rewritten per Week 7 Customer Change 5: the Lead reassigns (the 10 Sep
+handshake between Coordinators is superseded). The handler is
+POST /events/{event_id}/reassign in backend/lead.py, which calls
+assign_event() in backend/assignment.py. This list moved here from
+backend/reassignment.py, whose handler was shadowed by lead.py's and never
+ran; it was removed in SCRUM-98.
+
+Acceptance criteria (each test names the one it proves):
+  Lead role
+    AC1  There is an Event Coordinator Lead role, with a seeded Lead account
+         (``lead1`` in seed_users.py).
+    AC2  The Lead can view all events and each event's current Coordinator
+         (GET /lead/events).
+  Reassignment
+    AC3  Only the Lead can reassign. Any other role is refused, including by
+         a direct API call.
+    AC4  After reassignment the event has exactly one assigned Coordinator.
+    AC5  The previous Coordinator can no longer manage the event; the new one
+         can. status_rules.py only lets the *assigned* Coordinator act, so
+         moving the assignment moves the permission.
+    AC6  Each reassignment is recorded (by whom, from, to, when) in
+         CoordinatorReassignment.
+    AC7  The Organiser sees the current Coordinator (GET /events).
+  Notification
+    AC8  The previous Coordinator, the new Coordinator and the Organiser are
+         notified (via the SCRUM-51 notification functions).
+
+Team assumptions, as the live handler implements them:
+  * Only a request that is Submitted, Under Review or Returned, and already
+    has a Coordinator, can be reassigned. Any other status is refused with
+    400: a Draft (no Coordinator yet), a finished request (Rejected,
+    Cancelled, Completed) and also an Approved one. Refusing Approved events
+    is a known gap, recorded on SCRUM-85.
+  * The new Coordinator must be an active Coordinator, and different from the
+    current one (400 otherwise).
+  * The former Coordinator's notification stays in their list but is not
+    linked to the event, since they can no longer open it.
 """
 
 import os

@@ -13,7 +13,9 @@ Acceptance criteria covered:
 The page is rendered by the backend rather than by a separate frontend app,
 because the frontend framework is still undecided. The same rows are also
 available as JSON at /coordinator/events/data, so whatever the team chooses
-later can read them without this file changing.
+later can read them without this file changing. The Alpine.js frontend now
+does exactly that, so the page is kept only as deprecated Sprint 1 evidence
+(SCRUM-98; see assigned_requests_page).
 
 "Awaiting first review" means the request is still Submitted: nobody has
 started reviewing it. Once the assigned Coordinator starts a review
@@ -275,12 +277,17 @@ def render_page(coordinator: User, requests: List[Dict]) -> str:
 </html>"""
 
 
-@router.get("/events", response_class=HTMLResponse)
+@router.get("/events", response_class=HTMLResponse, deprecated=True)
 def assigned_requests_page(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Where a Coordinator lands after logging in."""
+    """SCRUM-24's Sprint 1 HTML preview of the assigned-requests list.
+
+    Deprecated (SCRUM-98): the app's Coordinator screen reads
+    /coordinator/events/data instead. Kept because SCRUM-24's tests
+    (TC-2401 to TC-2411) request this page and are that story's evidence.
+    """
     require_coordinator(current_user)
     requests = assigned_requests(db, current_user)
     return HTMLResponse(content=render_page(current_user, requests))
