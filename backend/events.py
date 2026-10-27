@@ -664,6 +664,9 @@ def get_visible_event(
         "status": event.status,
         "organiser_id": event.organiser_id,
         "assigned_coordinator_id": event.assigned_coordinator_id,
+        "organiser": event.organiser.username,
+        "assigned_coordinator": event.assigned_coordinator.username if event.assigned_coordinator else None,
+        "clarification_note": next((h.reason for h in sorted(event.status_history, key=lambda h: h.id, reverse=True) if h.new_status == RETURNED), None),
     }
 
 

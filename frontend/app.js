@@ -29,6 +29,8 @@ document.addEventListener("alpine:init", () => {
     bookingDialog: null,
     venueWorkspace: null,
     staffBooking: null,
+    eventDetail: null,
+    decisionBusy: false,
     alert: { message: "", kind: "error" },
     fieldErrors: {},
     loginForm: { username: "", password: "" },
@@ -52,6 +54,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     async apiRequest(path, options = {}) {
+      const recipient = this.user;
       const request = { ...options, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
       if (request.body && typeof request.body !== "string") request.body = JSON.stringify(request.body);
       let response;
@@ -59,12 +62,12 @@ document.addEventListener("alpine:init", () => {
         response = await fetch(`${API_BASE}${path}`, request);
       } catch {
         const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
-        this.handleHttpError(0, data, path);
+        if (this.user === recipient) this.handleHttpError(0, data, path);
         return { ok: false, status: 0, data };
       }
       const data = await response.json().catch(() => ({}));
       if (response.ok) return { ok: true, status: response.status, data };
-      this.handleHttpError(response.status, data, path);
+      if (this.user === recipient) this.handleHttpError(response.status, data, path);
       return { ok: false, status: response.status, data };
     },
 
@@ -74,7 +77,7 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       if (status === 401) {
-        this.user = null;
+        resetSignedOutState(this);
         this.events = [];
         this.assignedEvents = [];
         this.currentPath = "/login";
@@ -216,6 +219,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     navigate(path) {
+      this.closeEventDetail();
       const resolution = resolveRolePath(path, this.user?.role);
       this.accessDenied = resolution.accessDenied;
       this.unbuiltRole = resolution.unbuiltRole;
@@ -253,14 +257,16 @@ document.addEventListener("alpine:init", () => {
     },
 
     async fetchAssignedEvents() {
+      const recipient = this.user;
       this.loading = true;
       const response = await this.apiRequest("/coordinator/events/data");
-      if (response.ok) this.assignedEvents = response.data;
-      this.loading = false;
+      if (this.user === recipient && response.ok) this.assignedEvents = response.data;
+      if (this.user === recipient) this.loading = false;
     },
     async fetchAllCoordinatorEvents() {
+      const recipient = this.user;
       const response = await this.apiRequest("/coordinator/events/all-data");
-      if (response.ok) this.allCoordinatorEvents = response.data;
+      if (this.user === recipient && response.ok) this.allCoordinatorEvents = response.data;
     },
 
     async fetchLeadData() {
@@ -477,15 +483,76 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    async startReview(eventId) { const response = await this.apiRequest(`/events/${eventId}/review`, { method: "POST" }); if (response.ok) { await this.fetchAssignedEvents(); this.showAlert("Review started.", "success"); } },
-    async handleApprove(eventId) { const response = await this.apiRequest(`/events/${eventId}/approve`, { method: "POST" }); if (response.ok) { await this.fetchAssignedEvents(); this.showAlert("Event request approved.", "success"); } },
-    async handleReject(eventId, reason) { const response = await this.apiRequest(`/events/${eventId}/reject`, { method: "POST", body: { reason } }); if (response.ok) { this.closeModal(); await this.fetchAssignedEvents(); this.showAlert("Event request rejected.", "success"); } },
-    async handleReturn(eventId, reason) { const response = await this.apiRequest(`/events/${eventId}/return`, { method: "POST", body: { reason } }); if (response.ok) { this.closeModal(); await this.fetchAssignedEvents(); this.showAlert("Clarification requested from the organiser.", "success"); } },
+    closeEventDetail() { this.eventDetail = null; if (this.modal.kind !== "amend") this.closeModal(); },
+    async openEventDetail(eventId) {
+      if (!["Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role))) return;
+      this.closeEventDetail();
+      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "" };
+      // Read back Alpine's reactive proxy for identity checks and reactive updates.
+      const dialog = this.eventDetail;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${eventId}`);
+        if (this.user !== recipient || this.eventDetail !== dialog) return;
+        if (response.ok) dialog.detail = response.data;
+        else dialog.error = response.status === 403 ? "You don't have permission to view this request." : response.status === 404 ? "Event request not found." : "Request details could not be loaded. Please try again.";
+      } finally { if (this.user === recipient && this.eventDetail === dialog) dialog.loading = false; }
+    },
+    eventFieldLabel(key) { return ({ organiser: "Organiser", assigned_coordinator: "Assigned Coordinator", proposed_start: "Proposed date and time", clarification_note: "Latest clarification note" })[key] || key.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase()); },
+    eventFieldValue(key, value) {
+      if (value === null || value === undefined || value === "") return "Not provided";
+      if (typeof value === "object") return JSON.stringify(value, null, 2);
+      return key === "proposed_start" ? this.formatDate(value) : String(value);
+    },
+    canDecideEvent(event, action = "approve") {
+      if (this.normalizeRole(this.user?.role) !== "Coordinator" || !event) return false;
+      const assigned = Object.hasOwn(event, "assigned_coordinator_id") ? event.assigned_coordinator_id != null && Number(event.assigned_coordinator_id) === Number(this.user.user_id) : this.assignedEvents.some(row => row.id === event.id);
+      return assigned && (action === "review" ? event.status === "Submitted" : ["approve", "return", "reject"].includes(action) && ["Submitted", "Under Review"].includes(event.status));
+    },
+    async decideEvent(eventId, action, reason) {
+      const event = this.eventDetail?.id === eventId ? this.eventDetail.detail : this.assignedEvents.find(row => row.id === eventId);
+      if (this.decisionBusy || !this.canDecideEvent(event, action)) return;
+      if (["return", "reject"].includes(action) && !reason?.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; }
+      const recipient = this.user;
+      const dialog = this.eventDetail?.id === eventId ? this.eventDetail : null;
+      const modal = this.modal;
+      this.decisionBusy = true;
+      this.fieldErrors = {};
+      if (dialog) dialog.actionError = "";
+      try {
+        const response = await this.apiRequest(`/events/${eventId}/${action}`, { method: "POST", ...(["return", "reject"].includes(action) ? { body: { reason: reason.trim() } } : {}) });
+        if (this.user !== recipient) return;
+        if (!response.ok) {
+          const message = typeof response.data?.detail === "string" ? response.data.detail : "The decision could not be saved. Please check the request and try again.";
+          if (dialog && this.eventDetail === dialog) dialog.actionError = message;
+          if (this.modal === modal && modal.open) this.fieldErrors = { ...this.fieldErrors, form: message };
+        }
+        if (response.ok && this.modal === modal && modal.open) this.closeModal();
+        if (response.ok || [400, 403, 404].includes(response.status)) {
+          const refreshes = [this.fetchAssignedEvents()];
+          if (this.currentPath === "/coordinator/all-events" || this.allCoordinatorEvents.length) refreshes.push(this.fetchAllCoordinatorEvents());
+          if (dialog && this.eventDetail === dialog) {
+            refreshes.push((async () => {
+              const current = await this.apiRequest(`/events/${eventId}`);
+              if (this.user !== recipient || this.eventDetail !== dialog) return;
+              dialog.detail = current.ok ? current.data : null;
+              dialog.error = current.ok ? "" : current.status === 404 ? "Event request not found." : current.status === 403 ? "You don't have permission to view this request." : "Request details could not be refreshed. Please try again.";
+            })());
+          }
+          await Promise.all(refreshes);
+        }
+        if (this.user === recipient && response.ok) this.showAlert(({ review: "Review started.", approve: "Event request approved.", reject: "Event request rejected.", return: "Clarification requested from the organiser." })[action], "success");
+      } finally { if (this.user === recipient) this.decisionBusy = false; }
+    },
+    async startReview(eventId) { return this.decideEvent(eventId, "review"); },
+    async handleApprove(eventId) { return this.decideEvent(eventId, "approve"); },
+    async handleReject(eventId, reason) { return this.decideEvent(eventId, "reject", reason); },
+    async handleReturn(eventId, reason) { return this.decideEvent(eventId, "return", reason); },
 
-    openDecision(event, kind) { this.fieldErrors = {}; this.decisionForm = { reason: "" }; this.modal = { open: true, kind, event }; },
+    openDecision(event, kind) { if (this.decisionBusy || !this.canDecideEvent(event, kind)) return; this.fieldErrors = {}; this.decisionForm = { reason: "" }; this.modal = { open: true, kind, event }; },
     openAmend(event) { this.fieldErrors = {}; this.amendForm = { title: event.title || "", description: event.description || "" }; this.modal = { open: true, kind: "amend", event }; },
     closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; },
-    async submitModal() { const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
+    async submitModal() { if (this.decisionBusy || !this.modal.open) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
     formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set"; },
   }));
