@@ -1,4 +1,4 @@
-﻿const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 import {
   NAVIGATION,
@@ -33,8 +33,28 @@ document.addEventListener("alpine:init", () => {
     fieldErrors: {},
     loginForm: { username: "", password: "" },
     showPassword: false,
-    draft: { title: "", purpose: "", description: "", proposed_start: "", expected_attendance: null, venue_requirements: "" },
-    amendForm: { title: "", description: "" },
+    draft: {
+      title: "",
+      purpose: "",
+      description: "",
+      proposed_start: "",
+      expected_attendance: null,
+      venue_requirements: "",
+      accessibility_needs: "",
+      equipment_requirements: "",
+      registration_needs: "",
+    },
+    amendForm: {
+      title: "",
+      purpose: "",
+      description: "",
+      proposed_start: "",
+      expected_attendance: null,
+      venue_requirements: "",
+      accessibility_needs: "",
+      equipment_requirements: "",
+      registration_needs: "",
+    },
     decisionForm: { reason: "" },
     modal: { open: false, kind: "", event: null },
     navigation: NAVIGATION,
@@ -89,6 +109,16 @@ document.addEventListener("alpine:init", () => {
       if (status === 422) {
         this.fieldErrors = this.parseValidationErrors(data.detail);
         return;
+      }
+      if (status === 400 && typeof data?.detail === "string") {
+        if (data.detail.toLowerCase().includes("start time")) {
+          this.fieldErrors = { ...this.fieldErrors, proposed_start: data.detail };
+          return;
+        }
+        if (data.detail.toLowerCase().includes("attendance")) {
+          this.fieldErrors = { ...this.fieldErrors, expected_attendance: data.detail };
+          return;
+        }
       }
       this.showAlert(data.detail || `Request to ${path} failed with status ${status}.`);
     },
@@ -237,8 +267,33 @@ document.addEventListener("alpine:init", () => {
 
     async createEventDraft(data) {
       this.fieldErrors = {};
-      const response = await this.apiRequest("/events", { method: "POST", body: data });
-      if (response.ok) { this.navigate("/events"); this.showAlert("Your event request was saved as a draft.", "success"); }
+      const payload = {
+        title: data.title ?? "",
+        purpose: data.purpose ?? "",
+        description: data.description ?? "",
+        proposed_start: data.proposed_start ? data.proposed_start : null,
+        expected_attendance: data.expected_attendance !== null && data.expected_attendance !== "" && !isNaN(Number(data.expected_attendance)) ? Number(data.expected_attendance) : null,
+        venue_requirements: data.venue_requirements ?? "",
+        accessibility_needs: data.accessibility_needs ?? "",
+        equipment_requirements: data.equipment_requirements ?? "",
+        registration_needs: data.registration_needs ?? "",
+      };
+      const response = await this.apiRequest("/events", { method: "POST", body: payload });
+      if (response.ok) {
+        this.draft = {
+          title: "",
+          purpose: "",
+          description: "",
+          proposed_start: "",
+          expected_attendance: null,
+          venue_requirements: "",
+          accessibility_needs: "",
+          equipment_requirements: "",
+          registration_needs: "",
+        };
+        this.navigate("/events");
+        this.showAlert("Your event request was saved as a draft.", "success");
+      }
     },
 
     async submitEvent(eventId) {
@@ -248,7 +303,18 @@ document.addEventListener("alpine:init", () => {
 
     async amendEvent(eventId, data) {
       this.fieldErrors = {};
-      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: data });
+      const payload = {
+        title: data.title ?? "",
+        purpose: data.purpose ?? "",
+        description: data.description ?? "",
+        proposed_start: data.proposed_start ? data.proposed_start : null,
+        expected_attendance: data.expected_attendance !== null && data.expected_attendance !== "" && !isNaN(Number(data.expected_attendance)) ? Number(data.expected_attendance) : null,
+        venue_requirements: data.venue_requirements ?? "",
+        accessibility_needs: data.accessibility_needs ?? "",
+        equipment_requirements: data.equipment_requirements ?? "",
+        registration_needs: data.registration_needs ?? "",
+      };
+      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
       if (response.ok) { this.closeModal(); await this.fetchEvents(); this.showAlert("Event request updated.", "success"); }
     },
 
@@ -483,7 +549,21 @@ document.addEventListener("alpine:init", () => {
     async handleReturn(eventId, reason) { const response = await this.apiRequest(`/events/${eventId}/return`, { method: "POST", body: { reason } }); if (response.ok) { this.closeModal(); await this.fetchAssignedEvents(); this.showAlert("Clarification requested from the organiser.", "success"); } },
 
     openDecision(event, kind) { this.fieldErrors = {}; this.decisionForm = { reason: "" }; this.modal = { open: true, kind, event }; },
-    openAmend(event) { this.fieldErrors = {}; this.amendForm = { title: event.title || "", description: event.description || "" }; this.modal = { open: true, kind: "amend", event }; },
+    openAmend(event) {
+      this.fieldErrors = {};
+      this.amendForm = {
+        title: event.title || "",
+        purpose: event.purpose || "",
+        description: event.description || "",
+        proposed_start: event.proposed_start ? event.proposed_start.slice(0, 16) : "",
+        expected_attendance: event.expected_attendance ?? null,
+        venue_requirements: event.venue_requirements || "",
+        accessibility_needs: event.accessibility_needs || "",
+        equipment_requirements: event.equipment_requirements || "",
+        registration_needs: event.registration_needs || "",
+      };
+      this.modal = { open: true, kind: "amend", event };
+    },
     closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; },
     async submitModal() { const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
