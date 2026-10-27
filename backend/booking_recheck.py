@@ -4,10 +4,14 @@ existing bookings after its setup or turnaround time changes.
 A booking that now clashes with another booking at the venue is flagged for
 Venue Staff. It is never removed and its status never changes. The clash rule
 itself is booking_rules.find_conflicts (SCRUM-38), so it stays in one place.
+
+GitHub #29: a stored flag can go stale once the booking it names stops holding
+the venue (its hold expires, or it is rejected). active_conflict_flag
+revalidates a flag each time it is shown; the stored row is kept as history.
 """
 
 from datetime import datetime
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -46,11 +50,45 @@ def recheck_venue_bookings(db: Session, venue: Venue) -> List[VenueBooking]:
         other = clashes[0]
         booking.conflict_flag = VenueBookingConflictFlag(
             conflicting_booking_id=other.id,
-            reason=(
-                f"Clashes with booking #{other.id} "
-                f"({other.booking_start.strftime('%Y-%m-%d %H:%M')} - {other.booking_end.strftime('%H:%M')}) "
-                f"once {venue.setup_time_mins}m setup and {venue.turnaround_time_mins}m turnaround are included"
-            ),
+            reason=clash_reason(other, venue),
         )
         newly_flagged.append(booking)
     return newly_flagged
+
+
+def clash_reason(other: VenueBooking, venue: Venue) -> str:
+    """The message a flag shows for a clash with booking `other`."""
+    return (
+        f"Clashes with booking #{other.id} "
+        f"({other.booking_start.strftime('%Y-%m-%d %H:%M')} - {other.booking_end.strftime('%H:%M')}) "
+        f"once {venue.setup_time_mins}m setup and {venue.turnaround_time_mins}m turnaround are included"
+    )
+
+
+def active_conflict_flag(db: Session, booking: VenueBooking) -> Optional[Dict[str, Any]]:
+    """GitHub #29: the booking's flag as it stands now, or None if no clash remains.
+
+    A stored flag is only a record of a clash found earlier. It is shown only
+    while the flagged booking still holds the venue and still clashes with a
+    booking that holds it (E1, E2). If the booking it names has stopped holding
+    the venue but another real clash exists, the flag names that clash (E3).
+    The stored row is never changed or removed, so the history is kept (E5).
+    Only flagged bookings are re-checked, so unflagged ones cost nothing.
+    """
+    flag = booking.conflict_flag
+    if flag is None or not is_blocking(booking):
+        return None
+    clashes = find_conflicts(db, booking.venue, booking.booking_start, booking.booking_end,
+                             exclude_booking_id=booking.id)
+    if not clashes:
+        return None
+    named = next((c for c in clashes if c.id == flag.conflicting_booking_id), None)
+    if named is not None:
+        conflicting_id, reason = named.id, flag.reason
+    else:
+        conflicting_id, reason = clashes[0].id, clash_reason(clashes[0], booking.venue)
+    return {
+        "conflicting_booking_id": conflicting_id,
+        "reason": reason,
+        "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
+    }
