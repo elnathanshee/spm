@@ -325,7 +325,7 @@ document.addEventListener("alpine:init", () => {
 
     async createVenue() {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace || workspace.saving || workspace.busy) return;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy() || workspace.busy) return;
       // [SCRUM-92] all nine fields (AC1), checked against the backend's rules first (D4)
       this.fieldErrors = validateVenueForm(workspace.form);
       workspace.formMessage = null;
@@ -351,6 +351,13 @@ document.addEventListener("alpine:init", () => {
     // reply that arrives after logout changes nothing.
     venueBufferSummary(venue) { return bufferSummary(venue); },
 
+    // One venue write at a time: while a save or a retire is in flight, the
+    // other venue actions wait, and their buttons are disabled.
+    venueWriteBusy() {
+      const workspace = this.venueWorkspace;
+      return !!(workspace?.saving || workspace?.retire?.busy);
+    },
+
     showVenueFormErrors(response) {
       const { fields, message } = formErrorsFrom(response);
       this.fieldErrors = fields;
@@ -358,19 +365,19 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
     },
 
-    // The buttons wait for a save in flight: closing the form mid-save would
-    // drop its result. closeVenueForm() itself has no guard, because a good
-    // save calls it while saving is still true.
+    // The buttons wait for a venue write in flight: closing the form mid-save
+    // would drop its result. closeVenueForm() itself has no guard, because a
+    // good save calls it while saving is still true.
     toggleVenueCreate() {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace || workspace.saving) return;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
       const opening = !workspace.showCreate || !!workspace.editing;
       this.closeVenueForm();
       workspace.showCreate = opening;
     },
 
     cancelVenueForm() {
-      if (!this.venueWorkspace?.saving) this.closeVenueForm();
+      if (!this.venueWriteBusy()) this.closeVenueForm();
     },
 
     closeVenueForm() {
@@ -390,7 +397,7 @@ document.addEventListener("alpine:init", () => {
     // AC2: prefill from GET /venues/{id}.
     async openVenueEdit(venue) {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace || workspace.saving) return;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
       const recipient = this.user;
       const response = await this.apiRequest(`/venues/${venue.id}`);
       if (this.user !== recipient || this.venueWorkspace !== workspace) return;
@@ -410,7 +417,7 @@ document.addEventListener("alpine:init", () => {
     async updateVenue() {
       const workspace = this.venueWorkspace;
       const venue = workspace?.editing;
-      if (!this.isVenueStaff() || !venue || workspace.saving || workspace.busy) return;
+      if (!this.isVenueStaff() || !venue || this.venueWriteBusy() || workspace.busy) return;
       this.fieldErrors = validateVenueForm(workspace.form);
       workspace.formMessage = null;
       if (Object.keys(this.fieldErrors).length) return;
@@ -441,7 +448,7 @@ document.addEventListener("alpine:init", () => {
     // AC4, D6: an in-page confirmation, never a browser dialog.
     askRetireVenue(venue) {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace) return;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
       workspace.retire = { venue, busy: false, error: "" };
     },
 
@@ -453,7 +460,7 @@ document.addEventListener("alpine:init", () => {
     async confirmRetireVenue() {
       const workspace = this.venueWorkspace;
       const retire = workspace?.retire;
-      if (!this.isVenueStaff() || !retire || retire.busy) return;
+      if (!this.isVenueStaff() || !retire || this.venueWriteBusy()) return;
       retire.busy = true;
       retire.error = "";
       const recipient = this.user;
