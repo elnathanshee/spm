@@ -440,7 +440,7 @@ test("TC-9217 editing a venue that no longer exists doesn't open the form and re
 function handlerOf(markup, pattern) {
   const button = markup.match(pattern);
   assert.ok(button, String(pattern));
-  return { tag: button[0], name: button[0].match(/@click="(\w+)\(\)"/)[1] };
+  return { tag: button[0], name: button[0].match(/@(?:click|submit\.prevent)="(\w+)\(/)[1] };
 }
 
 test("TC-9222 Add venue, × and Cancel do nothing while a save is in flight, so the save's result still lands", async () => {
@@ -496,4 +496,95 @@ test("TC-9222 Add venue, × and Cancel do nothing while a save is in flight, so 
   assert.equal(adding.venueWorkspace.showCreate, true);
   assert.equal(adding.fieldErrors.capacity, "Capacity must be greater than 0");
   assert.deepEqual(plain(adding.venueWorkspace.form), entered);
+});
+
+// [TC-9223] One venue write at a time: the buttons whose handlers and :disabled bindings the tests use.
+function venueButtons() {
+  const markup = html();
+  return {
+    edit: handlerOf(markup, /<button[^>]*:aria-label="`Edit \$\{venue\.name\}`"[^>]*>/),
+    retire: handlerOf(markup, /<button[^>]*:aria-label="`Retire \$\{venue\.name\}`"[^>]*>/),
+    confirm: handlerOf(markup, /<button type="button" class="button button-danger"[^>]*>/),
+    save: handlerOf(markup, /<form class="create-venue-card"[^>]*>/),
+    fieldset: markup.match(/<form class="create-venue-card"[\s\S]*?(<fieldset[^>]*>)/)[1],
+  };
+}
+
+const smallRoom = () => ({ ...grandHall(), id: 8, name: "Small Room", capacity: 20 });
+
+// Evaluates a tag's :disabled expression against the state, the way Alpine does.
+function disabledBy(state, tag) {
+  const expression = tag.match(/:disabled="([^"]*)"/)?.[1];
+  assert.ok(expression, `no :disabled on ${tag}`);
+  return Boolean(new Function("scope", `with (scope) { return (${expression}); }`)(state));
+}
+
+test("TC-9223 while a save is in flight, Retire and Retire venue send nothing, and the save's flagged list still lands", async () => {
+  const buttons = venueButtons();
+  const state = await staffWithCatalogue([grandHall(), smallRoom()]);
+  let release;
+  const calls = serve(state, {
+    "GET /venues/7": { ok: true, data: grandHall() },
+    "PATCH /venues/7": () => new Promise(resolve => { release = resolve; }),
+    "GET /venues": { ok: true, data: [{ ...grandHall(), turnaround_time_mins: 90 }, smallRoom()] },
+  });
+  await state[buttons.edit.name](grandHall());
+  state.venueWorkspace.form.turnaround_time_mins = "90";
+  const saving = state[buttons.save.name]();
+  for (const venue of [grandHall(), smallRoom()]) {
+    state[buttons.retire.name](venue);
+    await state[buttons.confirm.name]();
+  }
+  assert.deepEqual(calls.filter(call => call.path.endsWith("/retire")), []);
+  assert.equal(state.venueWorkspace.retire, null);
+  release({ ok: true, data: { venue: { ...grandHall(), turnaround_time_mins: 90 }, updated_fields: ["turnaround_time_mins"], flagged_bookings: [
+    { booking_id: 1, id: 1, event_title: "Annual Gala", booking_start: "2026-11-16T10:00:00", booking_end: "2026-11-16T12:00:00", status: "Confirmed",
+      conflict_flag: { conflicting_booking_id: 2, reason: "Clashes with booking #2", flagged_at: "2026-10-26T09:00:00" } },
+  ] } });
+  await saving;
+  assert.equal(state.venueWorkspace.outcome.kind, "updated");
+  assert.deepEqual(plain(state.venueWorkspace.outcome.flagged).map(row => [row.eventTitle, row.reason]), [["Annual Gala", "Clashes with booking #2"]]);
+  const patchAt = calls.findIndex(call => call.method === "PATCH");
+  assert.ok(calls.slice(patchAt + 1).some(call => call.method === "GET" && call.path === "/venues"), "catalogue refreshed");
+});
+
+test("TC-9223 while a retire is in flight, Save and Edit send nothing, and the affected list still lands", async () => {
+  const buttons = venueButtons();
+  const state = await staffWithCatalogue([grandHall(), smallRoom()]);
+  let release;
+  const calls = serve(state, {
+    "GET /venues/7": { ok: true, data: grandHall() },
+    "POST /venues/8/retire": () => new Promise(resolve => { release = resolve; }),
+    "GET /venues": { ok: true, data: [grandHall()] },
+  });
+  await state[buttons.edit.name](grandHall());
+  state.venueWorkspace.form.capacity = "150";
+  state[buttons.retire.name](smallRoom());
+  const retiring = state[buttons.confirm.name]();
+  const sentBefore = calls.length;
+  await state[buttons.save.name]();
+  for (const venue of [smallRoom(), grandHall()]) await state[buttons.edit.name](venue);
+  assert.deepEqual(calls.slice(sentBefore), []);
+  release({ ok: true, data: { venue: { ...smallRoom(), is_active: false }, affected_bookings: [
+    { booking_id: 5, event_id: 3, event_title: "Spring Fair", booking_start: "2026-11-16T13:30:00", booking_end: "2026-11-16T15:00:00", status: "Pending" },
+  ] } });
+  await retiring;
+  assert.equal(state.venueWorkspace.outcome.kind, "retired");
+  assert.deepEqual(plain(state.venueWorkspace.outcome.affected).map(row => [row.eventTitle, row.status]), [["Spring Fair", "Pending"]]);
+  assert.equal(state.venueWorkspace.venues.some(venue => venue.id === 8), false);
+  // The edit of the other venue is still open, with what was typed.
+  assert.equal(state.venueWorkspace.editing.id, 7);
+  assert.equal(state.venueWorkspace.form.capacity, "150");
+});
+
+test("TC-9223 Retire and Retire venue are disabled while saving; the venue form and Edit are disabled while retiring", async () => {
+  const { edit, retire, confirm, fieldset } = venueButtons();
+  const state = await staffWithCatalogue();
+  state.venueWorkspace.retire = { venue: grandHall(), busy: false, error: "" };
+  for (const tag of [edit.tag, retire.tag, confirm.tag, fieldset]) assert.equal(disabledBy(state, tag), false, `idle: ${tag}`);
+  state.venueWorkspace.saving = true;
+  for (const tag of [retire.tag, confirm.tag]) assert.equal(disabledBy(state, tag), true, `saving: ${tag}`);
+  state.venueWorkspace.saving = false;
+  state.venueWorkspace.retire.busy = true;
+  for (const tag of [fieldset, edit.tag]) assert.equal(disabledBy(state, tag), true, `retiring: ${tag}`);
 });
