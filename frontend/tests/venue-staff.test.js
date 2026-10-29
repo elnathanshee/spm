@@ -435,3 +435,65 @@ test("TC-9217 editing a venue that no longer exists doesn't open the form and re
   assert.equal(state.alert.message, "Venue not found");
   assert.ok(calls.some(call => call.method === "GET" && call.path === "/venues"));
 });
+
+// The handler a button's @click calls, read from the markup, so the test presses what the page presses.
+function handlerOf(markup, pattern) {
+  const button = markup.match(pattern);
+  assert.ok(button, String(pattern));
+  return { tag: button[0], name: button[0].match(/@click="(\w+)\(\)"/)[1] };
+}
+
+test("TC-9222 Add venue, × and Cancel do nothing while a save is in flight, so the save's result still lands", async () => {
+  const markup = html();
+  const buttons = [
+    handlerOf(markup, /<button[^>]*@click="\w+\(\)"[^>]*><span aria-hidden="true">＋<\/span> Add venue<\/button>/),
+    handlerOf(markup, /<button[^>]*aria-label="Close venue form"[^>]*>/),
+    handlerOf(markup, /<button[^>]*@click="\w+\(\)"[^>]*>Cancel<\/button>(?=<button class="button button-primary" :disabled="venueWorkspace\.busy)/),
+  ];
+  // Add venue and × sit outside the form's fieldset, so they need their own disabled binding.
+  for (const { tag } of buttons.slice(0, 2)) assert.match(tag, /:disabled="venueWorkspace\.saving"/, tag);
+  const press = state => { for (const { name } of buttons) state[name](); };
+
+  // An edit that changes the turnaround: the PATCH is held open.
+  const state = await staffWithCatalogue();
+  let release;
+  const calls = serve(state, {
+    "GET /venues/7": { ok: true, data: grandHall() },
+    "PATCH /venues/7": () => new Promise(resolve => { release = resolve; }),
+    "GET /venues": { ok: true, data: [{ ...grandHall(), turnaround_time_mins: 90 }] },
+  });
+  await state.openVenueEdit(grandHall());
+  state.venueWorkspace.form.turnaround_time_mins = "90";
+  const saving = state.saveVenueForm();
+  assert.equal(state.venueWorkspace.saving, true);
+  const typed = plain(state.venueWorkspace.form);
+  press(state);
+  assert.equal(state.venueWorkspace.showCreate, true);
+  assert.equal(state.venueWorkspace.editing.id, 7);
+  assert.deepEqual(plain(state.venueWorkspace.form), typed);
+  release({ ok: true, data: { venue: { ...grandHall(), turnaround_time_mins: 90 }, updated_fields: ["turnaround_time_mins"], flagged_bookings: [
+    { booking_id: 1, id: 1, event_title: "Annual Gala", booking_start: "2026-11-16T10:00:00", booking_end: "2026-11-16T12:00:00", status: "Confirmed",
+      conflict_flag: { conflicting_booking_id: 2, reason: "Clashes with booking #2", flagged_at: "2026-10-26T09:00:00" } },
+  ] } });
+  await saving;
+  assert.deepEqual(plain(state.venueWorkspace.outcome.flagged).map(row => [row.eventTitle, row.reason]), [["Annual Gala", "Clashes with booking #2"]]);
+  assert.equal(state.venueWorkspace.showCreate, false);
+  const patchAt = calls.findIndex(call => call.method === "PATCH");
+  assert.ok(calls.slice(patchAt + 1).some(call => call.method === "GET" && call.path === "/venues"), "catalogue refreshed");
+  assert.equal(state.venueWorkspace.venues[0].turnaround_time_mins, 90);
+
+  // Add venue: the POST is held open, then answered with a 422 that must land on the open form.
+  const adding = await staffWithCatalogue([]);
+  serve(adding, { "POST /venues": () => new Promise(resolve => { release = resolve; }) });
+  adding.toggleVenueCreate();
+  Object.assign(adding.venueWorkspace.form, { name: "Harbour Ballroom", location: "Block B", capacity: "250" });
+  const creating = adding.saveVenueForm();
+  const entered = plain(adding.venueWorkspace.form);
+  press(adding);
+  assert.equal(adding.venueWorkspace.showCreate, true);
+  release({ ok: false, status: 422, data: { detail: [{ loc: ["body", "capacity"], msg: "Value error, Capacity must be greater than 0" }] } });
+  await creating;
+  assert.equal(adding.venueWorkspace.showCreate, true);
+  assert.equal(adding.fieldErrors.capacity, "Capacity must be greater than 0");
+  assert.deepEqual(plain(adding.venueWorkspace.form), entered);
+});
