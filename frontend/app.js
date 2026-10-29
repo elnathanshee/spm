@@ -358,12 +358,19 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
     },
 
+    // The buttons wait for a save in flight: closing the form mid-save would
+    // drop its result. closeVenueForm() itself has no guard, because a good
+    // save calls it while saving is still true.
     toggleVenueCreate() {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace) return;
+      if (!this.isVenueStaff() || !workspace || workspace.saving) return;
       const opening = !workspace.showCreate || !!workspace.editing;
       this.closeVenueForm();
       workspace.showCreate = opening;
+    },
+
+    cancelVenueForm() {
+      if (!this.venueWorkspace?.saving) this.closeVenueForm();
     },
 
     closeVenueForm() {
