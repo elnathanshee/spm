@@ -214,3 +214,85 @@ def test_tc8017_rejected_partner_also_clears_the_flag(client, db_session, seed_d
 
     assert _review(client, a)["conflict_flag"] is None
     assert _review(client, b)["conflict_flag"] is None
+
+
+# ---------------------------------------------------------------------------
+# PR #35 review (Darryl, 28 Oct)
+# ---------------------------------------------------------------------------
+
+def _count_booking_queries(fn):
+    """Run fn and count the SQL statements that read the venue_bookings table
+    (FROM venue_bookings, not the venue_booking_* tables)."""
+    import re
+    from sqlalchemy import event
+
+    pattern = re.compile(r"\bFROM venue_bookings\b", re.IGNORECASE)
+    count = {"n": 0}
+
+    def before(conn, cursor, statement, parameters, context, executemany):
+        if pattern.search(statement):
+            count["n"] += 1
+
+    event.listen(engine, "before_cursor_execute", before)
+    try:
+        fn()
+    finally:
+        event.remove(engine, "before_cursor_execute", before)
+    return count["n"]
+
+
+def _add_flagged_pair(db_session, seed_data, day_offset):
+    """A Pending booking P (10:00-12:00) flagged against a Confirmed booking Q
+    (13:00-14:00) on another day: with 30 min setup and 75 min turnaround they
+    really clash, so P's flag stays active."""
+    hall, event = seed_data["hall"], seed_data["event"]
+    day = seed_data["at"](0) + timedelta(days=day_offset)
+    p = VenueBooking(event_id=event.id, venue_id=hall.id, booking_start=day + timedelta(hours=10),
+                     booking_end=day + timedelta(hours=12), status="Pending")
+    q = VenueBooking(event_id=event.id, venue_id=hall.id, booking_start=day + timedelta(hours=13),
+                     booking_end=day + timedelta(hours=14), status="Confirmed")
+    db_session.add_all([p, q])
+    db_session.commit()
+    db_session.add(VenueBookingConflictFlag(booking_id=p.id, conflicting_booking_id=q.id, reason="seeded"))
+    db_session.commit()
+    return p
+
+
+def test_tc8018_listing_does_not_requery_the_venue_per_flagged_booking(client, db_session, seed_data):
+    """TC-8018 (PR #35 review, Medium): revalidating flags loads the venue's
+    bookings once per list, so the number of venue_bookings queries doesn't
+    grow with the number of flagged bookings."""
+    hall = seed_data["hall"]
+
+    def list_bookings():
+        rows = client.get(f"/venues/{hall.id}/bookings").json()
+        list_bookings.active = sum(1 for row in rows if row["conflict_flag"])
+
+    with_two = _count_booking_queries(list_bookings)
+    assert list_bookings.active == 2  # A and B
+
+    for offset in (1, 2, 3, 4):
+        _add_flagged_pair(db_session, seed_data, offset)
+    db_session.expire_all()
+
+    with_six = _count_booking_queries(list_bookings)
+    assert list_bookings.active == 6  # the flags are real, so they are all revalidated
+    assert with_six == with_two
+
+
+def test_tc8019_active_reason_uses_the_current_buffers(client, db_session, seed_data):
+    """TC-8019 (PR #35 review, Low): when the named clash still exists, the
+    shown reason uses the venue's current setup and turnaround; the stored
+    flag keeps its original reason as history."""
+    a, b, hall = seed_data["a"], seed_data["b"], seed_data["hall"]
+    res = client.patch(f"/venues/{hall.id}", json={"turnaround_time_mins": 90})
+    assert res.status_code == 200
+
+    flag = _review(client, a)["conflict_flag"]
+    assert flag["conflicting_booking_id"] == b.id
+    assert "90m turnaround" in flag["reason"]
+    assert "75m" not in flag["reason"]
+
+    db_session.expire_all()
+    stored = db_session.query(VenueBookingConflictFlag).filter_by(booking_id=a.id).one()
+    assert "75m turnaround" in stored.reason
