@@ -86,7 +86,7 @@ def proposed_start_for(days_ahead):
 
     Relative to today so the test does not expire: a hard-coded calendar date
     quietly changes meaning once it falls into the past. Fixed at 2:30 pm so
-    the rendered time is predictable and TC-302 can assert it.
+    the rendered time is predictable and TC-2402 can assert it.
     """
     return (datetime.utcnow() + timedelta(days=days_ahead)).replace(
         hour=14, minute=30, second=0, microsecond=0
@@ -133,8 +133,8 @@ def login(client, username):
 # ---------------------------------------------------------------------------
 
 
-def test_tc301_coordinator_sees_only_their_own_assigned_requests(client, people, make_event):
-    """TC-301 (AC1, AC5): the list holds the Coordinator's own requests and
+def test_tc2401_coordinator_sees_only_their_own_assigned_requests(client, people, make_event):
+    """TC-2401 (AC1, AC5): the list holds the Coordinator's own requests and
     nobody else's."""
     make_event("Quarterly partner briefing", coordinator="mine")
     make_event("Someone else's summit", coordinator="theirs")
@@ -146,8 +146,8 @@ def test_tc301_coordinator_sees_only_their_own_assigned_requests(client, people,
     assert "Someone else's summit" not in page.text
 
 
-def test_tc302_each_request_shows_the_five_required_details(client, people, make_event):
-    """TC-302 (AC2): title, Organiser, proposed date and time, expected
+def test_tc2402_each_request_shows_the_five_required_details(client, people, make_event):
+    """TC-2402 (AC2): title, Organiser, proposed date and time, expected
     attendance and status are all present."""
     make_event("Annual leadership forum", status=UNDER_REVIEW, attendance=250, days_ahead=0)
 
@@ -160,8 +160,8 @@ def test_tc302_each_request_shows_the_five_required_details(client, people, make
     assert UNDER_REVIEW in page.text
 
 
-def test_tc303_awaiting_first_review_is_distinguishable(client, people, make_event):
-    """TC-303 (AC3): a Submitted request is marked as waiting; one already
+def test_tc2403_awaiting_first_review_is_distinguishable(client, people, make_event):
+    """TC-2403 (AC3): a Submitted request is marked as waiting; one already
     under review is not."""
     make_event("Untouched request", status=SUBMITTED)
     make_event("Already started", status=UNDER_REVIEW)
@@ -178,8 +178,8 @@ def test_tc303_awaiting_first_review_is_distinguishable(client, people, make_eve
     assert by_title["Already started"]["awaiting_first_review"] is False
 
 
-def test_tc304_waiting_requests_come_first_longest_wait_at_the_top(client, people, make_event):
-    """TC-304 (AC3): the list works as a queue, so what needs attention is at
+def test_tc2404_waiting_requests_come_first_longest_wait_at_the_top(client, people, make_event):
+    """TC-2404 (AC3): the list works as a queue, so what needs attention is at
     the top."""
     make_event("Approved last month", status=APPROVED, days_ahead=1)
     make_event("Waiting since yesterday", status=SUBMITTED, submitted_days_ago=1)
@@ -190,8 +190,8 @@ def test_tc304_waiting_requests_come_first_longest_wait_at_the_top(client, peopl
     assert titles == ["Waiting for a week", "Waiting since yesterday", "Approved last month"]
 
 
-def test_tc305_empty_list_explains_itself(client, people):
-    """TC-305 (AC4): a Coordinator with nothing assigned is told so."""
+def test_tc2405_empty_list_explains_itself(client, people):
+    """TC-2405 (AC4): a Coordinator with nothing assigned is told so."""
     login(client, "coord_mine")
     page = client.get("/coordinator/events")
     assert page.status_code == 200
@@ -199,8 +199,8 @@ def test_tc305_empty_list_explains_itself(client, people):
     assert client.get("/coordinator/events/data").json() == []
 
 
-def test_tc306_organiser_cannot_open_the_coordinator_list(client, people, make_event):
-    """TC-306 (AC5): the page belongs to Coordinators."""
+def test_tc2406_organiser_cannot_open_the_coordinator_list(client, people, make_event):
+    """TC-2406 (AC5): the page belongs to Coordinators."""
     make_event("Quarterly partner briefing")
     login(client, "acme_events")
     page = client.get("/coordinator/events")
@@ -208,8 +208,8 @@ def test_tc306_organiser_cannot_open_the_coordinator_list(client, people, make_e
     assert page.json()["detail"] == "Only coordinators can view assigned event requests"
 
 
-def test_tc307_logged_out_visitor_is_refused(client, people, make_event):
-    """TC-307 (AC1, DoD item 16): reaching the page by URL while logged out is
+def test_tc2407_logged_out_visitor_is_refused(client, people, make_event):
+    """TC-2407 (AC1, DoD item 16): reaching the page by URL while logged out is
     refused rather than showing anything."""
     make_event("Quarterly partner briefing")
     page = client.get("/coordinator/events")
@@ -217,8 +217,8 @@ def test_tc307_logged_out_visitor_is_refused(client, people, make_event):
     assert "Quarterly partner briefing" not in page.text
 
 
-def test_tc308_request_details_are_escaped_not_rendered(client, people, make_event):
-    """TC-308 (boundary): a title typed by an Organiser is shown as text, never
+def test_tc2408_request_details_are_escaped_not_rendered(client, people, make_event):
+    """TC-2408 (boundary): a title typed by an Organiser is shown as text, never
     treated as markup."""
     make_event("<script>alert('x')</script> Gala")
 
@@ -228,8 +228,8 @@ def test_tc308_request_details_are_escaped_not_rendered(client, people, make_eve
     assert "&lt;script&gt;" in page.text
 
 
-def test_tc309_missing_details_are_labelled_not_blank(client, people, db_session):
-    """TC-309 (AC2, boundary): a request saved without a date or attendance
+def test_tc2409_missing_details_are_labelled_not_blank(client, people, db_session):
+    """TC-2409 (AC2, boundary): a request saved without a date or attendance
     still shows every field."""
     event = Event(
         title="Details to follow",
@@ -245,8 +245,8 @@ def test_tc309_missing_details_are_labelled_not_blank(client, people, db_session
     assert page.text.count("Not set") == 2
 
 
-def test_tc310_drafts_never_reach_a_coordinator(client, people, make_event):
-    """TC-310 (AC1, boundary): a Draft has no coordinator, so an unassigned
+def test_tc2410_drafts_never_reach_a_coordinator(client, people, make_event):
+    """TC-2410 (AC1, boundary): a Draft has no coordinator, so an unassigned
     request cannot appear on anyone's list."""
     make_event("Still being written", status=DRAFT, coordinator="mine")
     login(client, "coord_mine")
@@ -257,8 +257,8 @@ def test_tc310_drafts_never_reach_a_coordinator(client, people, make_event):
     assert data[0]["awaiting_first_review"] is False
 
 
-def test_tc311_returned_requests_are_not_counted_as_waiting(client, people, make_event):
-    """TC-311 (AC3, boundary): a request returned to the Organiser is waiting
+def test_tc2411_returned_requests_are_not_counted_as_waiting(client, people, make_event):
+    """TC-2411 (AC3, boundary): a request returned to the Organiser is waiting
     on them, not on the Coordinator."""
     make_event("Sent back for details", status=RETURNED)
     login(client, "coord_mine")
