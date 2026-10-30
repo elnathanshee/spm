@@ -451,9 +451,13 @@ test("TC-9222 Add venue, × and Cancel do nothing while a save is in flight, so 
     handlerOf(markup, /<button[^>]*@click="\w+\(\)"[^>]*>Cancel<\/button>(?=<button class="button button-primary" :disabled="venueWorkspace\.busy)/),
   ];
   // Add venue and × sit outside the form's fieldset, so they need their own disabled binding.
-  const busy = await staffWithCatalogue();
-  busy.venueWorkspace.saving = true;
-  for (const { tag } of buttons.slice(0, 2)) assert.equal(disabledBy(busy, tag), true, tag);
+  const ui = await staffWithCatalogue();
+  for (const { tag } of buttons.slice(0, 2)) assert.equal(disabledBy(ui, tag), false, `idle: ${tag}`);
+  ui.venueWorkspace.saving = true;
+  for (const { tag } of buttons.slice(0, 2)) assert.equal(disabledBy(ui, tag), true, `saving: ${tag}`);
+  ui.venueWorkspace.saving = false;
+  ui.venueWorkspace.retire = { venue: grandHall(), busy: true, error: "" };
+  for (const { tag } of buttons.slice(0, 2)) assert.equal(disabledBy(ui, tag), true, `retiring: ${tag}`);
   const press = state => { for (const { name } of buttons) state[name](); };
 
   // An edit that changes the turnaround: the PATCH is held open.
