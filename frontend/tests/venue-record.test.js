@@ -147,3 +147,41 @@ test("TC-9215 clearing an optional field sends null for it", () => {
   const filled = { ...venueFormFrom(storedVenue()), supported_layouts: "Theatre", operating_hours: " 9am-5pm " };
   assert.deepEqual(changedFields(filled, storedVenue()), { supported_layouts: ["Theatre"], operating_hours: "9am-5pm" });
 });
+
+// TC-9224: what each function does with a missing or null value. The backend
+// sends empty lists as [] and empty text as null; these pin the fallbacks for
+// anything else (a field left out, a 422 entry without loc or msg).
+test("TC-9224 (module) missing and null values fall back to empty text, empty lists and null", () => {
+  const sparseVenue = { id: 9, name: "Hall", location: "Campus", capacity: 10, facilities: null, accessibility: null,
+    setup_time_mins: 30, turnaround_time_mins: 45 };  // supported_layouts and operating_hours left out
+  const nullLists = { ...storedVenue(), facilities: null, supported_layouts: null };
+  const sparseForm = { name: "Hall", location: "Campus", capacity: "10", setup_time_mins: "30", turnaround_time_mins: "45" };
+  const cases = [
+    ["venueFormFrom: null and missing fields become empty text", venueFormFrom(sparseVenue), {
+      name: "Hall", location: "Campus", capacity: "10", facilities: "", accessibility: "",
+      supported_layouts: "", operating_hours: "", setup_time_mins: "30", turnaround_time_mins: "45" }],
+    ["parseList(null)", parseList(null), []],
+    ["parseList(undefined)", parseList(undefined), []],
+    ["validateVenueForm({}): every required field is caught", Object.keys(validateVenueForm({})).sort(),
+      ["capacity", "location", "name", "setup_time_mins", "turnaround_time_mins"]],
+    ["createPayload: missing optional fields send [] and null", createPayload(sparseForm), {
+      name: "Hall", location: "Campus", capacity: 10, facilities: [], accessibility: null,
+      supported_layouts: [], operating_hours: null, setup_time_mins: 30, turnaround_time_mins: 45 }],
+    ["changedFields: a stored null list and an empty form field are the same", changedFields(venueFormFrom(nullLists), nullLists), {}],
+    ["changedFields: a stored null list and a filled form field differ",
+      changedFields({ ...venueFormFrom(nullLists), facilities: "Stage" }, nullLists), { facilities: ["Stage"] }],
+    ["formErrorsFrom: a 422 entry without loc is shown as its message; one without msg gives an empty field error",
+      formErrorsFrom({ ok: false, status: 422, data: { detail: [
+        { type: "dict_type", msg: "Value error, Input should be a valid dictionary" },
+        { type: "missing", loc: ["body", "capacity"] },
+      ] } }), { fields: { capacity: "" }, message: "Input should be a valid dictionary" }],
+    ["flaggedBookingRows(undefined)", flaggedBookingRows(undefined), []],
+    ["flaggedBookingRows({})", flaggedBookingRows({}), []],
+    ["flaggedBookingRows: no booking_id, venue or conflict_flag",
+      flaggedBookingRows({ flagged_bookings: [{ id: 3, event_title: "Annual Gala", booking_start: "2026-11-16T10:00:00", booking_end: "2026-11-16T12:00:00" }] }),
+      [{ id: 3, venueName: "", eventTitle: "Annual Gala", start: "2026-11-16T10:00:00", end: "2026-11-16T12:00:00", reason: "" }]],
+    ["affectedBookingRows(undefined)", affectedBookingRows(undefined), []],
+    ["affectedBookingRows({})", affectedBookingRows({}), []],
+  ];
+  for (const [label, actual, expected] of cases) assert.deepEqual(actual, expected, label);
+});
