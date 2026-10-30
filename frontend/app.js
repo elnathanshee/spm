@@ -52,19 +52,23 @@ document.addEventListener("alpine:init", () => {
     },
 
     async apiRequest(path, options = {}) {
-      const request = { ...options, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
+      // [SCRUM-89] inlineErrors: the caller shows the error itself (e.g. in a
+      // dialog), so it isn't sent to the page alert. A 401 still signs out.
+      const { inlineErrors = false, ...fetchOptions } = options;
+      const request = { ...fetchOptions, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
       if (request.body && typeof request.body !== "string") request.body = JSON.stringify(request.body);
+      const handleError = (status, data) => { if (!inlineErrors || status === 401) this.handleHttpError(status, data, path); };
       let response;
       try {
         response = await fetch(`${API_BASE}${path}`, request);
       } catch {
         const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
-        this.handleHttpError(0, data, path);
+        handleError(0, data);
         return { ok: false, status: 0, data };
       }
       const data = await response.json().catch(() => ({}));
       if (response.ok) return { ok: true, status: response.status, data };
-      this.handleHttpError(response.status, data, path);
+      handleError(response.status, data);
       return { ok: false, status: response.status, data };
     },
 
@@ -91,6 +95,16 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this.showAlert(data.detail || `Request to ${path} failed with status ${status}.`);
+    },
+
+    // [SCRUM-89] The message a dialog shows for a failed request: the API's
+    // detail (a string, or FastAPI's list of validation errors), or a fallback.
+    dialogErrorMessage(response) {
+      const detail = response?.data?.detail;
+      if (typeof detail === "string" && detail.trim()) return detail;
+      if (Array.isArray(detail) && detail.length) return detail.map(error => error.msg).filter(Boolean).join(" ") || "The request was not valid.";
+      if (response?.status === 403) return "You don't have permission to perform this action.";
+      return `The request failed${response?.status ? ` (status ${response.status})` : ""}. Please try again.`;
     },
 
     parseValidationErrors(detail) {
@@ -182,7 +196,13 @@ document.addEventListener("alpine:init", () => {
       return String(notification?.message || "")
         .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g, value => this.formatDate(value.replace(" ", "T")));
     },
-    bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected" }[status] || "status-neutral"; },
+    bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected", Expired: "status-expired" }[status] || "status-neutral"; },
+    // [SCRUM-89] AC5: the requester by name.
+    requesterLabel(detail) { return detail?.requester_name || "Not recorded"; },
+    // [SCRUM-89] The API sends hold times as UTC without a "Z"; read them as UTC.
+    parseUtc(value) { return value ? new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`) : null; },
+    formatUtc(value) { return value ? this.formatDate(this.parseUtc(value).toISOString()) : "Not set"; },
+    listText(items) { return Array.isArray(items) && items.length ? items.join(", ") : "Not recorded"; },
     formatSchedule(start, end) { return `${this.formatDate(start)} – ${this.formatDate(end)}`; },
     filteredVenueBookings() {
       const workspace = this.venueWorkspace;
@@ -347,7 +367,7 @@ document.addEventListener("alpine:init", () => {
     async openStaffBooking(bookingId) {
       if (!this.isVenueStaff()) return;
       this.clearAlert(); this.fieldErrors = {};
-      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true };
+      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true, holdExpiry: "", error: "" };
       const review = this.staffBooking;
       const recipient = this.user;
       try {
@@ -363,13 +383,14 @@ document.addEventListener("alpine:init", () => {
       if (!this.isVenueStaff() || !review?.detail || review.busy || review.detail.status !== "Pending" || !["approve", "reject"].includes(action)) return;
       this.fieldErrors = {};
       if (action === "reject" && !review.reason.trim()) { this.fieldErrors.reason = "A rejection reason is required"; return; }
-      review.busy = true;
+      review.busy = true; review.error = "";
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/venues/bookings/${review.id}/${action}`, {
-          method: "POST", ...(action === "reject" ? { body: { reason: review.reason.trim() } } : {}),
+          method: "POST", inlineErrors: true, ...(action === "reject" ? { body: { reason: review.reason.trim() } } : {}),
         });
         if (this.user !== recipient || this.staffBooking !== review) return;
+        if (!response.ok) review.error = this.dialogErrorMessage(response);
         if (response.ok) {
           review.detail = response.data.booking;
           review.reason = "";
@@ -379,6 +400,43 @@ document.addEventListener("alpine:init", () => {
         } else if (response.status === 409) {
           const current = await this.apiRequest(`/venues/bookings/${review.id}`);
           if (this.user === recipient && this.staffBooking === review && current.ok) review.detail = current.data;
+        }
+      } finally {
+        if (this.staffBooking === review) review.busy = false;
+      }
+    },
+
+    // [SCRUM-89] AC2: Venue Staff set or extend a Pending hold's expiry.
+    async setStaffHold() {
+      const review = this.staffBooking;
+      if (!this.isVenueStaff() || !review?.detail || review.busy || review.detail.status !== "Pending") return;
+      this.fieldErrors = {}; review.error = "";
+      const expiry = review.holdExpiry ? new Date(review.holdExpiry) : null;
+      if (!expiry || Number.isNaN(expiry.getTime())) { this.fieldErrors.holdExpiry = "Choose the new expiry date and time"; return; }
+      if (expiry <= new Date()) { this.fieldErrors.holdExpiry = "The new expiry must be in the future"; return; }
+      const start = this.parseUtc(review.detail.booking_start);
+      if (start && expiry > start) { this.fieldErrors.holdExpiry = "The new expiry can't be later than the booking's start"; return; }
+      review.busy = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${review.id}/hold`, {
+          method: "PUT", inlineErrors: true, body: { expires_at: expiry.toISOString() },
+        });
+        if (this.user !== recipient || this.staffBooking !== review) return;
+        if (response.ok) {
+          // PUT /hold returns the booking without its venue or decision, so
+          // update the hold fields and keep the rest of the review's detail.
+          review.detail = { ...review.detail, ...response.data.booking };
+          review.holdExpiry = "";
+          await this.fetchVenueWorkspace();
+          if (this.user !== recipient || this.staffBooking !== review) return;
+          this.showAlert("Hold expiry updated.", "success");
+        } else if (response.status !== 401) {
+          review.error = this.dialogErrorMessage(response);
+          if (response.status === 409) {
+            const current = await this.apiRequest(`/venues/bookings/${review.id}`);
+            if (this.user === recipient && this.staffBooking === review && current.ok) review.detail = current.data;
+          }
         }
       } finally {
         if (this.staffBooking === review) review.busy = false;
