@@ -414,7 +414,11 @@ def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     }
 
 
-def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+def booking_detail_dict(
+    booking: VenueBooking, candidates_by_venue: Optional[Dict[int, List[VenueBooking]]] = None
+) -> Dict[str, Any]:
+    """[GitHub #29, PR #35 review] For a list, pass one candidates_by_venue
+    dict to every call, so each venue's bookings are loaded once."""
     decision_reason = booking.decision.reason if hasattr(booking, "decision") and booking.decision else None
     return {
         "booking_id": booking.id,
@@ -431,7 +435,7 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
         # [SCRUM-80 | Renee] [GitHub #29] the flag only while the clash still exists
-        "conflict_flag": active_conflict_flag(object_session(booking), booking),
+        "conflict_flag": active_conflict_flag(object_session(booking), booking, candidates_by_venue),
         # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
         **hold_fields(booking),
     }
@@ -489,11 +493,12 @@ def update_venue(
         flagged = recheck_venue_bookings(db, venue)
         db.commit()
 
+    flagged_candidates: Dict[int, List[VenueBooking]] = {}  # [GitHub #29] load the venue's bookings once
     return {
         "message": "Venue updated successfully",
         "venue": venue_to_dict(venue),
         "updated_fields": list(changes),
-        "flagged_bookings": [booking_detail_dict(b) for b in flagged],
+        "flagged_bookings": [booking_detail_dict(b, flagged_candidates) for b in flagged],
     }
 
 
@@ -625,7 +630,8 @@ def list_venue_bookings(
     if status_filter:
         query = query.filter(VenueBooking.status == status_filter)
     bookings = query.order_by(VenueBooking.booking_start.asc()).all()
-    return [booking_detail_dict(b) for b in bookings]
+    candidates: Dict[int, List[VenueBooking]] = {}  # [GitHub #29] load the venue's bookings once
+    return [booking_detail_dict(b, candidates) for b in bookings]
 
 
 # ---------------------------------------------------------------------------

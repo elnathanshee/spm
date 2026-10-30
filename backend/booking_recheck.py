@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking
+from .booking_rules import BLOCKING_STATUSES, conflicts_among, find_conflicts, is_blocking, venue_blocking_candidates
 from .models import Venue, VenueBooking, VenueBookingConflictFlag
 
 
@@ -65,7 +65,9 @@ def clash_reason(other: VenueBooking, venue: Venue) -> str:
     )
 
 
-def active_conflict_flag(db: Session, booking: VenueBooking) -> Optional[Dict[str, Any]]:
+def active_conflict_flag(
+    db: Session, booking: VenueBooking, candidates_by_venue: Optional[Dict[int, List[VenueBooking]]] = None
+) -> Optional[Dict[str, Any]]:
     """GitHub #29: the booking's flag as it stands now, or None if no clash remains.
 
     A stored flag is only a record of a clash found earlier. It is shown only
@@ -74,21 +76,27 @@ def active_conflict_flag(db: Session, booking: VenueBooking) -> Optional[Dict[st
     the venue but another real clash exists, the flag names that clash (E3).
     The stored row is never changed or removed, so the history is kept (E5).
     Only flagged bookings are re-checked, so unflagged ones cost nothing.
+
+    PR #35 review: the reason shown is rebuilt from the venue's current setup
+    and turnaround (the stored reason stays as history). Pass the same
+    candidates_by_venue dict for every booking in a list, so each venue's
+    bookings are loaded once, not once per flagged booking.
     """
     flag = booking.conflict_flag
     if flag is None or not is_blocking(booking):
         return None
-    clashes = find_conflicts(db, booking.venue, booking.booking_start, booking.booking_end,
-                             exclude_booking_id=booking.id)
+    venue = booking.venue
+    if candidates_by_venue is None:
+        candidates_by_venue = {}
+    if venue.id not in candidates_by_venue:
+        candidates_by_venue[venue.id] = venue_blocking_candidates(db, venue)
+    clashes = conflicts_among(candidates_by_venue[venue.id], venue, booking.booking_start,
+                              booking.booking_end, exclude_booking_id=booking.id)
     if not clashes:
         return None
-    named = next((c for c in clashes if c.id == flag.conflicting_booking_id), None)
-    if named is not None:
-        conflicting_id, reason = named.id, flag.reason
-    else:
-        conflicting_id, reason = clashes[0].id, clash_reason(clashes[0], booking.venue)
+    current = next((c for c in clashes if c.id == flag.conflicting_booking_id), clashes[0])
     return {
-        "conflicting_booking_id": conflicting_id,
-        "reason": reason,
+        "conflicting_booking_id": current.id,
+        "reason": clash_reason(current, venue),
         "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
     }
