@@ -1,4 +1,4 @@
-﻿const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 import {
   NAVIGATION,
@@ -602,9 +602,11 @@ document.addEventListener("alpine:init", () => {
     },
 
     canBookEvent(event) {
+      if (!event) return false;
       const role = this.normalizeRole(this.user?.role);
-      const events = role === "Event Coordinator Lead" ? this.leadEvents : role === "Coordinator" ? this.assignedEvents : [];
-      return !!event && events.some(item => item.id === event.id);
+      if (role === "Event Coordinator Lead") return true;
+      if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
+      return false;
     },
 
     async openBookings(event) {
@@ -612,8 +614,32 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
       this.fieldErrors = {};
       this.bookingDialog = {
-        event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
+        event,
+        venues: [],
+        bookings: [],
+        busy: true,
+        submitting: false,
+        ready: false,
+        bookingsLoaded: false,
         form: { venue_id: "", booking_start: "", booking_end: "" },
+        error: "",
+        search: {
+          start_time: "",
+          end_time: "",
+          min_capacity: "",
+          location: "",
+          accessibility: "",
+          layout: "",
+          facilities: "",
+          available_only: false,
+        },
+        searching: false,
+        searchResults: [],
+        searchError: "",
+        searchMessage: "",
+        checkingSuitability: false,
+        suitabilityResults: [],
+        suitabilityError: "",
       };
       const dialog = this.bookingDialog;
       const recipient = this.user;
@@ -633,6 +659,77 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    async searchVenues() {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.searching) return;
+      dialog.searchError = "";
+      dialog.searchMessage = "";
+      dialog.searching = true;
+      const recipient = this.user;
+      try {
+        const search = dialog.search || {};
+        const queryParts = [];
+        if (search.start_time) queryParts.push(`start_time=${encodeURIComponent(search.start_time)}`);
+        if (search.end_time) queryParts.push(`end_time=${encodeURIComponent(search.end_time)}`);
+        if (search.min_capacity !== undefined && search.min_capacity !== null && search.min_capacity !== "") {
+          queryParts.push(`min_capacity=${encodeURIComponent(String(search.min_capacity))}`);
+        }
+        if (search.location) queryParts.push(`location=${encodeURIComponent(search.location.trim())}`);
+        if (search.accessibility) queryParts.push(`accessibility=${encodeURIComponent(search.accessibility.trim())}`);
+        if (search.layout) queryParts.push(`layout=${encodeURIComponent(search.layout.trim())}`);
+        if (search.facilities) queryParts.push(`facilities=${encodeURIComponent(search.facilities.trim())}`);
+        if (search.available_only) queryParts.push("available_only=true");
+
+        const query = queryParts.join("&");
+        const path = query ? `/venues/search?${query}` : "/venues/search";
+        const response = await this.apiRequest(path, { inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) {
+          dialog.searchResults = Array.isArray(response.data) ? response.data : [];
+          if (!dialog.searchResults.length) {
+            dialog.searchMessage = "No venues found matching your criteria.";
+          }
+        } else {
+          dialog.searchError = this.dialogErrorMessage(response);
+          dialog.searchResults = [];
+        }
+      } finally {
+        if (this.bookingDialog === dialog) dialog.searching = false;
+      }
+    },
+
+    async checkSuitability(facilities) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.checkingSuitability) return;
+      dialog.suitabilityError = "";
+      dialog.suitabilityResults = [];
+      dialog.checkingSuitability = true;
+      const recipient = this.user;
+      try {
+        const query = facilities ? `?facilities=${encodeURIComponent(facilities)}` : "";
+        const response = await this.apiRequest(`/events/${dialog.event.id}/venue-suitability${query}`, { inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) {
+          dialog.suitabilityResults = Array.isArray(response.data) ? response.data : [];
+        } else {
+          dialog.suitabilityError = this.dialogErrorMessage(response);
+        }
+      } finally {
+        if (this.bookingDialog === dialog) dialog.checkingSuitability = false;
+      }
+    },
+
+    selectVenueFromSearch(venue) {
+      const dialog = this.bookingDialog;
+      if (!dialog || !venue) return;
+      dialog.form.venue_id = String(venue.id);
+      if (dialog.search?.start_time) dialog.form.booking_start = dialog.search.start_time;
+      if (dialog.search?.end_time) dialog.form.booking_end = dialog.search.end_time;
+      if (Array.isArray(dialog.venues) && !dialog.venues.some(v => v.id === venue.id)) {
+        dialog.venues.push(venue);
+      }
+    },
+
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
 
     async submitBooking() {
@@ -640,6 +737,7 @@ document.addEventListener("alpine:init", () => {
       if (!dialog || dialog.busy || !dialog.ready || !this.canBookEvent(dialog.event)) return;
       this.fieldErrors = {};
       this.clearAlert();
+      dialog.error = "";
       const { venue_id, booking_start, booking_end } = dialog.form;
       if (!dialog.venues.some(venue => venue.id === Number(venue_id))) this.fieldErrors.venue_id = "Select a venue";
       if (!booking_start || !Number.isFinite(Date.parse(booking_start))) this.fieldErrors.booking_start = "Enter a valid start date and time";
@@ -651,9 +749,13 @@ document.addEventListener("alpine:init", () => {
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/venues/${Number(venue_id)}/bookings`, {
-          method: "POST", body: { event_id: dialog.event.id, booking_start, booking_end },
+          method: "POST", inlineErrors: true, body: { event_id: dialog.event.id, booking_start, booking_end },
         });
-        if (this.user !== recipient || this.bookingDialog !== dialog || !response.ok) return;
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (!response.ok) {
+          dialog.error = this.dialogErrorMessage(response);
+          return;
+        }
         dialog.form = { venue_id: "", booking_start: "", booking_end: "" };
         this.showAlert("Venue booking request submitted.", "success");
         const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
@@ -689,6 +791,8 @@ document.addEventListener("alpine:init", () => {
     closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; },
     async submitModal() { const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
+    suitabilityBadgeClass(status) { return { suitable: "status-approved", unsuitable: "status-rejected", unknown: "status-waiting" }[status] || "status-neutral"; },
+    availabilityClass(available) { return available ? "status-approved" : "status-rejected"; },
     formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set"; },
   }));
 });
