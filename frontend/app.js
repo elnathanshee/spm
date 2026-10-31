@@ -710,7 +710,11 @@ document.addEventListener("alpine:init", () => {
         const response = await this.apiRequest(`/events/${dialog.event.id}/venue-suitability${query}`, { inlineErrors: true });
         if (this.user !== recipient || this.bookingDialog !== dialog) return;
         if (response.ok) {
-          dialog.suitabilityResults = Array.isArray(response.data) ? response.data : [];
+          dialog.suitabilityResults = Array.isArray(response.data?.venues)
+            ? response.data.venues
+            : Array.isArray(response.data)
+              ? response.data
+              : [];
         } else {
           dialog.suitabilityError = this.dialogErrorMessage(response);
         }

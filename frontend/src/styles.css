@@ -54,4 +54,13 @@
 .venue-notice-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}.venue-notice-detail{display:block;margin-top:.2rem;color:var(--muted);font-size:.74rem;line-height:1.45}
 .venue-record{display:flex;grid-column:1/-1;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.75rem 1.5rem}.venue-meta{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;margin:0}.venue-meta div{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;font-size:.74rem}.venue-meta dt{color:#89958f}.venue-meta dd{display:flex;flex-wrap:wrap;gap:.3rem;margin:0;color:#46544f;font-weight:600}
 .venue-tag{border-radius:99px;background:#eef4f1;color:#35453f;padding:.18rem .55rem;font-size:.68rem;font-weight:700}.venue-actions{display:flex;gap:.5rem}
+/* [SCRUM-91 | Sarah] Venue search and suitability assessment in booking dialog */
+.venue-search-box{display:grid;gap:.75rem;border:1px solid var(--line);border-radius:.5rem;padding:1rem;background:#fafbfa}
+.venue-search-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
+.venue-search-check{display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer}
+.venue-search-btns{display:flex;gap:.5rem}
+.venue-search-heading{font-size:.85rem;margin:.75rem 0 .35rem;font-weight:700}
+.suitability-check-list{margin:.25rem 0 0;padding-left:1.1rem;font-size:.72rem;color:var(--muted)}
+.search-result-side{display:flex;flex-direction:column;align-items:flex-end;gap:.4rem}
+.search-conflict-callout{margin-top:.35rem}
 @media(max-width:640px){.venue-form-grid .field-wide{grid-column:auto}.venue-record{flex-direction:column}}

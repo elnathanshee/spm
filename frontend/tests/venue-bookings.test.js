@@ -268,35 +268,47 @@ test("TC-9102 (AC2): suitability panel checks venue capacity and entered facilit
     suitabilityPath = path;
     return {
       ok: true,
-      data: [
-        {
-          venue_id: 1,
-          venue_name: "Grand Hall",
-          suitability: "suitable",
-          checks: [
-            { check: "capacity", status: "pass", detail: "Capacity 200 meets expected 100" },
-            { check: "facilities", status: "pass", detail: "Has Projector, Audio" }
-          ]
-        },
-        {
-          venue_id: 2,
-          venue_name: "Small Annex",
-          suitability: "unsuitable",
-          checks: [
-            { check: "capacity", status: "fail", detail: "Capacity 50 below expected 100" },
-            { check: "facilities", status: "pass", detail: "Has Projector" }
-          ]
-        },
-        {
-          venue_id: 3,
-          venue_name: "Studio 1",
-          suitability: "unknown",
-          checks: [
-            { check: "capacity", status: "pass", detail: "Capacity 120 meets expected 100" },
-            { check: "facilities", status: "unknown", detail: "Venue facilities not recorded" }
-          ]
-        }
-      ]
+      data: {
+        event_id: event.id,
+        title: event.title,
+        expected_attendance: 100,
+        required_facilities: ["Projector", "Audio"],
+        venues: [
+          {
+            id: 1,
+            name: "Grand Hall",
+            capacity: 200,
+            facilities: ["Projector", "Audio"],
+            suitability: "suitable",
+            checks: [
+              { check: "capacity", result: "pass", detail: "Capacity 200 meets expected 100" },
+              { check: "facilities", result: "pass", detail: "Has Projector, Audio" }
+            ]
+          },
+          {
+            id: 2,
+            name: "Small Annex",
+            capacity: 50,
+            facilities: ["Projector"],
+            suitability: "unsuitable",
+            checks: [
+              { check: "capacity", result: "fail", detail: "Capacity 50 below expected 100" },
+              { check: "facilities", result: "pass", detail: "Has Projector" }
+            ]
+          },
+          {
+            id: 3,
+            name: "Studio 1",
+            capacity: 120,
+            facilities: [],
+            suitability: "unknown",
+            checks: [
+              { check: "capacity", result: "pass", detail: "Capacity 120 meets expected 100" },
+              { check: "facilities", result: "unknown", detail: "Venue facilities not recorded" }
+            ]
+          }
+        ]
+      }
     };
   };
 
@@ -304,7 +316,10 @@ test("TC-9102 (AC2): suitability panel checks venue capacity and entered facilit
 
   assert.ok(suitabilityPath.includes(`/events/${event.id}/venue-suitability`));
   assert.equal(state.bookingDialog.suitabilityResults.length, 3);
+  assert.equal(state.bookingDialog.suitabilityResults[0].id, 1);
+  assert.equal(state.bookingDialog.suitabilityResults[0].name, "Grand Hall");
   assert.equal(state.bookingDialog.suitabilityResults[0].suitability, "suitable");
+  assert.equal(state.bookingDialog.suitabilityResults[0].checks[0].result, "pass");
   assert.equal(state.bookingDialog.suitabilityResults[1].suitability, "unsuitable");
   assert.equal(state.bookingDialog.suitabilityResults[2].suitability, "unknown");
 });

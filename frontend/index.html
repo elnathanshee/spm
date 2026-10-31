@@ -177,7 +177,7 @@
         <div class="dialog-error" role="alert" x-show="bookingDialog.searchError"><span x-html="iconFor('alert')"></span><span x-text="bookingDialog.searchError"></span></div>
         <div class="dialog-error" role="alert" x-show="bookingDialog.suitabilityError"><span x-html="iconFor('alert')"></span><span x-text="bookingDialog.suitabilityError"></span></div>
 
-        <form class="venue-search-form" @submit.prevent="searchVenues()" style="display: grid; gap: .75rem; border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: #fafbfa;">
+        <form class="venue-search-form venue-search-box" @submit.prevent="searchVenues()">
           <div class="date-time-grid">
             <div class="field-group"><label for="search-start">Search start</label><input id="search-start" type="datetime-local" x-model="bookingDialog.search.start_time"></div>
             <div class="field-group"><label for="search-end">Search end</label><input id="search-end" type="datetime-local" x-model="bookingDialog.search.end_time"></div>
@@ -190,10 +190,10 @@
             <div class="field-group"><label for="search-layout">Layout</label><input id="search-layout" type="text" placeholder="e.g. Theatre" x-model.trim="bookingDialog.search.layout"></div>
             <div class="field-group"><label for="search-accessibility">Accessibility</label><input id="search-accessibility" type="text" placeholder="e.g. Wheelchair" x-model.trim="bookingDialog.search.accessibility"></div>
           </div>
-          <div class="field-group"><label for="search-facilities">Required facilities (comma-separated)</label><input id="search-facilities" type="text" placeholder="e.g. Projector, Audio" x-model.trim="bookingDialog.search.facilities"></div>
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem;">
-            <label style="display: flex; align-items: center; gap: .4rem; font-size: .8rem; cursor: pointer;"><input type="checkbox" x-model="bookingDialog.search.available_only"> Available only</label>
-            <div style="display: flex; gap: .5rem;">
+          <div class="field-group"><label for="search-facilities">Required facilities (comma-separated)</label><input id="search-facilities" type="text" placeholder="e.g. Projector, Audio" x-model.trim="bookingDialog.search.facilities"><small class="form-help">Enter required facilities (comma-separated, e.g. Projector, Audio). Omitted facilities evaluate as unknown.</small></div>
+          <div class="venue-search-footer">
+            <label class="venue-search-check"><input type="checkbox" x-model="bookingDialog.search.available_only"> Available only</label>
+            <div class="venue-search-btns">
               <button type="button" class="button button-secondary button-compact" :disabled="bookingDialog.checkingSuitability" @click="checkSuitability(bookingDialog.search.facilities)">Check suitability</button>
               <button type="submit" class="button button-primary button-compact" :disabled="bookingDialog.searching">Search venues</button>
             </div>
@@ -203,19 +203,19 @@
 
         <template x-if="bookingDialog.searchResults && bookingDialog.searchResults.length">
           <div>
-            <h4 style="font-size: .85rem; margin: .5rem 0 .25rem;">Search results (<span x-text="bookingDialog.searchResults.length"></span>)</h4>
+            <h4 class="venue-search-heading">Search results (<span x-text="bookingDialog.searchResults.length"></span>)</h4>
             <ul class="booking-list">
               <template x-for="venue in bookingDialog.searchResults" :key="venue.id">
                 <li>
                   <div>
                     <strong x-text="venue.name"></strong>
-                    <p x-text="`Capacity: ${venue.capacity} · ${venue.location || 'Campus'}`"></p>
-                    <div class="conflict-callout" x-show="venue.conflict_reason" style="margin-top: .35rem;">
+                    <p x-text="`Capacity: ${venue.capacity} · ${venue.location || 'Location not set'}`"></p>
+                    <div class="conflict-callout search-conflict-callout" x-show="venue.conflict_reason">
                       <strong>Conflict</strong>
                       <span x-text="venue.conflict_reason"></span>
                     </div>
                   </div>
-                  <div style="display: flex; flex-direction: column; align-items: flex-end; gap: .4rem;">
+                  <div class="search-result-side">
                     <span class="status-badge" :class="availabilityClass(venue.is_available)"><i></i><span x-text="venue.is_available ? 'Available' : 'Unavailable'"></span></span>
                     <button type="button" class="button button-secondary button-compact" @click="selectVenueFromSearch(venue)">Request</button>
                   </div>
@@ -227,15 +227,15 @@
 
         <template x-if="bookingDialog.suitabilityResults && bookingDialog.suitabilityResults.length">
           <div>
-            <h4 style="font-size: .85rem; margin: .5rem 0 .25rem;">Suitability results</h4>
+            <h4 class="venue-search-heading">Suitability results</h4>
             <ul class="booking-list">
-              <template x-for="item in bookingDialog.suitabilityResults" :key="item.venue_id">
+              <template x-for="item in bookingDialog.suitabilityResults" :key="item.id || item.venue_id">
                 <li>
                   <div>
-                    <strong x-text="item.venue_name"></strong>
-                    <ul style="margin: .25rem 0 0; padding-left: 1.1rem; font-size: .72rem; color: var(--muted);">
+                    <strong x-text="item.name || item.venue_name"></strong>
+                    <ul class="suitability-check-list">
                       <template x-for="chk in item.checks" :key="chk.check">
-                        <li x-text="`${chk.check}: ${chk.status} (${chk.detail})`"></li>
+                        <li x-text="`${chk.check}: ${chk.result || chk.status} (${chk.detail})`"></li>
                       </template>
                     </ul>
                   </div>
