@@ -164,12 +164,90 @@
     <template x-if="bookingDialog"><div class="modal-backdrop" @keydown.escape.window="closeBookings()" @click.self="closeBookings()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
       <div class="modal-header"><div><p class="eyebrow" x-text="bookingDialog.event.title"></p><h2 id="booking-title">Venue bookings</h2></div><button class="icon-button" @click="closeBookings()" aria-label="Close venue bookings">×</button></div>
       <div class="modal-body">
+        <div class="dialog-error" role="alert" x-show="bookingDialog.error" x-effect="bookingDialog?.error && $nextTick(() => $el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))">
+          <span x-html="iconFor('alert')"></span>
+          <span x-text="bookingDialog.error"></span>
+        </div>
         <p x-show="alert?.message" role="status" x-text="alert?.message"></p>
         <div class="inline-state" x-show="bookingDialog.busy" role="status"><span class="spinner dark"></span> Loading bookings…</div>
         <div class="dialog-section-heading"><div><h3>Booking history</h3><p>Existing requests for this event.</p></div><button type="button" class="button button-secondary button-compact" :disabled="bookingDialog.busy" @click="openBookings(bookingDialog.event)">Refresh</button></div>
         <p x-show="!bookingDialog.busy && !bookingDialog.bookingsLoaded" role="status">Booking history could not be loaded. You can still request a venue if venues are available.</p>
         <p x-show="bookingDialog.bookingsLoaded && !bookingDialog.bookings.length">No booking requests yet.</p>
         <ul class="booking-list"><template x-for="booking in bookingDialog.bookings" :key="booking.id"><li><div><strong x-text="booking.venue_name"></strong><p x-text="formatSchedule(booking.booking_start, booking.booking_end)"></p></div><span class="status-badge" :class="bookingStatusClass(booking.status)"><i></i><span x-text="booking.status"></span></span><p class="rejection-callout" x-show="booking.rejection_reason"><strong>Rejection reason</strong><span x-text="booking.rejection_reason"></span></p></li></template></ul>
+
+        <div class="dialog-section-heading" style="margin-top: 1.5rem;"><div><h3>Find and assess venues</h3><p>Search available venues or evaluate suitability against event requirements.</p></div></div>
+        <div class="dialog-error" role="alert" x-show="bookingDialog.searchError"><span x-html="iconFor('alert')"></span><span x-text="bookingDialog.searchError"></span></div>
+        <div class="dialog-error" role="alert" x-show="bookingDialog.suitabilityError"><span x-html="iconFor('alert')"></span><span x-text="bookingDialog.suitabilityError"></span></div>
+
+        <form class="venue-search-form venue-search-box" @submit.prevent="searchVenues()">
+          <div class="date-time-grid">
+            <div class="field-group"><label for="search-start">Search start</label><input id="search-start" type="datetime-local" x-model="bookingDialog.search.start_time"></div>
+            <div class="field-group"><label for="search-end">Search end</label><input id="search-end" type="datetime-local" x-model="bookingDialog.search.end_time"></div>
+          </div>
+          <div class="date-time-grid">
+            <div class="field-group"><label for="search-capacity">Min capacity</label><input id="search-capacity" type="number" min="1" placeholder="e.g. 100" x-model.number="bookingDialog.search.min_capacity"></div>
+            <div class="field-group"><label for="search-location">Location</label><input id="search-location" type="text" placeholder="e.g. Building 2" x-model.trim="bookingDialog.search.location"></div>
+          </div>
+          <div class="date-time-grid">
+            <div class="field-group"><label for="search-layout">Layout</label><input id="search-layout" type="text" placeholder="e.g. Theatre" x-model.trim="bookingDialog.search.layout"></div>
+            <div class="field-group"><label for="search-accessibility">Accessibility</label><input id="search-accessibility" type="text" placeholder="e.g. Wheelchair" x-model.trim="bookingDialog.search.accessibility"></div>
+          </div>
+          <div class="field-group"><label for="search-facilities">Required facilities (comma-separated)</label><input id="search-facilities" type="text" placeholder="e.g. Projector, Audio" x-model.trim="bookingDialog.search.facilities"><small class="form-help">Enter required facilities (comma-separated, e.g. Projector, Audio). Omitted facilities evaluate as unknown.</small></div>
+          <div class="venue-search-footer">
+            <label class="venue-search-check"><input type="checkbox" x-model="bookingDialog.search.available_only"> Available only</label>
+            <div class="venue-search-btns">
+              <button type="button" class="button button-secondary button-compact" :disabled="bookingDialog.checkingSuitability" @click="checkSuitability(bookingDialog.search.facilities)">Check suitability</button>
+              <button type="submit" class="button button-primary button-compact" :disabled="bookingDialog.searching">Search venues</button>
+            </div>
+          </div>
+        </form>
+        <p x-show="bookingDialog.searchMessage" class="form-help" style="font-style: italic;" x-text="bookingDialog.searchMessage"></p>
+
+        <template x-if="bookingDialog.searchResults && bookingDialog.searchResults.length">
+          <div>
+            <h4 class="venue-search-heading">Search results (<span x-text="bookingDialog.searchResults.length"></span>)</h4>
+            <ul class="booking-list">
+              <template x-for="venue in bookingDialog.searchResults" :key="venue.id">
+                <li>
+                  <div>
+                    <strong x-text="venue.name"></strong>
+                    <p x-text="`Capacity: ${venue.capacity} · ${venue.location || 'Location not set'}`"></p>
+                    <div class="conflict-callout search-conflict-callout" x-show="venue.conflict_reason">
+                      <strong>Conflict</strong>
+                      <span x-text="venue.conflict_reason"></span>
+                    </div>
+                  </div>
+                  <div class="search-result-side">
+                    <span class="status-badge" :class="availabilityClass(venue.is_available)"><i></i><span x-text="venue.is_available ? 'Available' : 'Unavailable'"></span></span>
+                    <button type="button" class="button button-secondary button-compact" @click="selectVenueFromSearch(venue)">Request</button>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </template>
+
+        <template x-if="bookingDialog.suitabilityResults && bookingDialog.suitabilityResults.length">
+          <div>
+            <h4 class="venue-search-heading">Suitability results</h4>
+            <ul class="booking-list">
+              <template x-for="item in bookingDialog.suitabilityResults" :key="item.id || item.venue_id">
+                <li>
+                  <div>
+                    <strong x-text="item.name || item.venue_name"></strong>
+                    <ul class="suitability-check-list">
+                      <template x-for="chk in item.checks" :key="chk.check">
+                        <li x-text="`${chk.check}: ${chk.result || chk.status} (${chk.detail})`"></li>
+                      </template>
+                    </ul>
+                  </div>
+                  <span class="status-badge" :class="suitabilityBadgeClass(item.suitability)"><i></i><span x-text="item.suitability"></span></span>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </template>
+
         <form class="request-booking-form" @submit.prevent="submitBooking()" novalidate>
           <fieldset :disabled="bookingDialog.submitting"><legend>Request another venue</legend><p class="form-help">Choose an available venue and the complete booking window.</p>
             <p x-show="bookingDialog.ready && !bookingDialog.venues.length" role="status">No venues available. Please contact Venue Staff to add a venue.</p>
