@@ -213,6 +213,9 @@ class VenueBooking(Base):
     # Relationships
     event = relationship("Event", back_populates="venue_bookings")
     venue = relationship("Venue", back_populates="bookings")
+    # [SCRUM-89 | Renee] Who made the request, so the review can show their name.
+    # A relationship only: requester_id already exists, so the table is unchanged.
+    requester = relationship("User", foreign_keys=[requester_id])
     # [SCRUM-36 | Renee] The Venue Staff decision on this request, if any
     decision = relationship("VenueBookingDecision", back_populates="booking",
                             uselist=False, cascade="all, delete-orphan")

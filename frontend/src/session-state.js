@@ -41,6 +41,7 @@ export function resetSignedOutState(state) {
     equipment_requirements: "",
     registration_needs: "",
   };
+  state.amendOriginal = null;
   state.decisionForm = { reason: "" };
   state.modal = { open: false, kind: "", event: null };
 }

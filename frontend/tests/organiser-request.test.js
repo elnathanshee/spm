@@ -7,6 +7,9 @@ import { resetSignedOutState } from "../src/session-state.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
+// Objects made inside the vm come from another realm; compare plain copies.
+const plain = value => JSON.parse(JSON.stringify(value));
+
 function app(role = "organiser") {
   let factory;
   const context = {
@@ -117,12 +120,9 @@ test("TC-9002 (AC2): amend request opens with all nine content fields prefilled"
   assert.equal(state.amendForm.registration_needs, sampleEvent.registration_needs);
 });
 
-test("TC-9003 (AC2): amend saves changes with POST /events/{id}/amend and preserves untouched fields", async () => {
+test("TC-9003 (AC2): amend saves changes with POST /events/{id}/amend and sends only changed fields", async () => {
   const state = app("organiser");
   state.openAmend(sampleEvent);
-
-  // Organiser modifies only accessibility needs
-  state.amendForm.accessibility_needs = "Updated: Wheelchair ramp and dedicated quiet room";
 
   let amendPath = null;
   let amendBody = null;
@@ -135,17 +135,41 @@ test("TC-9003 (AC2): amend saves changes with POST /events/{id}/amend and preser
     return { ok: true, data: [] };
   };
 
+  // 1. Submitting without modifications sends no request and warns "No changes to save."
+  await state.amendEvent(sampleEvent.id, state.amendForm);
+  assert.equal(amendPath, null);
+  assert.equal(state.alert.message, "No changes to save.");
+  assert.equal(state.modal.open, true);
+
+  // 2. Modifying only accessibility_needs sends ONLY the changed field
+  state.amendForm.accessibility_needs = "Updated: Wheelchair ramp and dedicated quiet room";
   await state.amendEvent(sampleEvent.id, state.amendForm);
 
   assert.equal(amendPath, `/events/${sampleEvent.id}/amend`);
-  assert.equal(amendBody.title, sampleEvent.title);
-  assert.equal(amendBody.purpose, sampleEvent.purpose);
-  assert.equal(amendBody.description, sampleEvent.description);
-  assert.equal(amendBody.expected_attendance, 250);
-  assert.equal(amendBody.venue_requirements, sampleEvent.venue_requirements);
-  assert.equal(amendBody.accessibility_needs, "Updated: Wheelchair ramp and dedicated quiet room");
-  assert.equal(amendBody.equipment_requirements, sampleEvent.equipment_requirements);
-  assert.equal(amendBody.registration_needs, sampleEvent.registration_needs);
+  assert.deepEqual(plain(amendBody), {
+    accessibility_needs: "Updated: Wheelchair ramp and dedicated quiet room",
+  });
+  assert.equal("title" in amendBody, false);
+  assert.equal("proposed_start" in amendBody, false);
+  assert.equal(state.modal.open, false);
+
+  // 3. Past start date event: amending another field does NOT send proposed_start (avoids 400 past date validation)
+  const pastEvent = {
+    ...sampleEvent,
+    id: 99,
+    proposed_start: "2020-01-01T09:00:00",
+  };
+  state.openAmend(pastEvent);
+  state.amendForm.description = "Updated description for past event";
+  amendPath = null;
+  amendBody = null;
+  await state.amendEvent(pastEvent.id, state.amendForm);
+
+  assert.equal(amendPath, `/events/99/amend`);
+  assert.deepEqual(plain(amendBody), {
+    description: "Updated description for past event",
+  });
+  assert.equal("proposed_start" in amendBody, false);
   assert.equal(state.modal.open, false);
 });
 
