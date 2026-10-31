@@ -10,7 +10,7 @@ const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 // Objects made inside the vm come from another realm; compare plain copies.
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function app(role = "organiser") {
+function app(role = "organiser", fetchStub) {
   let factory;
   const context = {
     NAVIGATION: [],
@@ -20,6 +20,7 @@ function app(role = "organiser") {
     document: { addEventListener: (_, fn) => fn() },
     Alpine: { data: (_, fn) => { factory = fn; } },
     window: { location: {} },
+    ...(fetchStub ? { fetch: fetchStub } : {}),
   };
   vm.runInNewContext(
     source
@@ -185,25 +186,52 @@ test("TC-9004 (AC3): server validation errors map to the right fields and keep t
   }, "/events");
   assert.equal(state.fieldErrors.title, "Title cannot be empty");
 
-  // 2. Test 400 Past date error mapping
+  // 2. Test 400 Past date error mapping on draft creation
   state.fieldErrors = {};
   state.handleHttpError(400, {
     detail: "Proposed start time cannot be in the past",
   }, "/events");
   assert.equal(state.fieldErrors.proposed_start, "Proposed start time cannot be in the past");
 
-  // 3. Test 400 Invalid attendance error mapping
+  // 3. Test 400 Invalid attendance error mapping on draft creation
   state.fieldErrors = {};
   state.handleHttpError(400, {
     detail: "Expected attendance must be greater than 0",
   }, "/events");
   assert.equal(state.fieldErrors.expected_attendance, "Expected attendance must be greater than 0");
 
-  // Verify form state is kept intact
-  state.draft.title = "My Conference";
-  state.draft.accessibility_needs = "Braille materials";
-  assert.equal(state.draft.title, "My Conference");
-  assert.equal(state.draft.accessibility_needs, "Braille materials");
+  // 4. Calling createEventDraft with a failing 400 preserves typed input and maps the field error
+  const fetchStub400 = async () => ({
+    ok: false,
+    status: 400,
+    json: async () => ({ detail: "Proposed start time cannot be in the past" }),
+  });
+  const draftState = app("organiser", fetchStub400);
+  draftState.draft = {
+    title: "My Conference",
+    purpose: "Academic sharing",
+    description: "Annual keynote",
+    proposed_start: "2020-01-01T09:00",
+    expected_attendance: 150,
+    venue_requirements: "Hall A",
+    accessibility_needs: "Braille materials",
+    equipment_requirements: "Microphones",
+    registration_needs: "VIP roster",
+  };
+  await draftState.createEventDraft(draftState.draft);
+
+  assert.equal(draftState.fieldErrors.proposed_start, "Proposed start time cannot be in the past");
+  assert.equal(draftState.draft.title, "My Conference");
+  assert.equal(draftState.draft.accessibility_needs, "Braille materials");
+  assert.equal(draftState.draft.proposed_start, "2020-01-01T09:00");
+
+  // 5. POST /events/{id}/submit 400 error does NOT map to fieldErrors; it reaches the page alert
+  const submitState = app("organiser", fetchStub400);
+  submitState.fetchEvents = async () => {};
+  await submitState.submitEvent(42);
+
+  assert.equal(submitState.fieldErrors.proposed_start, undefined);
+  assert.equal(submitState.alert?.message, "Proposed start time cannot be in the past");
 });
 
 test("TC-9005 (Reset): resetSignedOutState clears all 9 fields on draft and amendForm", () => {

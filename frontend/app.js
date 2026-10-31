@@ -116,7 +116,7 @@ document.addEventListener("alpine:init", () => {
         this.fieldErrors = this.parseValidationErrors(data.detail);
         return;
       }
-      if (status === 400 && typeof data?.detail === "string") {
+      if (status === 400 && (path === "/events" || (typeof path === "string" && path.endsWith("/amend"))) && typeof data?.detail === "string") {
         if (data.detail.toLowerCase().includes("start time")) {
           this.fieldErrors = { ...this.fieldErrors, proposed_start: data.detail };
           return;
