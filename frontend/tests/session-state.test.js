@@ -58,7 +58,7 @@ test("authentication state prevents duplicate login submissions", () => {
   assert.equal(state.loading, false);
 });
 
-test("logout clears event review detail and busy state", () => {
+test("TC-8813 logout clears event review detail and busy state", () => {
   const state = { eventDetail: { id: 7, detail: { description: "Private" } }, decisionBusy: true };
   resetSignedOutState(state);
   assert.equal(state.eventDetail, null);

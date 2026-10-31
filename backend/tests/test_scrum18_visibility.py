@@ -262,6 +262,7 @@ def test_coordinator_cannot_book_venue_for_another_or_unassigned_event(client, d
 
 @pytest.mark.parametrize("username", ["org_b", "coord_a", "lead"])
 def test_scrum88_detail_names_and_latest_note_survive_resubmission(client, db_session, data, username):
+    """TC-8814 (SCRUM-88): detail shows organiser and coordinator names and the latest clarification note after resubmission."""
     from backend.models import EventStatusHistory
     from backend.status import RETURNED
     event = data["events"]["other"]
@@ -283,11 +284,13 @@ def test_scrum88_detail_names_and_latest_note_survive_resubmission(client, db_se
 
 @pytest.mark.parametrize("username,expected", [("lead", 404), ("coord_a", 404), ("org_a", 404), ("org_b", 200), ("venue", 403), ("attendee", 404)])
 def test_scrum88_draft_visibility_unchanged(client, data, username, expected):
+    """TC-8815 (SCRUM-88): event detail keeps the existing Draft visibility rules."""
     authenticate(client, username)
     assert client.get(f"/events/{data['events']['draft'].id}").status_code == expected
 
 
 def test_scrum88_unassigned_detail_has_optional_placeholders(client, data):
+    """TC-8816 (SCRUM-88): an unassigned event's detail returns null coordinator and note."""
     authenticate(client, "lead")
     detail = client.get(f"/events/{data['events']['unassigned'].id}").json()
     assert detail["assigned_coordinator"] is None
