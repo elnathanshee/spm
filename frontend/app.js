@@ -9,6 +9,7 @@ import {
   resolveRolePath,
 } from "./src/rbac.js";
 import { beginAuthentication, finishAuthentication, resetSignedOutState } from "./src/session-state.js";
+import { NO_CHANGES, affectedBookingRows, bufferSummary, changedFields, createPayload, emptyVenueForm, flaggedBookingRows, formErrorsFrom, validateVenueForm, venueFormFrom } from "./src/venue-record.js"; // [SCRUM-92]
 
 document.addEventListener("alpine:init", () => {
   Alpine.data("appState", () => ({
@@ -315,7 +316,9 @@ document.addEventListener("alpine:init", () => {
       if (!this.isVenueStaff()) return;
       if (!this.venueWorkspace) this.venueWorkspace = {
         venues: [], bookings: [], busy: false, loaded: false, bookingError: false,
-        bookingFilter: "All", showCreate: false, saving: false, form: { name: "", location: "", capacity: "" },
+        bookingFilter: "All", showCreate: false, saving: false, form: emptyVenueForm(),
+        // [SCRUM-92] the venue being edited, the form's message, a pending retire, and the last save's result
+        editing: null, formMessage: null, retire: null, outcome: null,
       };
       const workspace = this.venueWorkspace;
       if (workspace.busy) return;
@@ -342,19 +345,18 @@ document.addEventListener("alpine:init", () => {
 
     async createVenue() {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace || workspace.saving || workspace.busy) return;
-      this.fieldErrors = {};
-      const { name, location, capacity } = workspace.form;
-      if (!name.trim()) this.fieldErrors.name = "Venue name is required";
-      if (!location.trim()) this.fieldErrors.location = "Location is required";
-      if (!Number.isInteger(Number(capacity)) || Number(capacity) <= 0) this.fieldErrors.capacity = "Enter a positive whole number";
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy() || workspace.busy) return;
+      // [SCRUM-92] all nine fields (AC1), checked against the backend's rules first (D4)
+      this.fieldErrors = validateVenueForm(workspace.form);
+      workspace.formMessage = null;
       if (Object.keys(this.fieldErrors).length) return;
       workspace.saving = true;
       const recipient = this.user;
       try {
-        const response = await this.apiRequest("/venues", { method: "POST", body: { name: name.trim(), location: location.trim(), capacity: Number(capacity) } });
-        if (this.user !== recipient || this.venueWorkspace !== workspace || !response.ok) return;
-        workspace.form = { name: "", location: "", capacity: "" };
+        const response = await this.apiRequest("/venues", { method: "POST", body: createPayload(workspace.form) });
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        if (!response.ok) { this.showVenueFormErrors(response); return; }
+        workspace.form = emptyVenueForm();
         workspace.showCreate = false;
         await this.fetchVenueWorkspace();
         if (this.user !== recipient || this.venueWorkspace !== workspace) return;
@@ -362,6 +364,148 @@ document.addEventListener("alpine:init", () => {
       } finally {
         if (this.venueWorkspace === workspace) workspace.saving = false;
       }
+    },
+
+    // [SCRUM-92 | Elnathan] Edit and retire a venue; the rules are in src/venue-record.js.
+    // Every request re-checks the user and the workspace when it returns, so a
+    // reply that arrives after logout changes nothing.
+    venueBufferSummary(venue) { return bufferSummary(venue); },
+
+    // One venue write at a time: while a save or a retire is in flight, the
+    // other venue actions wait, and their buttons are disabled.
+    venueWriteBusy() {
+      const workspace = this.venueWorkspace;
+      return !!(workspace?.saving || workspace?.retire?.busy);
+    },
+
+    showVenueFormErrors(response) {
+      const { fields, message } = formErrorsFrom(response);
+      this.fieldErrors = fields;
+      this.venueWorkspace.formMessage = message ? { kind: "error", text: message } : null;
+      this.clearAlert();
+    },
+
+    // The buttons wait for a venue write in flight: closing the form mid-save
+    // would drop its result. closeVenueForm() itself has no guard, because a
+    // good save calls it while saving is still true.
+    toggleVenueCreate() {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
+      const opening = !workspace.showCreate || !!workspace.editing;
+      this.closeVenueForm();
+      workspace.showCreate = opening;
+    },
+
+    cancelVenueForm() {
+      if (!this.venueWriteBusy()) this.closeVenueForm();
+    },
+
+    closeVenueForm() {
+      const workspace = this.venueWorkspace;
+      if (!workspace) return;
+      workspace.showCreate = false;
+      workspace.editing = null;
+      workspace.form = emptyVenueForm();
+      workspace.formMessage = null;
+      this.fieldErrors = {};
+    },
+
+    saveVenueForm() {
+      return this.venueWorkspace?.editing ? this.updateVenue() : this.createVenue();
+    },
+
+    // AC2: prefill from GET /venues/{id}.
+    async openVenueEdit(venue) {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
+      const recipient = this.user;
+      const response = await this.apiRequest(`/venues/${venue.id}`);
+      if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+      if (!response.ok) {
+        const detail = response.data?.detail;
+        this.showAlert(typeof detail === "string" ? detail : "This venue could not be loaded.");
+        await this.fetchVenueWorkspace();
+        return;
+      }
+      this.closeVenueForm();
+      workspace.editing = response.data;
+      workspace.form = venueFormFrom(response.data);
+      workspace.showCreate = true;
+    },
+
+    // AC2, AC3: send only the changed fields (D3); list newly flagged bookings (D5).
+    async updateVenue() {
+      const workspace = this.venueWorkspace;
+      const venue = workspace?.editing;
+      if (!this.isVenueStaff() || !venue || this.venueWriteBusy() || workspace.busy) return;
+      this.fieldErrors = validateVenueForm(workspace.form);
+      workspace.formMessage = null;
+      if (Object.keys(this.fieldErrors).length) return;
+      const changes = changedFields(workspace.form, venue);
+      if (!Object.keys(changes).length) { workspace.formMessage = { kind: "info", text: NO_CHANGES }; return; }
+      workspace.saving = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/${venue.id}`, { method: "PATCH", body: changes });
+        if (this.user !== recipient || this.venueWorkspace !== workspace || workspace.editing !== venue) return;
+        if (!response.ok) { this.showVenueFormErrors(response); return; }
+        workspace.outcome = {
+          kind: "updated",
+          venueName: response.data.venue?.name || venue.name,
+          // D5: the flagged-bookings section is shown only after a buffer change.
+          bufferChanged: "setup_time_mins" in changes || "turnaround_time_mins" in changes,
+          flagged: flaggedBookingRows(response.data),
+        };
+        this.closeVenueForm();
+        await this.fetchVenueWorkspace();
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        this.showAlert("Venue updated.", "success");
+      } finally {
+        if (this.venueWorkspace === workspace) workspace.saving = false;
+      }
+    },
+
+    // AC4, D6: an in-page confirmation, never a browser dialog.
+    askRetireVenue(venue) {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
+      workspace.retire = { venue, busy: false, error: "" };
+    },
+
+    cancelRetireVenue() {
+      const workspace = this.venueWorkspace;
+      if (workspace && !workspace.retire?.busy) workspace.retire = null;
+    },
+
+    async confirmRetireVenue() {
+      const workspace = this.venueWorkspace;
+      const retire = workspace?.retire;
+      if (!this.isVenueStaff() || !retire || this.venueWriteBusy()) return;
+      retire.busy = true;
+      retire.error = "";
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/${retire.venue.id}/retire`, { method: "POST" });
+        if (this.user !== recipient || this.venueWorkspace !== workspace || workspace.retire !== retire) return;
+        if (!response.ok) {
+          const detail = response.data?.detail;
+          retire.error = typeof detail === "string" ? detail : `The venue could not be retired (status ${response.status}).`;
+          this.clearAlert();
+          return;
+        }
+        workspace.outcome = { kind: "retired", venueName: retire.venue.name, affected: affectedBookingRows(response.data) };
+        workspace.retire = null;
+        if (workspace.editing?.id === retire.venue.id) this.closeVenueForm();
+        await this.fetchVenueWorkspace();
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        this.showAlert("Venue retired.", "success");
+      } finally {
+        retire.busy = false;
+      }
+    },
+
+    dismissVenueOutcome() {
+      if (this.venueWorkspace) this.venueWorkspace.outcome = null;
     },
 
     async openStaffBooking(bookingId) {
