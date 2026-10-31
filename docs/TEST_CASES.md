@@ -349,7 +349,9 @@ SCRUM-24 and TC-223 (registered in Sprint 4), and SCRUM-98 (14 rows)
 | TC-9801 | SCRUM-98 | Cross-Cutting | Done-when 1 | Only lead.py's reassign handler is registered | The app as built by backend/main.py (no database rows needed) | 1. Walk the app's mounted routes, including those inside included routers<br>2. Keep the POST /events/{event_id}/reassign routes | Route table only | Exactly one handler, from module backend.lead. | As expected | pytest backend/tests/test_scrum98_cleanup.py::test_tc9801_only_the_lead_reassign_handler_is_registered | Passed | Sprint 4 | Elnathan (automated, pytest) | 26-Oct-26 |
 | TC-9802 | SCRUM-98 | Cross-Cutting | Done-when 2 | The kept legacy coordinator page is marked deprecated | The app as built by backend/main.py (no database rows needed) | 1. Generate the OpenAPI schema<br>2. Read GET /coordinator/events, /coordinator/events/data and /coordinator/events/all-data | OpenAPI schema only | GET /coordinator/events has deprecated: true; /coordinator/events/data and /coordinator/events/all-data are not deprecated. | As expected | pytest backend/tests/test_scrum98_cleanup.py::test_tc9802_legacy_coordinator_page_is_marked_deprecated | Passed | Sprint 4 | Elnathan (automated, pytest) | 26-Oct-26 |
 
-SCRUM-89 (13 rows, Sprint 4)
+---
+
+### SCRUM-89 (13 rows, Sprint 4)
 
 | Test Case ID | Story | Test Path / Classification | Acceptance Criterion | Test Scenario | Pre-conditions | Test Steps | Test Data | Expected Result | Actual Result (PDFs / API) | Evidence | Status | Build / Sprint | Executed By | Date Executed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- | :--- |
@@ -367,7 +369,21 @@ SCRUM-89 (13 rows, Sprint 4)
 | TC-8912 | SCRUM-89 | Boundary Path | AC1 (found in the manual run, 26 Oct) | The clash callout names the clashing booking once | frontend/index.html | 1. Read the review dialog's clash callout | index.html | The callout shows the conflict reason (which names the booking) and no second Clashes with booking # line. | As expected | node --test frontend/tests/scrum89-booking-review.test.js (TC-8912) | Passed | Sprint 4 | Renee (automated, Node test runner) | 26-Oct-26 |
 | TC-8913 | SCRUM-89 | Workflow Variation | AC1, AC2 (found in the manual run, 26 Oct) | Updating the hold keeps the venue details in the dialog | Venue Staff app state loaded from app.js in a Node vm; API mocked; review detail with venue, requester and conflict flag | 1. Set a valid new expiry; PUT /hold answers with the short booking (no venue) | Expiry 1 day ahead | Hold expiry updated; venue capacity, layouts, accessibility, facilities and the requester stay in the dialog. | As expected | node --test frontend/tests/scrum89-booking-review.test.js (TC-8913) | Passed | Sprint 4 | Renee (automated, Node test runner) | 26-Oct-26 |
 
-SCRUM-92 (24 rows, Sprint 4)
+---
+
+### SCRUM-90 (5 rows, Sprint 4)
+
+| Test Case ID | Story | Test Path / Classification | Acceptance Criterion | Test Scenario | Pre-conditions | Test Steps | Test Data | Expected Result | Actual Result (PDFs / API) | Evidence | Status | Build / Sprint | Executed By | Date Executed |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- |
+| **TC-9001** | SCRUM-90 | Happy Path | AC1 | New request form captures and sends all nine content fields with POST /events | Logged in as Organiser | 1. Fill out all 9 fields in /events/new<br>2. Submit draft form<br>3. Inspect POST /events payload | All 9 event fields: title, purpose, description, proposed_start, expected_attendance, venue_requirements, accessibility_needs, equipment_requirements, registration_needs | POST /events receives complete 9-field payload; status 201; redirects to /events with success alert | POST /events verified with all 9 fields; alert shown | Automated test (node:test) | Passed | Sprint 4 | Sarah | 31-Oct-26 |
+| **TC-9002** | SCRUM-90 | Happy Path | AC2 | Amend request opens with all nine content fields prefilled | Organiser owns event in Submitted, Under Review, or Returned | 1. Click Amend request on event card<br>2. Inspect open amend modal fields | Event with all 9 fields populated | Modal opens with all 9 fields prefilled, proposed_start correctly formatted for datetime-local input | All 9 fields prefilled matching event attributes | Automated test (node:test) | Passed | Sprint 4 | Sarah | 31-Oct-26 |
+| **TC-9003** | SCRUM-90 | Happy Path | AC2 | Amend sends only changed fields with POST /events/{id}/amend and preserves untouched fields | Organiser owns event in Submitted, Under Review, or Returned | 1. Open amend modal<br>2. Submit without changes<br>3. Modify subset of fields (e.g. accessibility_needs)<br>4. Submit amend form | accessibility_needs modified; other 8 fields untouched | Submitting without changes sends no request and warns "No changes to save."; modifying field sends only modified field to POST /events/{id}/amend; modal closes, success alert shown | Only changed fields sent; no changes warned; untouched start date untouched | Automated test (node:test) | Passed | Sprint 4 | Sarah | 31-Oct-26 |
+| **TC-9004** | SCRUM-90 | Negative Path / Boundary | AC3 | Server validation errors map to the right fields and keep typed input | Logged in as Organiser | 1. Trigger 422 error<br>2. Trigger 400 past date error<br>3. Trigger 400 attendance error<br>4. Check field error bindings and draft state | Validation error responses from backend | fieldErrors maps 422 loc and 400 past date and non-positive attendance; draft form input remains intact | fieldErrors mapped accurately; form state preserved | Automated test (node:test) | Passed | Sprint 4 | Sarah | 27-Oct-26 |
+| **TC-9005** | SCRUM-90 | Cross-Cutting | DoD (Session State) | resetSignedOutState clears all 9 fields on draft and amendForm | Active session with draft or amend data populated | 1. Call resetSignedOutState(state)<br>2. Verify draft and amendForm properties | draft, amendForm, and amendOriginal populated | All 9 fields reset to empty strings / null, no residual state remains | All 9 fields verified reset to clean default state | Automated test (node:test) | Passed | Sprint 4 | Sarah | 31-Oct-26 |
+
+---
+
+### SCRUM-92 (24 rows, Sprint 4)
 
 | Test Case ID | Story | Test Path / Classification | Acceptance Criterion | Test Scenario | Pre-conditions | Test Steps | Test Data | Expected Result | Actual Result (PDFs / API) | Evidence | Status | Build / Sprint | Executed By | Date Executed |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- | :--- |
