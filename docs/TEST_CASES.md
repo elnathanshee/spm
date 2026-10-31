@@ -6,13 +6,13 @@ This register documents all automated test cases across **Sprint 1**, **Sprint 2
 
 ## Summary Statistics
 
-- **Total Test Cases:** 419 rows in this file, recounted on 30 Oct 2026 (SCRUM-98; +13 SCRUM-89; +24 SCRUM-92) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
+- **Total Test Cases:** 421 rows in this file, recounted on 31 Oct 2026 (SCRUM-98; +13 SCRUM-89; +24 SCRUM-92; +2 SCRUM-97) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
 - **Sprint 1:** 40 Test Cases (SCRUM-16: 6, SCRUM-22 & 27: 7, SCRUM-21: 15, SCRUM-24: 11, SCRUM-24 & 27: 1; the 12 SCRUM-24 rows were registered in Sprint 4)
 - **Sprint 2:** 121 Test Cases (SCRUM-51: 15, SCRUM-23: 18, SCRUM-63: 8, SCRUM-30: 10, SCRUM-33: 13, SCRUM-31: 21, SCRUM-32: 16, SCRUM-34: 20)
 - **Sprint 3:** 219 Test Cases (SCRUM-35: 23, SCRUM-18: 11, SCRUM-36: 13, SCRUM-37: 9, SCRUM-38: 27, SCRUM-28: 14, SCRUM-80: 12, SCRUM-81: 36, SCRUM-64: 36, SCRUM-39: 23, SCRUM-30: 1; 14 rows shared across venue stories or unmapped)
-- **Sprint 4:** 39 Test Cases (SCRUM-98: 2, SCRUM-89: 13, SCRUM-92: 24)
-- **CSV:** `TEST_CASES.csv` holds 339 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
-- **Current PR verification (SCRUM-92):** on the branch merged with main, full backend suite 542 passed (in-memory SQLite) and frontend 79/79, on 30 Oct 2026. Historical statuses are preserved; they are not new execution claims.
+- **Sprint 4:** 41 Test Cases (SCRUM-98: 2, SCRUM-97: 2, SCRUM-89: 13, SCRUM-92: 24)
+- **CSV:** `TEST_CASES.csv` holds 341 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
+- **Current PR verification (SCRUM-97):** on the branch merged with main, full backend suite 544 passed (in-memory SQLite) and frontend 79/79, on 31 Oct 2026. Historical statuses are preserved; they are not new execution claims.
 - **Automation:** `pytest` and Node test runner; see per-case execution evidence.
 
 ---
@@ -348,6 +348,15 @@ SCRUM-24 and TC-223 (registered in Sprint 4), and SCRUM-98 (14 rows)
 | TC-223 | SCRUM-24; SCRUM-27 | Workflow Variation | SCRUM-24 AC3 (with SCRUM-27 start review) | Starting review clears awaiting first review | Disposable in-memory SQLite; a request created and submitted by org, assigned to coord_a | 1. Log in as coord_a<br>2. GET /coordinator/events<br>3. POST /events/{id}/review<br>4. GET /coordinator/events | Annual Gala; 100 expected; proposed 14 days ahead | Before: Awaiting your first review is shown. Review: HTTP 200. After: it is not shown, and the status is Under Review. | As expected | pytest backend/tests/test_scrum27_review_endpoint.py::test_tc223_starting_review_clears_awaiting_first_review | Passed | Sprint 1 (registered in Sprint 4, SCRUM-98) | Elnathan (automated, pytest) | 26-Oct-26 |
 | TC-9801 | SCRUM-98 | Cross-Cutting | Done-when 1 | Only lead.py's reassign handler is registered | The app as built by backend/main.py (no database rows needed) | 1. Walk the app's mounted routes, including those inside included routers<br>2. Keep the POST /events/{event_id}/reassign routes | Route table only | Exactly one handler, from module backend.lead. | As expected | pytest backend/tests/test_scrum98_cleanup.py::test_tc9801_only_the_lead_reassign_handler_is_registered | Passed | Sprint 4 | Elnathan (automated, pytest) | 26-Oct-26 |
 | TC-9802 | SCRUM-98 | Cross-Cutting | Done-when 2 | The kept legacy coordinator page is marked deprecated | The app as built by backend/main.py (no database rows needed) | 1. Generate the OpenAPI schema<br>2. Read GET /coordinator/events, /coordinator/events/data and /coordinator/events/all-data | OpenAPI schema only | GET /coordinator/events has deprecated: true; /coordinator/events/data and /coordinator/events/all-data are not deprecated. | As expected | pytest backend/tests/test_scrum98_cleanup.py::test_tc9802_legacy_coordinator_page_is_marked_deprecated | Passed | Sprint 4 | Elnathan (automated, pytest) | 26-Oct-26 |
+
+---
+
+### SCRUM-97 (2 rows, Sprint 4)
+
+| Test Case ID | Story | Test Path / Classification | Acceptance Criterion | Test Scenario | Pre-conditions | Test Steps | Test Data | Expected Result | Actual Result (PDFs / API) | Evidence | Status | Build / Sprint | Executed By | Date Executed |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- |
+| **TC-9701** | SCRUM-97 | Cross-Cutting | Done-when 1, 2 | CI workflow defines a frontend job running tests and build on push and pull request | Repository root configuration | 1. Parse .github/workflows/ci.yml<br>2. Check triggers for push and pull_request to main<br>3. Verify separate frontend job exists with setup-node, npm ci, npm test, and npm run build | ci.yml file content | Workflow runs frontend tests and build on push/PR; failure in test or build fails the job | As expected | pytest backend/tests/test_scrum97_ci.py::test_tc9701_ci_workflow_runs_frontend_tests_and_build | Passed | Sprint 4 | Sarah (automated, pytest) | 31-Oct-26 |
+| **TC-9702** | SCRUM-97 | Cross-Cutting | Done-when 3 | README documents how to run frontend tests locally | Repository root documentation | 1. Parse README.md<br>2. Verify local frontend test and build commands are documented | README.md file content | README contains npm test and npm run build instructions for local execution | As expected | pytest backend/tests/test_scrum97_ci.py::test_tc9702_readme_documents_frontend_testing | Passed | Sprint 4 | Sarah (automated, pytest) | 31-Oct-26 |
 
 SCRUM-89 (13 rows, Sprint 4)
 
