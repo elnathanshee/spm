@@ -6,9 +6,10 @@ import { normalizeRole } from "../src/rbac.js";
 import { resetSignedOutState } from "../src/session-state.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-function app(role) {
+function app(role, fetch) {
   let factory;
   const context = {
+    fetch,
     NAVIGATION: [], normalizeRoleName: normalizeRole, requestedFrontendPath: () => null,
     document: { addEventListener: (_, fn) => fn() },
     Alpine: { data: (_, fn) => { factory = fn; } }, window: { location: {} },
@@ -41,8 +42,8 @@ for (const role of ["coordinator", "lead"]) {
     const request = calls.find(call => call.options?.method === "POST");
     assert.equal(request.path, "/venues/3/bookings");
     assert.equal(request.options.body.event_id, event.id);
-    assert.equal(request.options.body.booking_start, form.booking_start);
-    assert.equal(request.options.body.booking_end, form.booking_end);
+    assert.equal(request.options.body.booking_start, new Date(form.booking_start).toISOString());
+    assert.equal(request.options.body.booking_end, new Date(form.booking_end).toISOString());
     assert.equal(state.alert.kind, "success");
     assert.equal(state.bookingDialog.bookings[0].rejection_reason, booking.rejection_reason);
     assert.equal(state.bookingDialog.busy, false);
@@ -202,4 +203,283 @@ test("TC-3528 HTTP failures identify the request endpoint", () => {
   state.handleHttpError(500, {}, "/events/8/bookings");
   assert.ok(state.alert.message.includes("/events/8/bookings"));
   assert.ok(state.alert.message.includes("500"));
+});
+
+async function holdApp(role = "coordinator") {
+  const state = app(role);
+  const event = role === "lead" ? state.leadEvents[0] : state.assignedEvents[0];
+  const booking = { id: 10, event_id: event.id, venue_name: "Hall", status: "Pending", hold_expires_at: "2099-04-10T09:00:00", warning_minutes: 60 };
+  state.apiRequest = async path => ({ ok: true, data: path === "/venues" ? [{ id: 3 }] : [booking] });
+  await state.openBookings(event);
+  return { state, booking };
+}
+
+test("TC-9501 hold presentation uses returned fields, UTC interpretation and explicit expired styling", async () => {
+  const { state } = await holdApp();
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const dialog = html.slice(html.indexOf('<template x-if="bookingDialog">'), html.indexOf('<template x-if="modal.open">'));
+  const row = dialog.slice(dialog.indexOf('<ul class="booking-list">'), dialog.indexOf('</ul>'));
+  assert.match(row, /formatHoldExpiry\(booking.hold_expires_at\)/);
+  assert.match(row, /booking.warning_minutes == null/);
+  assert.match(row, /x-if="canUpdateHoldWarning\(booking\)"/);
+  assert.match(row, /@submit.prevent="updateHoldWarning\(booking\)"/);
+  assert.match(row, /x-model="bookingDialog.warningInputs\[booking.id\]"/);
+  assert.match(row, /Save warning/);
+  const detailsStart = row.indexOf('<div x-show="booking.status');
+  const controlsStart = row.indexOf('<template x-if="canUpdateHoldWarning');
+  assert.ok(detailsStart >= 0 && detailsStart < controlsStart);
+  assert.match(row.slice(detailsStart, controlsStart), /Hold expiry:.*Warning:/);
+  assert.doesNotMatch(html.slice(0, html.indexOf('<template x-if="bookingDialog">')), /hold-warning-|formatHoldExpiry\(booking.hold_expires_at\)/);
+  assert.equal(state.bookingStatusClass("Expired"), "status-rejected");
+  assert.equal(state.bookingStatusClass("Confirmed"), "status-approved");
+  assert.equal(state.formatHoldExpiry(null), "Not set");
+  assert.equal(state.formatHoldExpiry("invalid"), "Not set");
+  const previousTZ = process.env.TZ;
+  try {
+    process.env.TZ = "Asia/Singapore";
+    assert.equal(state.formatHoldExpiry("2099-04-10T09:00:00"), state.formatDate("2099-04-10T09:00:00Z"));
+    assert.notEqual(state.formatHoldExpiry("2099-04-10T09:00:00"), state.formatDate("2099-04-10T09:00:00"));
+    assert.equal(state.formatHoldExpiry("2099-04-10T09:00:00+08:00"), state.formatDate("2099-04-10T09:00:00+08:00"));
+  } finally {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  }
+});
+
+for (const minutes of ["0", "75"]) {
+  test(`TC-9502 warning ${minutes} uses PUT and merges without a GET`, async () => {
+    const { state, booking } = await holdApp();
+    const list = state.bookingDialog.bookings;
+    state.bookingDialog.warningInputs[10] = minutes;
+    let calls = 0;
+    state.apiRequest = async (path, options) => {
+      calls++;
+      assert.equal(path, "/venues/bookings/10/hold/warning");
+      assert.equal(options.method, "PUT");
+      assert.equal(options.body.warning_minutes, Number(minutes));
+      return { ok: true, data: { booking: { id: 10, warning_minutes: Number(minutes) } } };
+    };
+    await state.updateHoldWarning(booking);
+    assert.equal(calls, 1);
+    assert.equal(booking.warning_minutes, Number(minutes));
+    assert.equal(booking.venue_name, "Hall");
+    assert.equal(state.bookingDialog.bookings, list);
+    assert.equal(state.bookingDialog.warningBusy, null);
+    assert.equal(state.alert.kind, "success");
+  });
+}
+
+test("TC-9503 invalid inputs remain editable without affecting booking form errors", async () => {
+  const { state, booking } = await holdApp();
+  state.fieldErrors = { venue_id: "Select a venue" };
+  state.apiRequest = () => assert.fail("invalid input submitted");
+  for (const value of ["-1", "1.5", "", "abc", " ", "Infinity", "9007199254740992"]) {
+    state.bookingDialog.warningInputs[10] = value;
+    await state.updateHoldWarning(booking);
+    assert.ok(state.bookingDialog.warningErrors[10]);
+    assert.equal(state.bookingDialog.warningInputs[10], value);
+    assert.equal(state.fieldErrors.venue_id, "Select a venue");
+    assert.equal(state.bookingDialog.submitting, false);
+  }
+});
+
+test("TC-9504 only assigned Coordinators can update live Pending rows", async () => {
+  for (const scenario of ["lead", "unassigned", "expired", "elapsed", "confirmed", "wrong-event", "foreign-row"]) {
+    const { state, booking } = await holdApp(scenario === "lead" ? "lead" : "coordinator");
+    if (scenario === "unassigned") state.assignedEvents = [];
+    if (scenario === "expired") booking.status = "Expired";
+    if (scenario === "elapsed") booking.hold_expires_at = "2000-01-01T00:00:00";
+    if (scenario === "confirmed") booking.status = "Confirmed";
+    if (scenario === "wrong-event") booking.event_id = 999;
+    if (scenario === "foreign-row") state.bookingDialog.bookings = [];
+    state.apiRequest = () => assert.fail("unauthorized update");
+    assert.equal(state.canUpdateHoldWarning(booking), false);
+    await state.updateHoldWarning(booking);
+  }
+});
+
+for (const status of [403, 409, 422]) {
+  test(`TC-9505 ${status} preserves input and row, clears busy and presents feedback`, async () => {
+    const { state, booking } = await holdApp();
+    state.bookingDialog.warningInputs[10] = "90";
+    const detail = status === 422 ? [{ loc: ["body", "warning_minutes"], msg: "Invalid warning" }] : "This hold expired; submit a new request";
+    state.apiRequest = async () => ({ ok: false, status, data: { detail } });
+    await state.updateHoldWarning(booking);
+    assert.equal(booking.warning_minutes, 60);
+    assert.equal(state.bookingDialog.warningInputs[10], "90");
+    assert.equal(state.bookingDialog.warningBusy, null);
+    if (status === 422) assert.equal(state.bookingDialog.warningErrors[10], "Invalid warning");
+    else {
+      assert.equal(state.canUpdateHoldWarning(booking), false);
+      assert.match(state.alert.message, status === 403 ? /permission/ : /This hold expired/);
+      await state.updateHoldWarning(booking);
+    }
+    assert.notEqual(state.alert.kind, "success");
+    assert.equal(state.bookingDialog.submitting, false);
+  });
+}
+
+test("TC-9506 duplicate warning submissions make one request", async () => {
+  const { state, booking } = await holdApp();
+  let resolve;
+  let calls = 0;
+  state.apiRequest = () => { calls++; return new Promise(done => { resolve = done; }); };
+  const pending = state.updateHoldWarning(booking);
+  await state.updateHoldWarning(booking);
+  assert.equal(calls, 1);
+  resolve({ ok: true, data: { booking: { warning_minutes: 60 } } });
+  await pending;
+  assert.equal(state.bookingDialog.warningBusy, null);
+});
+
+for (const action of ["close", "replace", "logout", "switch"]) {
+  test(`TC-9507 late success and failure after ${action} cannot alter current state`, async () => {
+    for (const ok of [true, false]) {
+      const { state, booking } = await holdApp();
+      state.bookingDialog.warningInputs[10] = "90";
+      let resolve;
+      state.apiRequest = () => new Promise(done => { resolve = done; });
+      const pending = state.updateHoldWarning(booking);
+      if (action === "close") state.closeBookings();
+      if (action === "replace") state.bookingDialog = { marker: true };
+      if (action === "logout") resetSignedOutState(state);
+      if (action === "switch") state.user = { user_id: 99, role: "Coordinator" };
+      state.showAlert("Current message", "success");
+      resolve({ ok, status: 409, data: { booking: { warning_minutes: 90 }, detail: "Stale error" } });
+      await pending;
+      assert.equal(booking.warning_minutes, 60);
+      assert.equal(state.alert.message, "Current message");
+    }
+  });
+}
+
+test("TC-9508 deferred API errors leave shared form state intact", async () => {
+  for (const status of [403, 409, 422]) {
+    const state = app("coordinator", async (_, options) => {
+      assert.equal(options.deferErrors, undefined);
+      assert.equal(JSON.parse(options.body).warning_minutes, 0);
+      return { ok: false, status, json: async () => ({ detail: [{ loc: ["body", "warning_minutes"], msg: "Invalid" }] }) };
+    });
+    state.fieldErrors = { venue_id: "Keep this" };
+    const result = await state.apiRequest("/venues/bookings/10/hold/warning", { method: "PUT", body: { warning_minutes: 0 }, deferErrors: true });
+    assert.equal(result.status, status);
+    assert.equal(state.alert.message, "");
+    assert.equal(state.fieldErrors.venue_id, "Keep this");
+  }
+});
+
+test("TC-9509 shared history retains hold metadata for Coordinator and read-only Lead", async () => {
+  for (const role of ["coordinator", "lead"]) {
+    const { state, booking } = await holdApp(role);
+    assert.equal(state.bookingDialog.bookings[0], booking);
+    assert.equal(booking.hold_expires_at, "2099-04-10T09:00:00");
+    assert.equal(booking.warning_minutes, 60);
+    assert.notEqual(state.formatHoldExpiry(booking.hold_expires_at), "Not set");
+    assert.equal(state.bookingDialog.warningInputs[10], "60");
+    assert.equal(state.canUpdateHoldWarning(booking), role === "coordinator");
+    if (role === "lead") {
+      state.apiRequest = () => assert.fail("Lead warning update");
+      await state.updateHoldWarning(booking);
+    }
+  }
+});
+
+test("TC-9510 Pending rows without hold metadata show unavailable values and cannot edit", async () => {
+  const { state, booking } = await holdApp();
+  booking.hold_expires_at = null;
+  booking.warning_minutes = null;
+  assert.equal(state.formatHoldExpiry(booking.hold_expires_at), "Not set");
+  assert.equal(state.canUpdateHoldWarning(booking), false);
+  state.apiRequest = () => assert.fail("missing hold metadata submitted");
+  await state.updateHoldWarning(booking);
+  // An expiry alone is not sufficient warning metadata either.
+  booking.hold_expires_at = "2099-04-10T09:00:00";
+  assert.equal(state.canUpdateHoldWarning(booking), false);
+  await state.updateHoldWarning(booking);
+  assert.equal(booking.warning_minutes, null);
+});
+
+test("TC-9511 dialog Refresh displays the backend Expired status and removes warning eligibility", async () => {
+  const { state, booking } = await holdApp();
+  const event = state.bookingDialog.event;
+  assert.equal(state.canUpdateHoldWarning(booking), true);
+  const expired = { ...booking, status: "Expired" };
+  const calls = [];
+  state.apiRequest = async path => {
+    calls.push(path);
+    return { ok: true, data: path === "/venues" ? [{ id: 3 }] : [expired] };
+  };
+  await state.openBookings(event);
+  assert.equal(calls.filter(path => path === `/events/${event.id}/bookings`).length, 1);
+  assert.equal(state.bookingDialog.bookings[0].status, "Expired");
+  assert.equal(state.bookingStatusClass(state.bookingDialog.bookings[0].status), "status-rejected");
+  assert.equal(state.canUpdateHoldWarning(state.bookingDialog.bookings[0]), false);
+});
+
+function inSingapore(run) {
+  const previousTZ = process.env.TZ;
+  process.env.TZ = "Asia/Singapore";
+  return Promise.resolve().then(run).finally(() => {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  });
+}
+
+test("TC-9519 booking request sends the local times as UTC", () => inSingapore(async () => {
+  const { state } = await holdApp();
+  let body;
+  state.apiRequest = async (path, options) => {
+    if (options?.method === "POST") body = options.body;
+    return { ok: true, data: path.startsWith("/events/") ? [] : {} };
+  };
+  Object.assign(state.bookingDialog.form, form);
+  await state.submitBooking();
+  assert.equal(body.booking_start, "2099-04-10T02:00:00.000Z");
+  assert.equal(body.booking_end, "2099-04-11T04:00:00.000Z");
+}));
+
+test("TC-9520 stored booking times are shown as UTC in local time", () => inSingapore(async () => {
+  const { state } = await holdApp();
+  assert.equal(state.formatSchedule("2099-04-10T02:00:00", "2099-04-10T04:00:00"),
+    `${state.formatDate("2099-04-10T10:00")} – ${state.formatDate("2099-04-10T12:00")}`);
+  assert.equal(state.formatSchedule("2099-04-10T02:00:00+00:00", null), `${state.formatDate("2099-04-10T10:00")} – Not set`);
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.equal((html.match(/formatSchedule\(/g) || []).length, 3);
+}));
+
+test("TC-9521 server messages show Singapore periods as written and UTC expiries in local time", () => inSingapore(async () => {
+  const { state } = await holdApp();
+  const local = value => state.formatDate(value);
+  // The backend writes booked periods in Singapore time (no label) and hold expiries in UTC.
+  const notice = state.formatNotificationMessage({ message: 'The hold on Hall for "Gala" (2099-04-10 10:00 - 12:00) now expires at 2099-04-09 14:18 UTC.' });
+  assert.equal(notice, `The hold on Hall for "Gala" (${local("2099-04-10T10:00")} – ${state.formatTime("2099-04-10T12:00")}) now expires at ${local("2099-04-09T22:18")}.`);
+  const overnight = state.formatNotificationMessage({ message: "Clashes with booking #4 (2099-04-10 23:00 - 01:00)" });
+  assert.equal(overnight, `Clashes with booking #4 (${local("2099-04-10T23:00")} – ${local("2099-04-11T01:00")})`);
+  const decision = state.formatNotificationMessage({ message: "from 2099-04-10 10:00:00 to 2099-04-10 12:00:00 was approved." });
+  assert.equal(decision, `from ${local("2099-04-10T10:00")} to ${local("2099-04-10T12:00")} was approved.`);
+  state.handleHttpError(409, { detail: "This hold expired at 2099-04-09 14:18 UTC. Submit a new request." }, "/venues/bookings/10/hold/warning");
+  assert.equal(state.alert.message, `This hold expired at ${local("2099-04-09T22:18")}. Submit a new request.`);
+  state.handleHttpError(409, { detail: "Direct conflict with existing booking (2099-04-10 10:00 - 12:00)" }, "/venues/3/bookings");
+  assert.equal(state.alert.message, `Direct conflict with existing booking (${local("2099-04-10T10:00")} – ${state.formatTime("2099-04-10T12:00")})`);
+  state.handleHttpError(500, {}, "/venues/3/bookings");
+  assert.equal(state.alert.message, "Request to /venues/3/bookings failed with status 500.");
+}));
+
+test("TC-9522 saving a warning on a hold that expired while the dialog was open explains why", async () => {
+  const { state, booking } = await holdApp();
+  state.bookingDialog.warningInputs[10] = "30";
+  booking.hold_expires_at = "2000-01-01T00:00:00";
+  state.apiRequest = () => assert.fail("expired hold submitted");
+  await state.updateHoldWarning(booking);
+  assert.equal(state.alert.kind, "error");
+  assert.equal(state.alert.message, "This hold has expired. Click Refresh to see its status.");
+  assert.equal(state.canUpdateHoldWarning(booking), false);
+  assert.equal(state.bookingDialog.warningInputs[10], "30");
+  assert.equal(booking.warning_minutes, 60);
+  // Someone who may not edit the hold still gets no message.
+  const lead = await holdApp("lead");
+  lead.booking.hold_expires_at = "2000-01-01T00:00:00";
+  lead.state.apiRequest = () => assert.fail("Lead warning update");
+  await lead.state.updateHoldWarning(lead.booking);
+  assert.equal(lead.state.alert.message, "");
 });

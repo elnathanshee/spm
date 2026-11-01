@@ -267,7 +267,8 @@ def test_tc8102_venue_staff_set_the_expiry_and_the_coordinator_is_told(client, c
     assert expiry_of(client, booking_id) == new_expiry
     [notice] = notices(client, "coord_a", "hold_expiry_set")
     assert "Grand Hall" in notice["message"]
-    assert f"{fmt(d_at(clock, 10))} - 12:00" in notice["message"]
+    # [SCRUM-95] The booked period is written in Singapore time: D 10:00 UTC is 18:00.
+    assert f"{fmt(d_at(clock, 18))} - 20:00" in notice["message"]
     assert fmt(new_expiry) in notice["message"]
 
 
@@ -924,3 +925,132 @@ def test_tc8136_store_default_expiry_leaves_the_commit_to_the_caller(clock, db_s
     db_session.rollback()
 
     assert counts_from_a_fresh_session() == (0, 0)
+
+@pytest.mark.parametrize("after_expiry", [timedelta(0), timedelta(seconds=1)])
+def test_tc9513_dialog_refresh_persists_expiry_and_notice(client, clock, db_session, v, e1, after_expiry):
+    """TC-9513 (SCRUM-95 AC1, Workflow Variation): the dialog's GET itself must expire the hold, without a prior notification poll."""
+    booking_id = new_hold(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    expiry = clock.now + timedelta(minutes=5)
+    assert set_expiry(client, booking_id, expiry).status_code == 200
+    assert set_warning(client, booking_id, 0).status_code == 200
+    login(client, "coord_a")
+    clock.now = expiry - timedelta(microseconds=1)
+    before = client.get(f"/events/{e1.id}/bookings")
+    assert before.status_code == 200
+    assert before.json()[0]["status"] == "Pending"
+
+    clock.now = expiry + after_expiry
+    response = client.get(f"/events/{e1.id}/bookings")
+    assert response.status_code == 200
+    [booking] = response.json()
+    assert booking["id"] == booking_id
+    assert booking["status"] == "Expired"
+    assert datetime.fromisoformat(booking["hold_expires_at"]) == expiry
+    assert booking["warning_minutes"] == 0
+    # Read a fresh session before calling any other API: serialization alone
+    # must not conceal a missing transition or missing expiry notification.
+    with TestingSessionLocal() as fresh:
+        assert fresh.get(VenueBooking, booking_id).status == "Expired"
+        hold = fresh.query(VenueHold).filter_by(booking_id=booking_id).one()
+        assert hold.expires_at == expiry
+        assert hold.expiry_notice_sent_at == clock.now
+        notices = fresh.query(Notification).filter_by(event_id=e1.id, kind="hold_expired").all()
+        assert len(notices) == 1
+        assert notices[0].user_id == e1.assigned_coordinator_id
+        assert "Grand Hall" in notices[0].message
+
+    denied = set_warning(client, booking_id, 10)
+    assert denied.status_code == 409
+    assert "expired" in denied.json()["detail"]
+    assert client.get(f"/events/{e1.id}/bookings").json()[0]["status"] == "Expired"
+    with TestingSessionLocal() as fresh:
+        assert fresh.query(Notification).filter_by(event_id=e1.id, kind="hold_expired").count() == 1
+        assert fresh.query(VenueHold).filter_by(booking_id=booking_id).one().warning_minutes == 0
+
+
+# SCRUM-95 AC1: booking times follow D7 too. The dialog sends the Coordinator's
+# local time with its offset; it must be stored in UTC, or the default expiry
+# (capped at the booking's start) and the Venue Staff limit compare a local
+# start with UTC times. Singapore (+08:00) is the team's time zone.
+SGT = "+08:00"
+
+
+def sgt(moment):
+    """A naive Singapore wall time, written with its offset as the dialog sends it."""
+    return moment.strftime("%Y-%m-%dT%H:%M:%S") + SGT
+
+
+def request_sgt(client, venue, event, start, end, coordinator="coord_a"):
+    login(client, coordinator)
+    return client.post(
+        f"/venues/{venue.id}/bookings",
+        json={"event_id": event.id, "booking_start": sgt(start), "booking_end": sgt(end)},
+    )
+
+
+def test_tc9514_booking_times_sent_with_an_offset_are_stored_in_utc(client, clock, v, e1):
+    """TC-9514 (SCRUM-95 AC1, D7, Happy Path): D 10:00-12:00 in Singapore is
+    stored and returned as D 02:00-04:00 UTC."""
+    resp = request_sgt(client, v, e1, d_at(clock, 10), d_at(clock, 12))
+    assert resp.status_code == 201, resp.text
+    booking = view(client, resp.json()["booking"]["booking_id"])
+    assert datetime.fromisoformat(booking["booking_start"]) == d_at(clock, 2)
+    assert datetime.fromisoformat(booking["booking_end"]) == d_at(clock, 4)
+
+
+def test_tc9515_short_notice_hold_expires_at_the_real_booking_start(client, clock, v, e1):
+    """TC-9515 (SCRUM-95 AC1, D2, Boundary Path): a booking 12 hours away is
+    capped at its start. Sent at +08:00, the expiry is that start in UTC, not
+    the Singapore wall time read as UTC (8 hours after the booking began)."""
+    start_utc = (clock.now + timedelta(hours=12)).replace(second=0, microsecond=0)
+    start_sgt = start_utc + timedelta(hours=8)
+    resp = request_sgt(client, v, e1, start_sgt, start_sgt + timedelta(hours=2))
+    assert resp.status_code == 201, resp.text
+    login(client, "coord_a")
+    [booking] = client.get(f"/events/{e1.id}/bookings").json()
+    assert booking["status"] == "Pending"
+    assert datetime.fromisoformat(booking["hold_expires_at"]) == start_utc
+    assert datetime.fromisoformat(booking["booking_start"]) == start_utc
+
+
+def test_tc9516_venue_staff_cannot_extend_past_the_real_booking_start(client, clock, v, e1):
+    """TC-9516 (SCRUM-95 AC1, D3, Negative Path): D 10:00 at +08:00 starts at
+    D 02:00 UTC, so an expiry of D 05:00 UTC is after the start (422)."""
+    booking_id = request_sgt(client, v, e1, d_at(clock, 10), d_at(clock, 12)).json()["booking"]["booking_id"]
+    late = set_expiry(client, booking_id, d_at(clock, 5).isoformat() + "Z")
+    assert late.status_code == 422
+    assert late.json()["detail"] == f"The new expiry can't be later than the booking's start ({fmt(d_at(clock, 10))})"
+    assert set_expiry(client, booking_id, d_at(clock, 1).isoformat() + "Z").status_code == 200
+
+
+def test_tc9517_messages_write_booking_times_in_singapore_time(client, clock, db_session, v, e1, e2):
+    """TC-9517 (SCRUM-95 AC1, AC3, Cross-Cutting): messages write the booked
+    period in Singapore time (team assumption), in the same words as before, so
+    it matches what the Coordinator entered. The hold expiry stays UTC."""
+    booking_id = request_sgt(client, v, e1, d_at(clock, 10), d_at(clock, 12)).json()["booking"]["booking_id"]
+    period = f"({fmt(d_at(clock, 10))} - 12:00)"
+
+    clash = request_sgt(client, v, e2, d_at(clock, 11), d_at(clock, 13), coordinator="coord_b")
+    assert clash.status_code == 409
+    assert clash.json()["detail"] == f"Direct conflict with existing booking {period}"
+
+    assert set_expiry(client, booking_id, d_at(clock, 1).isoformat() + "Z").status_code == 200
+    [expiry_set] = notices(client, "coord_a", "hold_expiry_set")
+    assert period in expiry_set["message"]
+    assert expiry_set["message"].endswith(f"now expires at {fmt(d_at(clock, 1))} UTC.")
+
+    with TestingSessionLocal() as fresh:
+        submitted = fresh.query(Notification).filter_by(booking_id=booking_id, kind="booking_submitted").first()
+        assert submitted is not None
+        assert f"from {d_at(clock, 10).isoformat(sep=' ')} to {d_at(clock, 12).isoformat(sep=' ')} was submitted" in submitted.message
+
+
+def test_tc9518_venue_search_converts_offsets_to_utc(client, clock, v, e1):
+    """TC-9518 (SCRUM-95 AC1, D7, Workflow Variation): a search at D 10:30-11:00
+    +08:00 overlaps the booking stored at D 02:00-04:00 UTC."""
+    assert request_sgt(client, v, e1, d_at(clock, 10), d_at(clock, 12)).status_code == 201
+    login(client, "coord_a")
+    resp = client.get("/venues/search", params={"start_time": sgt(d_at(clock, 10, 30)), "end_time": sgt(d_at(clock, 11))})
+    assert resp.status_code == 200, resp.text
+    [hall] = [venue for venue in resp.json() if venue["id"] == v.id]
+    assert hall["is_available"] is False
