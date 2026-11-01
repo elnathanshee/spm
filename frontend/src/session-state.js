@@ -28,8 +28,22 @@ export function resetSignedOutState(state) {
     proposed_start: "",
     expected_attendance: null,
     venue_requirements: "",
+    accessibility_needs: "",
+    equipment_requirements: "",
+    registration_needs: "",
   };
-  state.amendForm = { title: "", description: "" };
+  state.amendForm = {
+    title: "",
+    purpose: "",
+    description: "",
+    proposed_start: "",
+    expected_attendance: null,
+    venue_requirements: "",
+    accessibility_needs: "",
+    equipment_requirements: "",
+    registration_needs: "",
+  };
+  state.amendOriginal = null;
   state.decisionForm = { reason: "" };
   state.modal = { open: false, kind: "", event: null };
 }
