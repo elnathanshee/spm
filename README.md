@@ -17,6 +17,10 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 
 > ConnectSphere staff and clients can take an event from request through to a confirmed, resourced, open-for-registration event, entirely in the system, with changes handled without arrangements silently going stale.
 
+## Current Sprint — Sprint 4
+
+> **Sprint Goal:** Make the core ConnectSphere workflow usable end-to-end through the UI. A coordinator is able to capture an event request, find an available venue, and request it. Reviewers and venue and tech staff can then act on that request and booking from their own screens. All of this ships on a CI-checked frontend. Ensure every backend has a corresponding frontend.
+
 ## Tech Stack
 
 | Layer | Choice | Status |

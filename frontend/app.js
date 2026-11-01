@@ -1,4 +1,4 @@
-﻿const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 import {
   NAVIGATION,
@@ -9,6 +9,7 @@ import {
   resolveRolePath,
 } from "./src/rbac.js";
 import { beginAuthentication, finishAuthentication, resetSignedOutState } from "./src/session-state.js";
+import { NO_CHANGES, affectedBookingRows, bufferSummary, changedFields, createPayload, emptyVenueForm, flaggedBookingRows, formErrorsFrom, validateVenueForm, venueFormFrom } from "./src/venue-record.js"; // [SCRUM-92]
 
 document.addEventListener("alpine:init", () => {
   Alpine.data("appState", () => ({
@@ -33,8 +34,29 @@ document.addEventListener("alpine:init", () => {
     fieldErrors: {},
     loginForm: { username: "", password: "" },
     showPassword: false,
-    draft: { title: "", purpose: "", description: "", proposed_start: "", expected_attendance: null, venue_requirements: "" },
-    amendForm: { title: "", description: "" },
+    draft: {
+      title: "",
+      purpose: "",
+      description: "",
+      proposed_start: "",
+      expected_attendance: null,
+      venue_requirements: "",
+      accessibility_needs: "",
+      equipment_requirements: "",
+      registration_needs: "",
+    },
+    amendForm: {
+      title: "",
+      purpose: "",
+      description: "",
+      proposed_start: "",
+      expected_attendance: null,
+      venue_requirements: "",
+      accessibility_needs: "",
+      equipment_requirements: "",
+      registration_needs: "",
+    },
+    amendOriginal: null,
     decisionForm: { reason: "" },
     modal: { open: false, kind: "", event: null },
     navigation: NAVIGATION,
@@ -52,20 +74,24 @@ document.addEventListener("alpine:init", () => {
     },
 
     async apiRequest(path, options = {}) {
-      const { deferErrors = false, ...fetchOptions } = options;
+      // [SCRUM-89] inlineErrors: the caller shows the error itself (e.g. in a
+      // dialog), so it isn't sent to the page alert. A 401 still signs out.
+      const { inlineErrors = false, deferErrors = false, ...fetchOptions } = options;
       const request = { ...fetchOptions, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
       if (request.body && typeof request.body !== "string") request.body = JSON.stringify(request.body);
+      const suppressErrors = inlineErrors || deferErrors;
+      const handleError = (status, data) => { if (!suppressErrors || status === 401) this.handleHttpError(status, data, path); };
       let response;
       try {
         response = await fetch(`${API_BASE}${path}`, request);
       } catch {
         const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
-        if (!deferErrors) this.handleHttpError(0, data, path);
+        handleError(0, data);
         return { ok: false, status: 0, data };
       }
       const data = await response.json().catch(() => ({}));
       if (response.ok) return { ok: true, status: response.status, data };
-      if (!deferErrors) this.handleHttpError(response.status, data, path);
+      handleError(response.status, data);
       return { ok: false, status: response.status, data };
     },
 
@@ -91,8 +117,28 @@ document.addEventListener("alpine:init", () => {
         this.fieldErrors = this.parseValidationErrors(data.detail);
         return;
       }
-      const detail = typeof data.detail === "string" ? this.formatServerTimes(data.detail) : data.detail;
+      if (status === 400 && (path === "/events" || (typeof path === "string" && path.endsWith("/amend"))) && typeof data?.detail === "string") {
+        if (data.detail.toLowerCase().includes("start time")) {
+          this.fieldErrors = { ...this.fieldErrors, proposed_start: data.detail };
+          return;
+        }
+        if (data.detail.toLowerCase().includes("attendance")) {
+          this.fieldErrors = { ...this.fieldErrors, expected_attendance: data.detail };
+          return;
+        }
+      }
+      const detail = typeof data?.detail === "string" ? this.formatServerTimes(data.detail) : data?.detail;
       this.showAlert(detail || `Request to ${path} failed with status ${status}.`);
+    },
+
+    // [SCRUM-89] The message a dialog shows for a failed request: the API's
+    // detail (a string, or FastAPI's list of validation errors), or a fallback.
+    dialogErrorMessage(response) {
+      const detail = response?.data?.detail;
+      if (typeof detail === "string" && detail.trim()) return detail;
+      if (Array.isArray(detail) && detail.length) return detail.map(error => error.msg).filter(Boolean).join(" ") || "The request was not valid.";
+      if (response?.status === 403) return "You don't have permission to perform this action.";
+      return `The request failed${response?.status ? ` (status ${response.status})` : ""}. Please try again.`;
     },
 
     parseValidationErrors(detail) {
@@ -202,12 +248,17 @@ document.addEventListener("alpine:init", () => {
     },
     bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected", Expired: "status-rejected" }[status] || "status-neutral"; },
     utcTimestamp(value) { return value && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value) ? `${value}Z` : value; },
+    parseUtc(value) { return value ? new Date(this.utcTimestamp(value)) : null; },
     formatHoldExpiry(value) {
       const timestamp = this.utcTimestamp(value);
       return timestamp && Number.isFinite(Date.parse(timestamp)) ? this.formatDate(timestamp) : "Not set";
     },
     // [SCRUM-95] Booking times are stored in UTC (D7), like hold times.
     formatSchedule(start, end) { return `${this.formatHoldExpiry(start)} – ${this.formatHoldExpiry(end)}`; },
+    // [SCRUM-89] AC5: the requester by name.
+    requesterLabel(detail) { return detail?.requester_name || "Not recorded"; },
+    formatUtc(value) { return value ? this.formatDate(this.parseUtc(value).toISOString()) : "Not set"; },
+    listText(items) { return Array.isArray(items) && items.length ? items.join(", ") : "Not recorded"; },
     filteredVenueBookings() {
       const workspace = this.venueWorkspace;
       if (!workspace) return [];
@@ -261,8 +312,33 @@ document.addEventListener("alpine:init", () => {
 
     async createEventDraft(data) {
       this.fieldErrors = {};
-      const response = await this.apiRequest("/events", { method: "POST", body: data });
-      if (response.ok) { this.navigate("/events"); this.showAlert("Your event request was saved as a draft.", "success"); }
+      const payload = {
+        title: data.title ?? "",
+        purpose: data.purpose ?? "",
+        description: data.description ?? "",
+        proposed_start: data.proposed_start ? data.proposed_start : null,
+        expected_attendance: data.expected_attendance !== null && data.expected_attendance !== "" && !isNaN(Number(data.expected_attendance)) ? Number(data.expected_attendance) : null,
+        venue_requirements: data.venue_requirements ?? "",
+        accessibility_needs: data.accessibility_needs ?? "",
+        equipment_requirements: data.equipment_requirements ?? "",
+        registration_needs: data.registration_needs ?? "",
+      };
+      const response = await this.apiRequest("/events", { method: "POST", body: payload });
+      if (response.ok) {
+        this.draft = {
+          title: "",
+          purpose: "",
+          description: "",
+          proposed_start: "",
+          expected_attendance: null,
+          venue_requirements: "",
+          accessibility_needs: "",
+          equipment_requirements: "",
+          registration_needs: "",
+        };
+        this.navigate("/events");
+        this.showAlert("Your event request was saved as a draft.", "success");
+      }
     },
 
     async submitEvent(eventId) {
@@ -272,7 +348,69 @@ document.addEventListener("alpine:init", () => {
 
     async amendEvent(eventId, data) {
       this.fieldErrors = {};
-      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: data });
+      const original = this.amendOriginal || (this.modal?.event ? {
+        title: (this.modal.event.title || "").trim(),
+        purpose: this.modal.event.purpose || "",
+        description: this.modal.event.description || "",
+        proposed_start: this.modal.event.proposed_start ? this.modal.event.proposed_start.slice(0, 16) : "",
+        expected_attendance: this.modal.event.expected_attendance ?? null,
+        venue_requirements: this.modal.event.venue_requirements || "",
+        accessibility_needs: this.modal.event.accessibility_needs || "",
+        equipment_requirements: this.modal.event.equipment_requirements || "",
+        registration_needs: this.modal.event.registration_needs || "",
+      } : null);
+
+      const payload = {};
+      if (original) {
+        if (data.title !== undefined && (data.title || "").trim() !== original.title) {
+          payload.title = (data.title || "").trim();
+        }
+        if (data.purpose !== undefined && (data.purpose || "") !== original.purpose) {
+          payload.purpose = data.purpose;
+        }
+        if (data.description !== undefined && (data.description || "") !== original.description) {
+          payload.description = data.description;
+        }
+        if (data.proposed_start !== undefined) {
+          const currentStart = data.proposed_start || null;
+          const origStart = original.proposed_start || null;
+          if (currentStart !== origStart) {
+            payload.proposed_start = currentStart;
+          }
+        }
+        if (data.expected_attendance !== undefined) {
+          const currentAtt = (data.expected_attendance !== null && data.expected_attendance !== "" && !isNaN(Number(data.expected_attendance)))
+            ? Number(data.expected_attendance) : null;
+          const origAtt = (original.expected_attendance !== null && original.expected_attendance !== "" && !isNaN(Number(original.expected_attendance)))
+            ? Number(original.expected_attendance) : null;
+          if (currentAtt !== origAtt) {
+            payload.expected_attendance = currentAtt;
+          }
+        }
+        if (data.venue_requirements !== undefined && (data.venue_requirements || "") !== original.venue_requirements) {
+          payload.venue_requirements = data.venue_requirements;
+        }
+        if (data.accessibility_needs !== undefined && (data.accessibility_needs || "") !== original.accessibility_needs) {
+          payload.accessibility_needs = data.accessibility_needs;
+        }
+        if (data.equipment_requirements !== undefined && (data.equipment_requirements || "") !== original.equipment_requirements) {
+          payload.equipment_requirements = data.equipment_requirements;
+        }
+        if (data.registration_needs !== undefined && (data.registration_needs || "") !== original.registration_needs) {
+          payload.registration_needs = data.registration_needs;
+        }
+      } else {
+        for (const [k, v] of Object.entries(data)) {
+          if (v !== undefined) payload[k] = v;
+        }
+      }
+
+      if (!Object.keys(payload).length) {
+        this.showAlert("No changes to save.", "info");
+        return;
+      }
+
+      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
       if (response.ok) { this.closeModal(); await this.fetchEvents(); this.showAlert("Event request updated.", "success"); }
     },
 
@@ -319,7 +457,9 @@ document.addEventListener("alpine:init", () => {
       if (!this.isVenueStaff()) return;
       if (!this.venueWorkspace) this.venueWorkspace = {
         venues: [], bookings: [], busy: false, loaded: false, bookingError: false,
-        bookingFilter: "All", showCreate: false, saving: false, form: { name: "", location: "", capacity: "" },
+        bookingFilter: "All", showCreate: false, saving: false, form: emptyVenueForm(),
+        // [SCRUM-92] the venue being edited, the form's message, a pending retire, and the last save's result
+        editing: null, formMessage: null, retire: null, outcome: null,
       };
       const workspace = this.venueWorkspace;
       if (workspace.busy) return;
@@ -346,19 +486,18 @@ document.addEventListener("alpine:init", () => {
 
     async createVenue() {
       const workspace = this.venueWorkspace;
-      if (!this.isVenueStaff() || !workspace || workspace.saving || workspace.busy) return;
-      this.fieldErrors = {};
-      const { name, location, capacity } = workspace.form;
-      if (!name.trim()) this.fieldErrors.name = "Venue name is required";
-      if (!location.trim()) this.fieldErrors.location = "Location is required";
-      if (!Number.isInteger(Number(capacity)) || Number(capacity) <= 0) this.fieldErrors.capacity = "Enter a positive whole number";
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy() || workspace.busy) return;
+      // [SCRUM-92] all nine fields (AC1), checked against the backend's rules first (D4)
+      this.fieldErrors = validateVenueForm(workspace.form);
+      workspace.formMessage = null;
       if (Object.keys(this.fieldErrors).length) return;
       workspace.saving = true;
       const recipient = this.user;
       try {
-        const response = await this.apiRequest("/venues", { method: "POST", body: { name: name.trim(), location: location.trim(), capacity: Number(capacity) } });
-        if (this.user !== recipient || this.venueWorkspace !== workspace || !response.ok) return;
-        workspace.form = { name: "", location: "", capacity: "" };
+        const response = await this.apiRequest("/venues", { method: "POST", body: createPayload(workspace.form) });
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        if (!response.ok) { this.showVenueFormErrors(response); return; }
+        workspace.form = emptyVenueForm();
         workspace.showCreate = false;
         await this.fetchVenueWorkspace();
         if (this.user !== recipient || this.venueWorkspace !== workspace) return;
@@ -368,10 +507,152 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // [SCRUM-92 | Elnathan] Edit and retire a venue; the rules are in src/venue-record.js.
+    // Every request re-checks the user and the workspace when it returns, so a
+    // reply that arrives after logout changes nothing.
+    venueBufferSummary(venue) { return bufferSummary(venue); },
+
+    // One venue write at a time: while a save or a retire is in flight, the
+    // other venue actions wait, and their buttons are disabled.
+    venueWriteBusy() {
+      const workspace = this.venueWorkspace;
+      return !!(workspace?.saving || workspace?.retire?.busy);
+    },
+
+    showVenueFormErrors(response) {
+      const { fields, message } = formErrorsFrom(response);
+      this.fieldErrors = fields;
+      this.venueWorkspace.formMessage = message ? { kind: "error", text: message } : null;
+      this.clearAlert();
+    },
+
+    // The buttons wait for a venue write in flight: closing the form mid-save
+    // would drop its result. closeVenueForm() itself has no guard, because a
+    // good save calls it while saving is still true.
+    toggleVenueCreate() {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
+      const opening = !workspace.showCreate || !!workspace.editing;
+      this.closeVenueForm();
+      workspace.showCreate = opening;
+    },
+
+    cancelVenueForm() {
+      if (!this.venueWriteBusy()) this.closeVenueForm();
+    },
+
+    closeVenueForm() {
+      const workspace = this.venueWorkspace;
+      if (!workspace) return;
+      workspace.showCreate = false;
+      workspace.editing = null;
+      workspace.form = emptyVenueForm();
+      workspace.formMessage = null;
+      this.fieldErrors = {};
+    },
+
+    saveVenueForm() {
+      return this.venueWorkspace?.editing ? this.updateVenue() : this.createVenue();
+    },
+
+    // AC2: prefill from GET /venues/{id}.
+    async openVenueEdit(venue) {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
+      const recipient = this.user;
+      const response = await this.apiRequest(`/venues/${venue.id}`);
+      if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+      if (!response.ok) {
+        const detail = response.data?.detail;
+        this.showAlert(typeof detail === "string" ? detail : "This venue could not be loaded.");
+        await this.fetchVenueWorkspace();
+        return;
+      }
+      this.closeVenueForm();
+      workspace.editing = response.data;
+      workspace.form = venueFormFrom(response.data);
+      workspace.showCreate = true;
+    },
+
+    // AC2, AC3: send only the changed fields (D3); list newly flagged bookings (D5).
+    async updateVenue() {
+      const workspace = this.venueWorkspace;
+      const venue = workspace?.editing;
+      if (!this.isVenueStaff() || !venue || this.venueWriteBusy() || workspace.busy) return;
+      this.fieldErrors = validateVenueForm(workspace.form);
+      workspace.formMessage = null;
+      if (Object.keys(this.fieldErrors).length) return;
+      const changes = changedFields(workspace.form, venue);
+      if (!Object.keys(changes).length) { workspace.formMessage = { kind: "info", text: NO_CHANGES }; return; }
+      workspace.saving = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/${venue.id}`, { method: "PATCH", body: changes });
+        if (this.user !== recipient || this.venueWorkspace !== workspace || workspace.editing !== venue) return;
+        if (!response.ok) { this.showVenueFormErrors(response); return; }
+        workspace.outcome = {
+          kind: "updated",
+          venueName: response.data.venue?.name || venue.name,
+          // D5: the flagged-bookings section is shown only after a buffer change.
+          bufferChanged: "setup_time_mins" in changes || "turnaround_time_mins" in changes,
+          flagged: flaggedBookingRows(response.data),
+        };
+        this.closeVenueForm();
+        await this.fetchVenueWorkspace();
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        this.showAlert("Venue updated.", "success");
+      } finally {
+        if (this.venueWorkspace === workspace) workspace.saving = false;
+      }
+    },
+
+    // AC4, D6: an in-page confirmation, never a browser dialog.
+    askRetireVenue(venue) {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || this.venueWriteBusy()) return;
+      workspace.retire = { venue, busy: false, error: "" };
+    },
+
+    cancelRetireVenue() {
+      const workspace = this.venueWorkspace;
+      if (workspace && !workspace.retire?.busy) workspace.retire = null;
+    },
+
+    async confirmRetireVenue() {
+      const workspace = this.venueWorkspace;
+      const retire = workspace?.retire;
+      if (!this.isVenueStaff() || !retire || this.venueWriteBusy()) return;
+      retire.busy = true;
+      retire.error = "";
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/${retire.venue.id}/retire`, { method: "POST" });
+        if (this.user !== recipient || this.venueWorkspace !== workspace || workspace.retire !== retire) return;
+        if (!response.ok) {
+          const detail = response.data?.detail;
+          retire.error = typeof detail === "string" ? detail : `The venue could not be retired (status ${response.status}).`;
+          this.clearAlert();
+          return;
+        }
+        workspace.outcome = { kind: "retired", venueName: retire.venue.name, affected: affectedBookingRows(response.data) };
+        workspace.retire = null;
+        if (workspace.editing?.id === retire.venue.id) this.closeVenueForm();
+        await this.fetchVenueWorkspace();
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        this.showAlert("Venue retired.", "success");
+      } finally {
+        retire.busy = false;
+      }
+    },
+
+    dismissVenueOutcome() {
+      if (this.venueWorkspace) this.venueWorkspace.outcome = null;
+    },
+
     async openStaffBooking(bookingId) {
       if (!this.isVenueStaff()) return;
       this.clearAlert(); this.fieldErrors = {};
-      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true };
+      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true, holdExpiry: "", error: "" };
       const review = this.staffBooking;
       const recipient = this.user;
       try {
@@ -387,13 +668,14 @@ document.addEventListener("alpine:init", () => {
       if (!this.isVenueStaff() || !review?.detail || review.busy || review.detail.status !== "Pending" || !["approve", "reject"].includes(action)) return;
       this.fieldErrors = {};
       if (action === "reject" && !review.reason.trim()) { this.fieldErrors.reason = "A rejection reason is required"; return; }
-      review.busy = true;
+      review.busy = true; review.error = "";
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/venues/bookings/${review.id}/${action}`, {
-          method: "POST", ...(action === "reject" ? { body: { reason: review.reason.trim() } } : {}),
+          method: "POST", inlineErrors: true, ...(action === "reject" ? { body: { reason: review.reason.trim() } } : {}),
         });
         if (this.user !== recipient || this.staffBooking !== review) return;
+        if (!response.ok) review.error = this.dialogErrorMessage(response);
         if (response.ok) {
           review.detail = response.data.booking;
           review.reason = "";
@@ -403,6 +685,43 @@ document.addEventListener("alpine:init", () => {
         } else if (response.status === 409) {
           const current = await this.apiRequest(`/venues/bookings/${review.id}`);
           if (this.user === recipient && this.staffBooking === review && current.ok) review.detail = current.data;
+        }
+      } finally {
+        if (this.staffBooking === review) review.busy = false;
+      }
+    },
+
+    // [SCRUM-89] AC2: Venue Staff set or extend a Pending hold's expiry.
+    async setStaffHold() {
+      const review = this.staffBooking;
+      if (!this.isVenueStaff() || !review?.detail || review.busy || review.detail.status !== "Pending") return;
+      this.fieldErrors = {}; review.error = "";
+      const expiry = review.holdExpiry ? new Date(review.holdExpiry) : null;
+      if (!expiry || Number.isNaN(expiry.getTime())) { this.fieldErrors.holdExpiry = "Choose the new expiry date and time"; return; }
+      if (expiry <= new Date()) { this.fieldErrors.holdExpiry = "The new expiry must be in the future"; return; }
+      const start = this.parseUtc(review.detail.booking_start);
+      if (start && expiry > start) { this.fieldErrors.holdExpiry = "The new expiry can't be later than the booking's start"; return; }
+      review.busy = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${review.id}/hold`, {
+          method: "PUT", inlineErrors: true, body: { expires_at: expiry.toISOString() },
+        });
+        if (this.user !== recipient || this.staffBooking !== review) return;
+        if (response.ok) {
+          // PUT /hold returns the booking without its venue or decision, so
+          // update the hold fields and keep the rest of the review's detail.
+          review.detail = { ...review.detail, ...response.data.booking };
+          review.holdExpiry = "";
+          await this.fetchVenueWorkspace();
+          if (this.user !== recipient || this.staffBooking !== review) return;
+          this.showAlert("Hold expiry updated.", "success");
+        } else if (response.status !== 401) {
+          review.error = this.dialogErrorMessage(response);
+          if (response.status === 409) {
+            const current = await this.apiRequest(`/venues/bookings/${review.id}`);
+            if (this.user === recipient && this.staffBooking === review && current.ok) review.detail = current.data;
+          }
         }
       } finally {
         if (this.staffBooking === review) review.busy = false;
@@ -424,9 +743,11 @@ document.addEventListener("alpine:init", () => {
     },
 
     canBookEvent(event) {
+      if (!event) return false;
       const role = this.normalizeRole(this.user?.role);
-      const events = role === "Event Coordinator Lead" ? this.leadEvents : role === "Coordinator" ? this.assignedEvents : [];
-      return !!event && events.some(item => item.id === event.id);
+      if (role === "Event Coordinator Lead") return true;
+      if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
+      return false;
     },
 
     isOwnPendingHold(booking) {
@@ -494,6 +815,24 @@ document.addEventListener("alpine:init", () => {
         event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
         warningInputs: {}, warningErrors: {}, warningInvalid: {}, warningBusy: null,
         form: { venue_id: "", booking_start: "", booking_end: "" },
+        error: "",
+        search: {
+          start_time: "",
+          end_time: "",
+          min_capacity: "",
+          location: "",
+          accessibility: "",
+          layout: "",
+          facilities: "",
+          available_only: false,
+        },
+        searching: false,
+        searchResults: [],
+        searchError: "",
+        searchMessage: "",
+        checkingSuitability: false,
+        suitabilityResults: [],
+        suitabilityError: "",
       };
       const dialog = this.bookingDialog;
       const recipient = this.user;
@@ -516,6 +855,81 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    async searchVenues() {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.searching) return;
+      dialog.searchError = "";
+      dialog.searchMessage = "";
+      dialog.searching = true;
+      const recipient = this.user;
+      try {
+        const search = dialog.search || {};
+        const queryParts = [];
+        if (search.start_time) queryParts.push(`start_time=${encodeURIComponent(search.start_time)}`);
+        if (search.end_time) queryParts.push(`end_time=${encodeURIComponent(search.end_time)}`);
+        if (search.min_capacity !== undefined && search.min_capacity !== null && search.min_capacity !== "") {
+          queryParts.push(`min_capacity=${encodeURIComponent(String(search.min_capacity))}`);
+        }
+        if (search.location) queryParts.push(`location=${encodeURIComponent(search.location.trim())}`);
+        if (search.accessibility) queryParts.push(`accessibility=${encodeURIComponent(search.accessibility.trim())}`);
+        if (search.layout) queryParts.push(`layout=${encodeURIComponent(search.layout.trim())}`);
+        if (search.facilities) queryParts.push(`facilities=${encodeURIComponent(search.facilities.trim())}`);
+        if (search.available_only) queryParts.push("available_only=true");
+
+        const query = queryParts.join("&");
+        const path = query ? `/venues/search?${query}` : "/venues/search";
+        const response = await this.apiRequest(path, { inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) {
+          dialog.searchResults = Array.isArray(response.data) ? response.data : [];
+          if (!dialog.searchResults.length) {
+            dialog.searchMessage = "No venues found matching your criteria.";
+          }
+        } else {
+          dialog.searchError = this.dialogErrorMessage(response);
+          dialog.searchResults = [];
+        }
+      } finally {
+        if (this.bookingDialog === dialog) dialog.searching = false;
+      }
+    },
+
+    async checkSuitability(facilities) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.checkingSuitability) return;
+      dialog.suitabilityError = "";
+      dialog.suitabilityResults = [];
+      dialog.checkingSuitability = true;
+      const recipient = this.user;
+      try {
+        const query = facilities ? `?facilities=${encodeURIComponent(facilities)}` : "";
+        const response = await this.apiRequest(`/events/${dialog.event.id}/venue-suitability${query}`, { inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) {
+          dialog.suitabilityResults = Array.isArray(response.data?.venues)
+            ? response.data.venues
+            : Array.isArray(response.data)
+              ? response.data
+              : [];
+        } else {
+          dialog.suitabilityError = this.dialogErrorMessage(response);
+        }
+      } finally {
+        if (this.bookingDialog === dialog) dialog.checkingSuitability = false;
+      }
+    },
+
+    selectVenueFromSearch(venue) {
+      const dialog = this.bookingDialog;
+      if (!dialog || !venue) return;
+      dialog.form.venue_id = String(venue.id);
+      if (dialog.search?.start_time) dialog.form.booking_start = dialog.search.start_time;
+      if (dialog.search?.end_time) dialog.form.booking_end = dialog.search.end_time;
+      if (Array.isArray(dialog.venues) && !dialog.venues.some(v => v.id === venue.id)) {
+        dialog.venues.push(venue);
+      }
+    },
+
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
 
     async submitBooking() {
@@ -523,6 +937,7 @@ document.addEventListener("alpine:init", () => {
       if (!dialog || dialog.busy || !dialog.ready || !this.canBookEvent(dialog.event)) return;
       this.fieldErrors = {};
       this.clearAlert();
+      dialog.error = "";
       const { venue_id, booking_start, booking_end } = dialog.form;
       if (!dialog.venues.some(venue => venue.id === Number(venue_id))) this.fieldErrors.venue_id = "Select a venue";
       if (!booking_start || !Number.isFinite(Date.parse(booking_start))) this.fieldErrors.booking_start = "Enter a valid start date and time";
@@ -535,9 +950,13 @@ document.addEventListener("alpine:init", () => {
       try {
         const response = await this.apiRequest(`/venues/${Number(venue_id)}/bookings`, {
           // [SCRUM-95] The inputs hold local times; send them in UTC (D7).
-          method: "POST", body: { event_id: dialog.event.id, booking_start: new Date(booking_start).toISOString(), booking_end: new Date(booking_end).toISOString() },
+          method: "POST", inlineErrors: true, body: { event_id: dialog.event.id, booking_start: new Date(booking_start).toISOString(), booking_end: new Date(booking_end).toISOString() },
         });
-        if (this.user !== recipient || this.bookingDialog !== dialog || !response.ok) return;
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (!response.ok) {
+          dialog.error = this.dialogErrorMessage(response);
+          return;
+        }
         dialog.form = { venue_id: "", booking_start: "", booking_end: "" };
         this.showAlert("Venue booking request submitted.", "success");
         const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
@@ -572,13 +991,29 @@ document.addEventListener("alpine:init", () => {
     async handleReturn(eventId, reason) { const response = await this.apiRequest(`/events/${eventId}/return`, { method: "POST", body: { reason } }); if (response.ok) { this.closeModal(); await this.fetchAssignedEvents(); this.showAlert("Clarification requested from the organiser.", "success"); } },
 
     openDecision(event, kind) { this.fieldErrors = {}; this.decisionForm = { reason: "" }; this.modal = { open: true, kind, event }; },
-    openAmend(event) { this.fieldErrors = {}; this.amendForm = { title: event.title || "", description: event.description || "" }; this.modal = { open: true, kind: "amend", event }; },
-    closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; },
+    openAmend(event) {
+      this.fieldErrors = {};
+      this.clearAlert();
+      this.amendOriginal = {
+        title: (event.title || "").trim(),
+        purpose: event.purpose || "",
+        description: event.description || "",
+        proposed_start: event.proposed_start ? event.proposed_start.slice(0, 16) : "",
+        expected_attendance: event.expected_attendance ?? null,
+        venue_requirements: event.venue_requirements || "",
+        accessibility_needs: event.accessibility_needs || "",
+        equipment_requirements: event.equipment_requirements || "",
+        registration_needs: event.registration_needs || "",
+      };
+      this.amendForm = { ...this.amendOriginal };
+      this.modal = { open: true, kind: "amend", event };
+    },
+    closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; this.amendOriginal = null; },
     async submitModal() { const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
+    suitabilityBadgeClass(status) { return { suitable: "status-approved", unsuitable: "status-rejected", unknown: "status-waiting" }[status] || "status-neutral"; },
+    availabilityClass(available) { return available ? "status-approved" : "status-rejected"; },
     formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set"; },
     formatTime(value) { return new Intl.DateTimeFormat("en", { timeStyle: "short" }).format(new Date(value)); },
   }));
 });
-
-

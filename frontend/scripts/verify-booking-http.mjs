@@ -6,6 +6,7 @@ import net from "node:net";
 import { createServer, loadConfigFromFile } from "vite";
 import { reactive } from "@vue/reactivity";
 import { normalizeRole } from "../src/rbac.js";
+import * as venueRecord from "../src/venue-record.js"; // [SCRUM-92] app.js imports it
 
 async function freePort() {
   const socket = net.createServer();
@@ -57,7 +58,7 @@ function createState() {
     let factory;
     const context = { NAVIGATION: [], normalizeRoleName: normalizeRole,
       requestedFrontendPath: () => null, document: { addEventListener: (_, fn) => fn() },
-      Alpine: { data: (_, fn) => { factory = fn; } }, window: { location: {} }, fetch: request };
+      Alpine: { data: (_, fn) => { factory = fn; } }, window: { location: {} }, fetch: request, ...venueRecord };
     vm.runInNewContext(source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""), context);
     return reactive(factory());
 }
