@@ -11,7 +11,7 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
-from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking
+from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, singapore_time
 from .models import Venue, VenueBooking, VenueBookingConflictFlag
 
 
@@ -48,7 +48,7 @@ def recheck_venue_bookings(db: Session, venue: Venue) -> List[VenueBooking]:
             conflicting_booking_id=other.id,
             reason=(
                 f"Clashes with booking #{other.id} "
-                f"({other.booking_start.strftime('%Y-%m-%d %H:%M')} - {other.booking_end.strftime('%H:%M')}) "
+                f"({singapore_time(other.booking_start).strftime('%Y-%m-%d %H:%M')} - {singapore_time(other.booking_end).strftime('%H:%M')}) "
                 f"once {venue.setup_time_mins}m setup and {venue.turnaround_time_mins}m turnaround are included"
             ),
         )

@@ -51,7 +51,9 @@ def _fmt(moment: datetime) -> str:
 
 def _describe(booking: VenueBooking) -> str:
     """The venue, the event and the period, as the notices name them."""
-    period = f"{_fmt(booking.booking_start)} - {booking.booking_end.strftime('%H:%M')}"
+    # [SCRUM-95] The booked period in Singapore time; the expiry stays UTC.
+    start = booking_rules.singapore_time(booking.booking_start)
+    period = f"{_fmt(start)} - {booking_rules.singapore_time(booking.booking_end).strftime('%H:%M')}"
     return f'{booking.venue.name} for "{booking.event.title}" ({period})'
 
 
@@ -160,7 +162,7 @@ def set_hold_expiry(
     if expires_at > booking.booking_start:
         raise HTTPException(
             status_code=422,
-            detail=f"The new expiry can't be later than the booking's start ({_fmt(booking.booking_start)})",
+            detail=f"The new expiry can't be later than the booking's start ({_fmt(booking_rules.singapore_time(booking.booking_start))})",  # [SCRUM-95]
         )
 
     hold = hold_store.get_or_create_hold(db, booking)

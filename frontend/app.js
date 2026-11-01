@@ -52,19 +52,20 @@ document.addEventListener("alpine:init", () => {
     },
 
     async apiRequest(path, options = {}) {
-      const request = { ...options, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
+      const { deferErrors = false, ...fetchOptions } = options;
+      const request = { ...fetchOptions, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
       if (request.body && typeof request.body !== "string") request.body = JSON.stringify(request.body);
       let response;
       try {
         response = await fetch(`${API_BASE}${path}`, request);
       } catch {
         const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
-        this.handleHttpError(0, data, path);
+        if (!deferErrors) this.handleHttpError(0, data, path);
         return { ok: false, status: 0, data };
       }
       const data = await response.json().catch(() => ({}));
       if (response.ok) return { ok: true, status: response.status, data };
-      this.handleHttpError(response.status, data, path);
+      if (!deferErrors) this.handleHttpError(response.status, data, path);
       return { ok: false, status: response.status, data };
     },
 
@@ -90,7 +91,8 @@ document.addEventListener("alpine:init", () => {
         this.fieldErrors = this.parseValidationErrors(data.detail);
         return;
       }
-      this.showAlert(data.detail || `Request to ${path} failed with status ${status}.`);
+      const detail = typeof data.detail === "string" ? this.formatServerTimes(data.detail) : data.detail;
+      this.showAlert(detail || `Request to ${path} failed with status ${status}.`);
     },
 
     parseValidationErrors(detail) {
@@ -152,6 +154,9 @@ document.addEventListener("alpine:init", () => {
         booking_submitted: "New booking request",
         booking_approved: "Booking approved",
         booking_rejected: "Booking rejected",
+        hold_warning: "Hold expiry warning",
+        hold_expired: "Hold expired",
+        hold_expiry_set: "Hold expiry updated",
         submitted: "Event request submitted",
         returned: "Clarification requested",
         approved: "Event request approved",
@@ -165,8 +170,8 @@ document.addEventListener("alpine:init", () => {
     },
     notificationTone(notification) {
       if (["booking_approved", "approved"].includes(notification?.kind)) return "success";
-      if (["booking_rejected", "rejected", "returned"].includes(notification?.kind)) return "warning";
-      if (["booking_submitted", "assigned_to_you", "reassigned_to_you"].includes(notification?.kind)) return "action";
+      if (["booking_rejected", "rejected", "returned", "hold_expired"].includes(notification?.kind)) return "warning";
+      if (["booking_submitted", "assigned_to_you", "reassigned_to_you", "hold_warning"].includes(notification?.kind)) return "action";
       return "info";
     },
     notificationIcon(notification) {
@@ -178,12 +183,31 @@ document.addEventListener("alpine:init", () => {
       if (Number.isNaN(date.getTime())) return "Recently";
       return new Intl.DateTimeFormat("en-SG", { dateStyle: "medium", timeStyle: "short" }).format(date);
     },
-    formatNotificationMessage(notification) {
-      return String(notification?.message || "")
-        .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g, value => this.formatDate(value.replace(" ", "T")));
+    formatNotificationMessage(notification) { return this.formatServerTimes(notification?.message); },
+    // [SCRUM-95] A time marked "UTC", Z or an offset is converted to local time. Unmarked times are
+    // the backend's Singapore time and are shown as written. "D 10:00 - 12:00" ends that day or the next.
+    formatServerTimes(text) {
+      return String(text || "").replace(
+        /(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?(?: - (\d{2}:\d{2}))?( UTC)?/g,
+        (match, day, time, zone, endTime, utc) => {
+          const suffix = zone || (utc ? "Z" : "");
+          const start = new Date(`${day}T${time}${suffix}`);
+          if (Number.isNaN(start.getTime())) return match;
+          if (!endTime) return this.formatDate(start);
+          let end = new Date(`${day}T${endTime}${suffix}`);
+          if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+          return `${this.formatDate(start)} – ${start.toDateString() === end.toDateString() ? this.formatTime(end) : this.formatDate(end)}`;
+        },
+      );
     },
-    bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected" }[status] || "status-neutral"; },
-    formatSchedule(start, end) { return `${this.formatDate(start)} – ${this.formatDate(end)}`; },
+    bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected", Expired: "status-rejected" }[status] || "status-neutral"; },
+    utcTimestamp(value) { return value && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value) ? `${value}Z` : value; },
+    formatHoldExpiry(value) {
+      const timestamp = this.utcTimestamp(value);
+      return timestamp && Number.isFinite(Date.parse(timestamp)) ? this.formatDate(timestamp) : "Not set";
+    },
+    // [SCRUM-95] Booking times are stored in UTC (D7), like hold times.
+    formatSchedule(start, end) { return `${this.formatHoldExpiry(start)} – ${this.formatHoldExpiry(end)}`; },
     filteredVenueBookings() {
       const workspace = this.venueWorkspace;
       if (!workspace) return [];
@@ -405,12 +429,70 @@ document.addEventListener("alpine:init", () => {
       return !!event && events.some(item => item.id === event.id);
     },
 
+    isOwnPendingHold(booking) {
+      const dialog = this.bookingDialog;
+      return !!dialog && this.normalizeRole(this.user?.role) === "Coordinator"
+        && this.canBookEvent(dialog.event) && booking.event_id === dialog.event.id
+        && dialog.bookings.includes(booking) && booking.status === "Pending"
+        && Number.isInteger(booking.warning_minutes) && booking.warning_minutes >= 0
+        && !dialog.warningInvalid[booking.id];
+    },
+
+    canUpdateHoldWarning(booking) {
+      return this.isOwnPendingHold(booking) && Date.parse(this.utcTimestamp(booking.hold_expires_at)) > Date.now();
+    },
+
+    async updateHoldWarning(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.warningBusy !== null) return;
+      if (!this.canUpdateHoldWarning(booking)) {
+        // [SCRUM-95] AC2: the form stays on screen past the expiry until a refresh; say why Save did nothing.
+        if (this.isOwnPendingHold(booking)) {
+          dialog.warningInvalid[booking.id] = true;
+          this.showAlert("This hold has expired. Click Refresh to see its status.");
+        }
+        return;
+      }
+      this.clearAlert();
+      const value = String(dialog.warningInputs[booking.id] ?? "").trim();
+      dialog.warningErrors = {};
+      if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        dialog.warningErrors[booking.id] = "Enter a non-negative whole number of minutes";
+        return;
+      }
+      dialog.warningBusy = booking.id;
+      const recipient = this.user;
+      const path = `/venues/bookings/${booking.id}/hold/warning`;
+      try {
+        const response = await this.apiRequest(path, {
+          method: "PUT", body: { warning_minutes: Number(value) }, deferErrors: true,
+        });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (!response.ok) {
+          if (response.status === 422) {
+            const errors = this.parseValidationErrors(response.data?.detail);
+            dialog.warningErrors[booking.id] = errors.warning_minutes || "Enter a valid warning time";
+          } else {
+            if (response.status === 409 || response.status === 403) dialog.warningInvalid[booking.id] = true;
+            this.handleHttpError(response.status, response.data || {}, path);
+          }
+          return;
+        }
+        Object.assign(booking, response.data.booking);
+        dialog.warningInputs[booking.id] = String(booking.warning_minutes);
+        this.showAlert("Warning time updated.", "success");
+      } finally {
+        if (this.bookingDialog === dialog) dialog.warningBusy = null;
+      }
+    },
+
     async openBookings(event) {
       if (!this.canBookEvent(event)) return;
       this.clearAlert();
       this.fieldErrors = {};
       this.bookingDialog = {
         event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
+        warningInputs: {}, warningErrors: {}, warningInvalid: {}, warningBusy: null,
         form: { venue_id: "", booking_start: "", booking_end: "" },
       };
       const dialog = this.bookingDialog;
@@ -424,7 +506,10 @@ document.addEventListener("alpine:init", () => {
         dialog.bookingsLoaded = bookings.ok && Array.isArray(bookings.data);
         if (dialog.ready) dialog.venues = venues.data;
         else if (venues.ok) this.showAlert("Venue service returned an invalid response. Check the frontend API proxy and refresh bookings.");
-        if (dialog.bookingsLoaded) dialog.bookings = bookings.data;
+        if (dialog.bookingsLoaded) {
+          dialog.bookings = bookings.data;
+          dialog.warningInputs = Object.fromEntries(bookings.data.map(booking => [booking.id, booking.warning_minutes == null ? "" : String(booking.warning_minutes)]));
+        }
         else if (bookings.ok) this.showAlert("Booking history returned an invalid response. Refresh bookings to try again.");
       } finally {
         if (this.bookingDialog === dialog) dialog.busy = false;
@@ -449,7 +534,8 @@ document.addEventListener("alpine:init", () => {
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/venues/${Number(venue_id)}/bookings`, {
-          method: "POST", body: { event_id: dialog.event.id, booking_start, booking_end },
+          // [SCRUM-95] The inputs hold local times; send them in UTC (D7).
+          method: "POST", body: { event_id: dialog.event.id, booking_start: new Date(booking_start).toISOString(), booking_end: new Date(booking_end).toISOString() },
         });
         if (this.user !== recipient || this.bookingDialog !== dialog || !response.ok) return;
         dialog.form = { venue_id: "", booking_start: "", booking_end: "" };
@@ -457,7 +543,10 @@ document.addEventListener("alpine:init", () => {
         const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
         if (this.user === recipient && this.bookingDialog === dialog) {
           dialog.bookingsLoaded = bookings.ok && Array.isArray(bookings.data);
-          if (dialog.bookingsLoaded) dialog.bookings = bookings.data;
+          if (dialog.bookingsLoaded) {
+            dialog.bookings = bookings.data;
+            dialog.warningInputs = Object.fromEntries(bookings.data.map(booking => [booking.id, booking.warning_minutes == null ? "" : String(booking.warning_minutes)]));
+          }
         }
       } finally {
         if (this.bookingDialog === dialog) {
@@ -488,6 +577,7 @@ document.addEventListener("alpine:init", () => {
     async submitModal() { const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
     formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set"; },
+    formatTime(value) { return new Intl.DateTimeFormat("en", { timeStyle: "short" }).format(new Date(value)); },
   }));
 });
 

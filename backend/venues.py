@@ -19,6 +19,7 @@ from .auth import get_current_user
 from .booking_recheck import recheck_venue_bookings  # [SCRUM-80 | Renee]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
+from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-95]
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
@@ -234,7 +235,8 @@ def check_venue_availability(
         return True, None
 
     b = conflicts[0]
-    booking_text = f"{b.booking_start.strftime('%Y-%m-%d %H:%M')} - {b.booking_end.strftime('%H:%M')}"
+    # [SCRUM-95] Singapore time, in the same words as before.
+    booking_text = f"{singapore_time(b.booking_start).strftime('%Y-%m-%d %H:%M')} - {singapore_time(b.booking_end).strftime('%H:%M')}"
     if windows_overlap(start_time, end_time, b.booking_start, b.booking_end):
         return False, f"Direct conflict with existing booking ({booking_text})"
     return (
@@ -267,13 +269,13 @@ def search_venues(
             detail="Provide both start_time and end_time, or neither",
         )
 
-    # Offsets are dropped without conversion, as before (time zones are a
-    # Sprint 3 follow-up). Doing it before the comparison below means a period
-    # with an offset on one end only cannot crash that comparison.
-    if start_time is not None and start_time.tzinfo:
-        start_time = start_time.replace(tzinfo=None)
-    if end_time is not None and end_time.tzinfo:
-        end_time = end_time.replace(tzinfo=None)
+    # [SCRUM-95] Offsets are converted to UTC (D7), as bookings are stored.
+    # Doing it before the comparison below means a period with an offset on
+    # one end only cannot crash that comparison.
+    if start_time is not None:
+        start_time = to_naive_utc(start_time)
+    if end_time is not None:
+        end_time = to_naive_utc(end_time)
 
     if start_time is not None and end_time <= start_time:
         raise HTTPException(
@@ -582,8 +584,10 @@ def submit_venue_booking_request(
             detail="Coordinators can book venues only for events assigned to them",
         )
 
-    start = payload.booking_start.replace(tzinfo=None) if payload.booking_start.tzinfo else payload.booking_start
-    end = payload.booking_end.replace(tzinfo=None) if payload.booking_end.tzinfo else payload.booking_end
+    # [SCRUM-95] D7: stored in UTC, like hold times, so the expiry cap at the
+    # booking's start compares like with like.
+    start = to_naive_utc(payload.booking_start)
+    end = to_naive_utc(payload.booking_end)
 
     is_avail, reason = check_venue_availability(venue, start, end, db)
     if not is_avail:

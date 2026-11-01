@@ -51,6 +51,17 @@ def to_naive_utc(moment: datetime) -> datetime:
     return moment.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+# [SCRUM-95] Team assumption: messages write booking times in Singapore time,
+# as the users read them. Singapore has no daylight saving, so a fixed offset
+# is exact and needs no time zone database.
+SINGAPORE = timezone(timedelta(hours=8))
+
+
+def singapore_time(moment: datetime) -> datetime:
+    """A stored UTC time (D7) as a Singapore wall time, for message text."""
+    return moment.replace(tzinfo=timezone.utc).astimezone(SINGAPORE).replace(tzinfo=None)
+
+
 def _is_hold(booking: VenueBooking) -> bool:
     return booking.status in (HOLD_STATUS, EXPIRED_STATUS)
 
