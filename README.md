@@ -88,10 +88,11 @@ cookie are available.
 ### Running Tests
 
 ```bash
-# backend
+# backend (from repository root)
 python -m pytest
 
-# frontend, from the frontend directory
+# frontend (from frontend directory)
+cd frontend
 npm test
 npm run build
 ```
