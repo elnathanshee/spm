@@ -335,3 +335,34 @@ test("TC-9414 (Cross-cutting) saving and the unsaved-edits check use the same co
   state.eventDetail.routine.form.title = " ";
   assert.equal(state.routineChanges().error, "Title cannot be empty");
 });
+
+// PR #42 review (El): a Coordinator's All Events list refreshes too, as decideEvent does.
+test("TC-9415 (Cross-cutting) a Coordinator's save also refreshes All Events when it is open or loaded, and the title is capped at 255", async () => {
+  for (const [label, setup, expected] of [
+    ["on All Events", state => { state.currentPath = "/coordinator/all-events"; }, ["assigned", "all"]],
+    ["All Events loaded earlier", state => { state.currentPath = "/coordinator"; state.allCoordinatorEvents = [event()]; }, ["assigned", "all"]],
+    ["All Events never opened", state => { state.currentPath = "/coordinator"; state.allCoordinatorEvents = []; }, ["assigned"]],
+  ]) {
+    const state = withDetail(COORDINATOR);
+    setup(state);
+    const calls = [];
+    state.fetchAssignedEvents = async () => { calls.push("assigned"); };
+    state.fetchAllCoordinatorEvents = async () => { calls.push("all"); };
+    state.openRoutineEdit();
+    state.eventDetail.routine.form.title = "Annual Gala 2026";
+    recorder(state, { ok: true, status: 200, data: event({ title: "Annual Gala 2026" }) });
+    await state.saveRoutineEdit();
+    assert.deepEqual(calls.sort(), expected.sort(), label);
+  }
+  // The Organiser still refreshes only My event requests.
+  const organiser = withDetail(ORGANISER);
+  organiser.currentPath = "/coordinator/all-events";
+  organiser.fetchAllCoordinatorEvents = async () => { organiser.refreshed = "all"; };
+  organiser.openRoutineEdit();
+  organiser.eventDetail.routine.form.title = "Annual Gala 2026";
+  recorder(organiser, { ok: true, status: 200, data: event({ title: "Annual Gala 2026" }) });
+  await organiser.saveRoutineEdit();
+  assert.equal(organiser.refreshed, "events");
+  // Matches the backend's title Column(String(255)).
+  assert.match(HTML, /<input id="routine-title"[^>]*maxlength="255"/);
+});
