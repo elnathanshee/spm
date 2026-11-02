@@ -993,7 +993,13 @@ document.addEventListener("alpine:init", () => {
       try {
         const response = await this.apiRequest(`/events/${view.id}`, { method: "PATCH", body: changes, inlineErrors: true });
         if (this.user !== recipient) return;
-        const refreshLists = () => this.normalizeRole(this.user?.role) === "Organiser" ? this.fetchEvents() : this.fetchAssignedEvents();
+        // PR #42 review: a Coordinator's All Events list refreshes too, as in decideEvent.
+        const refreshLists = async () => {
+          if (this.normalizeRole(this.user?.role) === "Organiser") return this.fetchEvents();
+          const tasks = [this.fetchAssignedEvents()];
+          if (this.currentPath === "/coordinator/all-events" || this.allCoordinatorEvents?.length) tasks.push(this.fetchAllCoordinatorEvents());
+          await Promise.all(tasks);
+        };
         // PR #42 review: saved after the app closed the view (e.g. navigation): still refresh the lists.
         if (this.eventDetail !== view || view.routine !== routine) { if (response.ok) await refreshLists(); return; }
         if (!response.ok) { routine.error = this.dialogErrorMessage(response); return; }
