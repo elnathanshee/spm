@@ -1,4 +1,4 @@
-﻿const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 import {
   NAVIGATION,
@@ -30,12 +30,35 @@ document.addEventListener("alpine:init", () => {
     bookingDialog: null,
     venueWorkspace: null,
     staffBooking: null,
+    eventDetail: null,
+    decisionBusy: false,
     alert: { message: "", kind: "error" },
     fieldErrors: {},
     loginForm: { username: "", password: "" },
     showPassword: false,
-    draft: { title: "", purpose: "", description: "", proposed_start: "", expected_attendance: null, venue_requirements: "" },
-    amendForm: { title: "", description: "" },
+    draft: {
+      title: "",
+      purpose: "",
+      description: "",
+      proposed_start: "",
+      expected_attendance: null,
+      venue_requirements: "",
+      accessibility_needs: "",
+      equipment_requirements: "",
+      registration_needs: "",
+    },
+    amendForm: {
+      title: "",
+      purpose: "",
+      description: "",
+      proposed_start: "",
+      expected_attendance: null,
+      venue_requirements: "",
+      accessibility_needs: "",
+      equipment_requirements: "",
+      registration_needs: "",
+    },
+    amendOriginal: null,
     decisionForm: { reason: "" },
     modal: { open: false, kind: "", event: null },
     navigation: NAVIGATION,
@@ -56,9 +79,10 @@ document.addEventListener("alpine:init", () => {
       // [SCRUM-89] inlineErrors: the caller shows the error itself (e.g. in a
       // dialog), so it isn't sent to the page alert. A 401 still signs out.
       const { inlineErrors = false, ...fetchOptions } = options;
+      const recipient = this.user;
       const request = { ...fetchOptions, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } };
       if (request.body && typeof request.body !== "string") request.body = JSON.stringify(request.body);
-      const handleError = (status, data) => { if (!inlineErrors || status === 401) this.handleHttpError(status, data, path); };
+      const handleError = (status, data) => { if (this.user !== recipient) return; if (!inlineErrors || status === 401) this.handleHttpError(status, data, path); };
       let response;
       try {
         response = await fetch(`${API_BASE}${path}`, request);
@@ -79,7 +103,7 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       if (status === 401) {
-        this.user = null;
+        resetSignedOutState(this);
         this.events = [];
         this.assignedEvents = [];
         this.currentPath = "/login";
@@ -94,6 +118,16 @@ document.addEventListener("alpine:init", () => {
       if (status === 422) {
         this.fieldErrors = this.parseValidationErrors(data.detail);
         return;
+      }
+      if (status === 400 && (path === "/events" || (typeof path === "string" && path.endsWith("/amend"))) && typeof data?.detail === "string") {
+        if (data.detail.toLowerCase().includes("start time")) {
+          this.fieldErrors = { ...this.fieldErrors, proposed_start: data.detail };
+          return;
+        }
+        if (data.detail.toLowerCase().includes("attendance")) {
+          this.fieldErrors = { ...this.fieldErrors, expected_attendance: data.detail };
+          return;
+        }
       }
       this.showAlert(data.detail || `Request to ${path} failed with status ${status}.`);
     },
@@ -237,6 +271,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     navigate(path) {
+      this.closeEventDetail();
       const resolution = resolveRolePath(path, this.user?.role);
       this.accessDenied = resolution.accessDenied;
       this.unbuiltRole = resolution.unbuiltRole;
@@ -258,8 +293,33 @@ document.addEventListener("alpine:init", () => {
 
     async createEventDraft(data) {
       this.fieldErrors = {};
-      const response = await this.apiRequest("/events", { method: "POST", body: data });
-      if (response.ok) { this.navigate("/events"); this.showAlert("Your event request was saved as a draft.", "success"); }
+      const payload = {
+        title: data.title ?? "",
+        purpose: data.purpose ?? "",
+        description: data.description ?? "",
+        proposed_start: data.proposed_start ? data.proposed_start : null,
+        expected_attendance: data.expected_attendance !== null && data.expected_attendance !== "" && !isNaN(Number(data.expected_attendance)) ? Number(data.expected_attendance) : null,
+        venue_requirements: data.venue_requirements ?? "",
+        accessibility_needs: data.accessibility_needs ?? "",
+        equipment_requirements: data.equipment_requirements ?? "",
+        registration_needs: data.registration_needs ?? "",
+      };
+      const response = await this.apiRequest("/events", { method: "POST", body: payload });
+      if (response.ok) {
+        this.draft = {
+          title: "",
+          purpose: "",
+          description: "",
+          proposed_start: "",
+          expected_attendance: null,
+          venue_requirements: "",
+          accessibility_needs: "",
+          equipment_requirements: "",
+          registration_needs: "",
+        };
+        this.navigate("/events");
+        this.showAlert("Your event request was saved as a draft.", "success");
+      }
     },
 
     async submitEvent(eventId) {
@@ -269,19 +329,83 @@ document.addEventListener("alpine:init", () => {
 
     async amendEvent(eventId, data) {
       this.fieldErrors = {};
-      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: data });
+      const original = this.amendOriginal || (this.modal?.event ? {
+        title: (this.modal.event.title || "").trim(),
+        purpose: this.modal.event.purpose || "",
+        description: this.modal.event.description || "",
+        proposed_start: this.modal.event.proposed_start ? this.modal.event.proposed_start.slice(0, 16) : "",
+        expected_attendance: this.modal.event.expected_attendance ?? null,
+        venue_requirements: this.modal.event.venue_requirements || "",
+        accessibility_needs: this.modal.event.accessibility_needs || "",
+        equipment_requirements: this.modal.event.equipment_requirements || "",
+        registration_needs: this.modal.event.registration_needs || "",
+      } : null);
+
+      const payload = {};
+      if (original) {
+        if (data.title !== undefined && (data.title || "").trim() !== original.title) {
+          payload.title = (data.title || "").trim();
+        }
+        if (data.purpose !== undefined && (data.purpose || "") !== original.purpose) {
+          payload.purpose = data.purpose;
+        }
+        if (data.description !== undefined && (data.description || "") !== original.description) {
+          payload.description = data.description;
+        }
+        if (data.proposed_start !== undefined) {
+          const currentStart = data.proposed_start || null;
+          const origStart = original.proposed_start || null;
+          if (currentStart !== origStart) {
+            payload.proposed_start = currentStart;
+          }
+        }
+        if (data.expected_attendance !== undefined) {
+          const currentAtt = (data.expected_attendance !== null && data.expected_attendance !== "" && !isNaN(Number(data.expected_attendance)))
+            ? Number(data.expected_attendance) : null;
+          const origAtt = (original.expected_attendance !== null && original.expected_attendance !== "" && !isNaN(Number(original.expected_attendance)))
+            ? Number(original.expected_attendance) : null;
+          if (currentAtt !== origAtt) {
+            payload.expected_attendance = currentAtt;
+          }
+        }
+        if (data.venue_requirements !== undefined && (data.venue_requirements || "") !== original.venue_requirements) {
+          payload.venue_requirements = data.venue_requirements;
+        }
+        if (data.accessibility_needs !== undefined && (data.accessibility_needs || "") !== original.accessibility_needs) {
+          payload.accessibility_needs = data.accessibility_needs;
+        }
+        if (data.equipment_requirements !== undefined && (data.equipment_requirements || "") !== original.equipment_requirements) {
+          payload.equipment_requirements = data.equipment_requirements;
+        }
+        if (data.registration_needs !== undefined && (data.registration_needs || "") !== original.registration_needs) {
+          payload.registration_needs = data.registration_needs;
+        }
+      } else {
+        for (const [k, v] of Object.entries(data)) {
+          if (v !== undefined) payload[k] = v;
+        }
+      }
+
+      if (!Object.keys(payload).length) {
+        this.showAlert("No changes to save.", "info");
+        return;
+      }
+
+      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
       if (response.ok) { this.closeModal(); await this.fetchEvents(); this.showAlert("Event request updated.", "success"); }
     },
 
     async fetchAssignedEvents() {
+      const recipient = this.user;
       this.loading = true;
       const response = await this.apiRequest("/coordinator/events/data");
-      if (response.ok) this.assignedEvents = response.data;
-      this.loading = false;
+      if (this.user === recipient && response.ok) this.assignedEvents = response.data;
+      if (this.user === recipient) this.loading = false;
     },
     async fetchAllCoordinatorEvents() {
+      const recipient = this.user;
       const response = await this.apiRequest("/coordinator/events/all-data");
-      if (response.ok) this.allCoordinatorEvents = response.data;
+      if (this.user === recipient && response.ok) this.allCoordinatorEvents = response.data;
     },
 
     async fetchLeadData() {
@@ -602,9 +726,11 @@ document.addEventListener("alpine:init", () => {
     },
 
     canBookEvent(event) {
+      if (!event) return false;
       const role = this.normalizeRole(this.user?.role);
-      const events = role === "Event Coordinator Lead" ? this.leadEvents : role === "Coordinator" ? this.assignedEvents : [];
-      return !!event && events.some(item => item.id === event.id);
+      if (role === "Event Coordinator Lead") return true;
+      if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
+      return false;
     },
 
     async openBookings(event) {
@@ -612,8 +738,32 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
       this.fieldErrors = {};
       this.bookingDialog = {
-        event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
+        event,
+        venues: [],
+        bookings: [],
+        busy: true,
+        submitting: false,
+        ready: false,
+        bookingsLoaded: false,
         form: { venue_id: "", booking_start: "", booking_end: "" },
+        error: "",
+        search: {
+          start_time: "",
+          end_time: "",
+          min_capacity: "",
+          location: "",
+          accessibility: "",
+          layout: "",
+          facilities: "",
+          available_only: false,
+        },
+        searching: false,
+        searchResults: [],
+        searchError: "",
+        searchMessage: "",
+        checkingSuitability: false,
+        suitabilityResults: [],
+        suitabilityError: "",
       };
       const dialog = this.bookingDialog;
       const recipient = this.user;
@@ -633,6 +783,81 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    async searchVenues() {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.searching) return;
+      dialog.searchError = "";
+      dialog.searchMessage = "";
+      dialog.searching = true;
+      const recipient = this.user;
+      try {
+        const search = dialog.search || {};
+        const queryParts = [];
+        if (search.start_time) queryParts.push(`start_time=${encodeURIComponent(search.start_time)}`);
+        if (search.end_time) queryParts.push(`end_time=${encodeURIComponent(search.end_time)}`);
+        if (search.min_capacity !== undefined && search.min_capacity !== null && search.min_capacity !== "") {
+          queryParts.push(`min_capacity=${encodeURIComponent(String(search.min_capacity))}`);
+        }
+        if (search.location) queryParts.push(`location=${encodeURIComponent(search.location.trim())}`);
+        if (search.accessibility) queryParts.push(`accessibility=${encodeURIComponent(search.accessibility.trim())}`);
+        if (search.layout) queryParts.push(`layout=${encodeURIComponent(search.layout.trim())}`);
+        if (search.facilities) queryParts.push(`facilities=${encodeURIComponent(search.facilities.trim())}`);
+        if (search.available_only) queryParts.push("available_only=true");
+
+        const query = queryParts.join("&");
+        const path = query ? `/venues/search?${query}` : "/venues/search";
+        const response = await this.apiRequest(path, { inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) {
+          dialog.searchResults = Array.isArray(response.data) ? response.data : [];
+          if (!dialog.searchResults.length) {
+            dialog.searchMessage = "No venues found matching your criteria.";
+          }
+        } else {
+          dialog.searchError = this.dialogErrorMessage(response);
+          dialog.searchResults = [];
+        }
+      } finally {
+        if (this.bookingDialog === dialog) dialog.searching = false;
+      }
+    },
+
+    async checkSuitability(facilities) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.checkingSuitability) return;
+      dialog.suitabilityError = "";
+      dialog.suitabilityResults = [];
+      dialog.checkingSuitability = true;
+      const recipient = this.user;
+      try {
+        const query = facilities ? `?facilities=${encodeURIComponent(facilities)}` : "";
+        const response = await this.apiRequest(`/events/${dialog.event.id}/venue-suitability${query}`, { inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) {
+          dialog.suitabilityResults = Array.isArray(response.data?.venues)
+            ? response.data.venues
+            : Array.isArray(response.data)
+              ? response.data
+              : [];
+        } else {
+          dialog.suitabilityError = this.dialogErrorMessage(response);
+        }
+      } finally {
+        if (this.bookingDialog === dialog) dialog.checkingSuitability = false;
+      }
+    },
+
+    selectVenueFromSearch(venue) {
+      const dialog = this.bookingDialog;
+      if (!dialog || !venue) return;
+      dialog.form.venue_id = String(venue.id);
+      if (dialog.search?.start_time) dialog.form.booking_start = dialog.search.start_time;
+      if (dialog.search?.end_time) dialog.form.booking_end = dialog.search.end_time;
+      if (Array.isArray(dialog.venues) && !dialog.venues.some(v => v.id === venue.id)) {
+        dialog.venues.push(venue);
+      }
+    },
+
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
 
     async submitBooking() {
@@ -640,6 +865,7 @@ document.addEventListener("alpine:init", () => {
       if (!dialog || dialog.busy || !dialog.ready || !this.canBookEvent(dialog.event)) return;
       this.fieldErrors = {};
       this.clearAlert();
+      dialog.error = "";
       const { venue_id, booking_start, booking_end } = dialog.form;
       if (!dialog.venues.some(venue => venue.id === Number(venue_id))) this.fieldErrors.venue_id = "Select a venue";
       if (!booking_start || !Number.isFinite(Date.parse(booking_start))) this.fieldErrors.booking_start = "Enter a valid start date and time";
@@ -651,9 +877,13 @@ document.addEventListener("alpine:init", () => {
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/venues/${Number(venue_id)}/bookings`, {
-          method: "POST", body: { event_id: dialog.event.id, booking_start, booking_end },
+          method: "POST", inlineErrors: true, body: { event_id: dialog.event.id, booking_start, booking_end },
         });
-        if (this.user !== recipient || this.bookingDialog !== dialog || !response.ok) return;
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (!response.ok) {
+          dialog.error = this.dialogErrorMessage(response);
+          return;
+        }
         dialog.form = { venue_id: "", booking_start: "", booking_end: "" };
         this.showAlert("Venue booking request submitted.", "success");
         const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
@@ -679,18 +909,101 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    async startReview(eventId) { const response = await this.apiRequest(`/events/${eventId}/review`, { method: "POST" }); if (response.ok) { await this.fetchAssignedEvents(); this.showAlert("Review started.", "success"); } },
-    async handleApprove(eventId) { const response = await this.apiRequest(`/events/${eventId}/approve`, { method: "POST" }); if (response.ok) { await this.fetchAssignedEvents(); this.showAlert("Event request approved.", "success"); } },
-    async handleReject(eventId, reason) { const response = await this.apiRequest(`/events/${eventId}/reject`, { method: "POST", body: { reason } }); if (response.ok) { this.closeModal(); await this.fetchAssignedEvents(); this.showAlert("Event request rejected.", "success"); } },
-    async handleReturn(eventId, reason) { const response = await this.apiRequest(`/events/${eventId}/return`, { method: "POST", body: { reason } }); if (response.ok) { this.closeModal(); await this.fetchAssignedEvents(); this.showAlert("Clarification requested from the organiser.", "success"); } },
+    closeEventDetail() { this.eventDetail = null; if (this.modal.kind !== "amend") this.closeModal(); },
+    async openEventDetail(eventId) {
+      if (!["Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role))) return;
+      this.closeEventDetail();
+      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "" };
+      // Read back Alpine's reactive proxy for identity checks and reactive updates.
+      const dialog = this.eventDetail;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${eventId}`);
+        if (this.user !== recipient || this.eventDetail !== dialog) return;
+        if (response.ok) dialog.detail = response.data;
+        else dialog.error = response.status === 403 ? "You don't have permission to view this request." : response.status === 404 ? "Event request not found." : "Request details could not be loaded. Please try again.";
+      } finally { if (this.user === recipient && this.eventDetail === dialog) dialog.loading = false; }
+    },
+    eventFieldLabel(key) { return ({ organiser: "Organiser", assigned_coordinator: "Assigned Coordinator", proposed_start: "Proposed date and time", clarification_note: "Latest clarification note" })[key] || key.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase()); },
+    eventFieldValue(key, value) {
+      if (value === null || value === undefined || value === "") return "Not provided";
+      if (typeof value === "object") return JSON.stringify(value, null, 2);
+      return key === "proposed_start" ? this.formatDate(value) : String(value);
+    },
+    canDecideEvent(event, action = "approve") {
+      if (this.normalizeRole(this.user?.role) !== "Coordinator" || !event) return false;
+      const assigned = Object.hasOwn(event, "assigned_coordinator_id") ? event.assigned_coordinator_id != null && Number(event.assigned_coordinator_id) === Number(this.user.user_id) : this.assignedEvents.some(row => row.id === event.id);
+      return assigned && (action === "review" ? event.status === "Submitted" : ["approve", "return", "reject"].includes(action) && ["Submitted", "Under Review"].includes(event.status));
+    },
+    async decideEvent(eventId, action, reason) {
+      const event = this.eventDetail?.id === eventId ? this.eventDetail.detail : this.assignedEvents.find(row => row.id === eventId);
+      if (this.decisionBusy || !this.canDecideEvent(event, action)) return;
+      if (["return", "reject"].includes(action) && !reason?.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; }
+      const recipient = this.user;
+      const dialog = this.eventDetail?.id === eventId ? this.eventDetail : null;
+      const modal = this.modal;
+      this.decisionBusy = true;
+      this.fieldErrors = {};
+      if (dialog) dialog.actionError = "";
+      try {
+        const response = await this.apiRequest(`/events/${eventId}/${action}`, { method: "POST", ...(["return", "reject"].includes(action) ? { body: { reason: reason.trim() } } : {}) });
+        if (this.user !== recipient) return;
+        if (!response.ok) {
+          const message = typeof response.data?.detail === "string" ? response.data.detail : "The decision could not be saved. Please check the request and try again.";
+          if (dialog && this.eventDetail === dialog) dialog.actionError = message;
+          if (this.modal === modal && modal.open) this.fieldErrors = { ...this.fieldErrors, form: message };
+        }
+        if (response.ok && this.modal === modal && modal.open) this.closeModal();
+        if (response.ok || [400, 403, 404].includes(response.status)) {
+          const refreshes = [this.fetchAssignedEvents()];
+          if (this.currentPath === "/coordinator/all-events" || this.allCoordinatorEvents.length) refreshes.push(this.fetchAllCoordinatorEvents());
+          if (dialog && this.eventDetail === dialog) {
+            refreshes.push((async () => {
+              const current = await this.apiRequest(`/events/${eventId}`);
+              if (this.user !== recipient || this.eventDetail !== dialog) return;
+              dialog.detail = current.ok ? current.data : null;
+              dialog.error = current.ok ? "" : current.status === 404 ? "Event request not found." : current.status === 403 ? "You don't have permission to view this request." : "Request details could not be refreshed. Please try again.";
+            })());
+          }
+          await Promise.all(refreshes);
+        }
+        if (this.user === recipient && response.ok) this.showAlert(({ review: "Review started.", approve: "Event request approved.", reject: "Event request rejected.", return: "Clarification requested from the organiser." })[action], "success");
+      } finally { if (this.user === recipient) this.decisionBusy = false; }
+    },
+    async startReview(eventId) { return this.decideEvent(eventId, "review"); },
+    async handleApprove(eventId) { return this.decideEvent(eventId, "approve"); },
+    async handleReject(eventId, reason) { return this.decideEvent(eventId, "reject", reason); },
+    async handleReturn(eventId, reason) { return this.decideEvent(eventId, "return", reason); },
 
-    openDecision(event, kind) { this.fieldErrors = {}; this.decisionForm = { reason: "" }; this.modal = { open: true, kind, event }; },
-    openAmend(event) { this.fieldErrors = {}; this.amendForm = { title: event.title || "", description: event.description || "" }; this.modal = { open: true, kind: "amend", event }; },
-    closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; },
-    async submitModal() { const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
+    openDecision(event, kind) {
+      if (this.decisionBusy || !this.canDecideEvent(event, kind)) return;
+      this.fieldErrors = {};
+      this.decisionForm = { reason: "" };
+      this.modal = { open: true, kind, event };
+    },
+    openAmend(event) {
+      this.fieldErrors = {};
+      this.clearAlert();
+      this.amendOriginal = {
+        title: (event.title || "").trim(),
+        purpose: event.purpose || "",
+        description: event.description || "",
+        proposed_start: event.proposed_start ? event.proposed_start.slice(0, 16) : "",
+        expected_attendance: event.expected_attendance ?? null,
+        venue_requirements: event.venue_requirements || "",
+        accessibility_needs: event.accessibility_needs || "",
+        equipment_requirements: event.equipment_requirements || "",
+        registration_needs: event.registration_needs || "",
+      };
+      this.amendForm = { ...this.amendOriginal };
+      this.modal = { open: true, kind: "amend", event };
+    },
+    closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; this.amendOriginal = null; },
+    async submitModal() { if (this.decisionBusy || !this.modal.open) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
+    suitabilityBadgeClass(status) { return { suitable: "status-approved", unsuitable: "status-rejected", unknown: "status-waiting" }[status] || "status-neutral"; },
+    availabilityClass(available) { return available ? "status-approved" : "status-rejected"; },
     formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set"; },
   }));
 });
-
 

@@ -15,6 +15,8 @@ export function resetSignedOutState(state) {
   state.bookingDialog = null;
   state.venueWorkspace = null;
   state.staffBooking = null;
+  state.eventDetail = null;
+  state.decisionBusy = false;
   state.alert = null;
   state.fieldErrors = {};
   state.loginForm = { username: "", password: "" };
@@ -26,8 +28,22 @@ export function resetSignedOutState(state) {
     proposed_start: "",
     expected_attendance: null,
     venue_requirements: "",
+    accessibility_needs: "",
+    equipment_requirements: "",
+    registration_needs: "",
   };
-  state.amendForm = { title: "", description: "" };
+  state.amendForm = {
+    title: "",
+    purpose: "",
+    description: "",
+    proposed_start: "",
+    expected_attendance: null,
+    venue_requirements: "",
+    accessibility_needs: "",
+    equipment_requirements: "",
+    registration_needs: "",
+  };
+  state.amendOriginal = null;
   state.decisionForm = { reason: "" };
   state.modal = { open: false, kind: "", event: null };
 }
