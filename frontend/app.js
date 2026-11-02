@@ -871,8 +871,11 @@ document.addEventListener("alpine:init", () => {
       try {
         const search = dialog.search || {};
         const queryParts = [];
-        if (search.start_time) queryParts.push(`start_time=${encodeURIComponent(search.start_time)}`);
-        if (search.end_time) queryParts.push(`end_time=${encodeURIComponent(search.end_time)}`);
+        // [SCRUM-95] The inputs hold local times; send them in UTC (D7), as the
+        // booking submit does. An unreadable value goes as typed for the API to reject.
+        const utc = value => Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : value;
+        if (search.start_time) queryParts.push(`start_time=${encodeURIComponent(utc(search.start_time))}`);
+        if (search.end_time) queryParts.push(`end_time=${encodeURIComponent(utc(search.end_time))}`);
         if (search.min_capacity !== undefined && search.min_capacity !== null && search.min_capacity !== "") {
           queryParts.push(`min_capacity=${encodeURIComponent(String(search.min_capacity))}`);
         }

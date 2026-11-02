@@ -523,8 +523,9 @@ test("TC-9101 (AC1): venue search filters build query and display availability a
   await state.searchVenues();
 
   assert.ok(requestedPath.startsWith("/venues/search"));
-  assert.ok(requestedPath.includes("start_time=2026-11-20T09%3A00") || requestedPath.includes("start_time=2026-11-20T09:00"));
-  assert.ok(requestedPath.includes("end_time=2026-11-20T17%3A00") || requestedPath.includes("end_time=2026-11-20T17:00"));
+  const params = new URLSearchParams(requestedPath.split("?")[1]);
+  assert.equal(params.get("start_time"), new Date("2026-11-20T09:00").toISOString());
+  assert.equal(params.get("end_time"), new Date("2026-11-20T17:00").toISOString());
   assert.ok(requestedPath.includes("min_capacity=150"));
   assert.ok(requestedPath.includes("location=Building+2") || requestedPath.includes("location=Building%202"));
   assert.ok(requestedPath.includes("accessibility=Wheelchair"));
@@ -535,6 +536,23 @@ test("TC-9101 (AC1): venue search filters build query and display availability a
   assert.equal(state.bookingDialog.searchResults[0].is_available, true);
   assert.equal(state.bookingDialog.searchResults[1].is_available, false);
   assert.equal(state.bookingDialog.searchResults[1].conflict_reason, "Direct conflict with booking #102");
+});
+
+test("TC-9523 search sends the local period in UTC, as the booking submit does", async () => {
+  const state = app("coordinator");
+  state.apiRequest = async () => ({ ok: true, data: [] });
+  await state.openBookings(state.assignedEvents[0]);
+  state.bookingDialog.search.start_time = "2026-11-20T10:00";
+  state.bookingDialog.search.end_time = "2026-11-20T12:00";
+  let requestedPath = null;
+  state.apiRequest = async path => { requestedPath = path; return { ok: true, data: [] }; };
+
+  await state.searchVenues();
+
+  const params = new URLSearchParams(requestedPath.split("?")[1]);
+  assert.match(params.get("start_time"), /Z$/);
+  assert.equal(Date.parse(params.get("start_time")), new Date(2026, 10, 20, 10, 0).getTime());
+  assert.equal(Date.parse(params.get("end_time")), new Date(2026, 10, 20, 12, 0).getTime());
 });
 
 test("TC-9102 (AC2): suitability panel checks venue capacity and entered facilities", async () => {
