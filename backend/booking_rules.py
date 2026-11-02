@@ -163,8 +163,6 @@ def find_conflicts(
     exclude_booking_id leaves one booking out, so an existing booking can be
     checked against the venue's other bookings without clashing with itself.
     """
-    requested_start, requested_end = occupied_window(start, end, venue)
-
     query = db.query(VenueBooking).filter(
         VenueBooking.venue_id == venue.id,
         VenueBooking.status.in_(BLOCKING_STATUSES),
@@ -172,10 +170,35 @@ def find_conflicts(
     if exclude_booking_id is not None:
         query = query.filter(VenueBooking.id != exclude_booking_id)
     candidates = query.order_by(VenueBooking.booking_start.asc(), VenueBooking.id.asc()).all()
+    return conflicts_among(candidates, venue, start, end, exclude_booking_id)
 
+
+def venue_blocking_candidates(db: Session, venue: Venue) -> List[VenueBooking]:
+    """[GitHub #29, PR #35 review] Every booking at the venue whose status can
+    hold it, in start order (then id): one query, for callers that check many
+    bookings at the same venue with conflicts_among."""
+    return (
+        db.query(VenueBooking)
+        .filter(VenueBooking.venue_id == venue.id, VenueBooking.status.in_(BLOCKING_STATUSES))
+        .order_by(VenueBooking.booking_start.asc(), VenueBooking.id.asc())
+        .all()
+    )
+
+
+def conflicts_among(
+    candidates: List[VenueBooking],
+    venue: Venue,
+    start: datetime,
+    end: datetime,
+    exclude_booking_id: Optional[int] = None,
+) -> List[VenueBooking]:
+    """The clash rule of find_conflicts, applied to bookings already loaded:
+    those that hold the venue and whose occupied window overlaps the one a
+    booking from start to end would occupy. No database query."""
+    requested_start, requested_end = occupied_window(start, end, venue)
     conflicts = []
     for booking in candidates:
-        if not is_blocking(booking):
+        if booking.id == exclude_booking_id or not is_blocking(booking):
             continue
         booked_start, booked_end = occupied_window(booking.booking_start, booking.booking_end, venue)
         if windows_overlap(requested_start, requested_end, booked_start, booked_end):

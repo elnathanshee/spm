@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { normalizeRole } from "../src/rbac.js";
 import * as venueRecord from "../src/venue-record.js"; // [SCRUM-92] app.js imports it
+import { resetSignedOutState } from "../src/session-state.js"; // [SCRUM-88] a 401 calls it
 
 // SCRUM-89: Venue Staff review a booking with full context and manage its hold.
 // Backend side (requester name, review data, hold rules): TC-8901 to TC-8903
@@ -16,7 +17,7 @@ function loadApp(fetchStub) {
   vm.runInNewContext(source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""), {
     NAVIGATION: [], requestedFrontendPath: () => null, normalizeRoleName: normalizeRole,
     document: { addEventListener: (_, fn) => fn() }, Alpine: { data: (_, fn) => { factory = fn; } },
-    window: { location: {} }, ...venueRecord, ...(fetchStub ? { fetch: fetchStub } : {}),
+    window: { location: {} }, ...venueRecord, resetSignedOutState, ...(fetchStub ? { fetch: fetchStub } : {}),
   });
   return factory();
 }

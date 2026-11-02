@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
 from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
-from .booking_recheck import recheck_venue_bookings  # [SCRUM-80 | Renee]
+from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck_venue_bookings  # [SCRUM-80 | Renee; GitHub #29]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
@@ -403,16 +403,6 @@ class VenueBookingRequest(BaseModel):
 
 
 # [SCRUM-80 | Renee] A clash found after the venue's setup/turnaround changed
-def conflict_flag_to_dict(flag: Optional[VenueBookingConflictFlag]) -> Optional[Dict[str, Any]]:
-    if flag is None:
-        return None
-    return {
-        "conflicting_booking_id": flag.conflicting_booking_id,
-        "reason": flag.reason,
-        "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
-    }
-
-
 def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     return {
         "booking_id": booking.id,
@@ -424,8 +414,13 @@ def booking_to_dict(booking: VenueBooking) -> Dict[str, Any]:
     }
 
 
-def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
+def booking_detail_dict(
+    booking: VenueBooking, candidates_by_venue: Optional[Dict[int, List[VenueBooking]]] = None
+) -> Dict[str, Any]:
+    """[GitHub #29, PR #35 review] For a list, pass one candidates_by_venue
+    dict to every call, so each venue's bookings are loaded once."""
     decision_reason = booking.decision.reason if hasattr(booking, "decision") and booking.decision else None
+    active_flag = active_conflict_flag(object_session(booking), booking, candidates_by_venue)
     return {
         "booking_id": booking.id,
         "id": booking.id,
@@ -440,7 +435,10 @@ def booking_detail_dict(booking: VenueBooking) -> Dict[str, Any]:
         "status": booking.status,
         "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
-        "conflict_flag": conflict_flag_to_dict(booking.conflict_flag),  # [SCRUM-80 | Renee]
+        # [SCRUM-80 | Renee] [GitHub #29] the flag only while the clash still exists
+        "conflict_flag": active_flag,
+        # [GitHub #29] the stored flag as first raised, marked Active or Resolved
+        "conflict_flag_record": conflict_flag_record(booking, active_flag),
         # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
         **hold_fields(booking),
     }
@@ -498,11 +496,12 @@ def update_venue(
         flagged = recheck_venue_bookings(db, venue)
         db.commit()
 
+    flagged_candidates: Dict[int, List[VenueBooking]] = {}  # [GitHub #29] load the venue's bookings once
     return {
         "message": "Venue updated successfully",
         "venue": venue_to_dict(venue),
         "updated_fields": list(changes),
-        "flagged_bookings": [booking_detail_dict(b) for b in flagged],
+        "flagged_bookings": [booking_detail_dict(b, flagged_candidates) for b in flagged],
     }
 
 
@@ -634,7 +633,8 @@ def list_venue_bookings(
     if status_filter:
         query = query.filter(VenueBooking.status == status_filter)
     bookings = query.order_by(VenueBooking.booking_start.asc()).all()
-    return [booking_detail_dict(b) for b in bookings]
+    candidates: Dict[int, List[VenueBooking]] = {}  # [GitHub #29] load the venue's bookings once
+    return [booking_detail_dict(b, candidates) for b in bookings]
 
 
 # ---------------------------------------------------------------------------
