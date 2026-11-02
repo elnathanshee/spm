@@ -6,13 +6,13 @@ This register documents all automated test cases across **Sprint 1**, **Sprint 2
 
 ## Summary Statistics
 
-- **Total Test Cases:** 455 rows in this file, recounted on 2 Nov 2026 (SCRUM-98; +13 SCRUM-89; +24 SCRUM-92; +5 SCRUM-91; +16 SCRUM-88; +5 SCRUM-90; +10 GitHub #29) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
+- **Total Test Cases:** 457 rows in this file, recounted on 2 Nov 2026 (SCRUM-98; +13 SCRUM-89; +24 SCRUM-92; +5 SCRUM-91; +16 SCRUM-88; +5 SCRUM-90; +10 GitHub #29; +2 SCRUM-97) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
 - **Sprint 1:** 40 Test Cases (SCRUM-16: 6, SCRUM-22 & 27: 7, SCRUM-21: 15, SCRUM-24: 11, SCRUM-24 & 27: 1; the 12 SCRUM-24 rows were registered in Sprint 4)
 - **Sprint 2:** 121 Test Cases (SCRUM-51: 15, SCRUM-23: 18, SCRUM-63: 8, SCRUM-30: 10, SCRUM-33: 13, SCRUM-31: 21, SCRUM-32: 16, SCRUM-34: 20)
 - **Sprint 3:** 219 Test Cases (SCRUM-35: 23, SCRUM-18: 11, SCRUM-36: 13, SCRUM-37: 9, SCRUM-38: 27, SCRUM-28: 14, SCRUM-80: 12, SCRUM-81: 36, SCRUM-64: 36, SCRUM-39: 23, SCRUM-30: 1; 14 rows shared across venue stories or unmapped)
-- **Sprint 4:** 75 Test Cases (SCRUM-98: 2, SCRUM-89: 13, SCRUM-92: 24, SCRUM-91: 5, SCRUM-88: 16, SCRUM-90: 5, SCRUM-80 / GitHub #29: 10)
-- **CSV:** `TEST_CASES.csv` holds 375 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
-- **Current PR verification (GitHub #29):** on the branch merged with main, full backend suite 562 passed (in-memory SQLite) and frontend 108/108 passed, on 2 Nov 2026. Historical statuses are preserved; they are not new execution claims.
+- **Sprint 4:** 77 Test Cases (SCRUM-98: 2, SCRUM-89: 13, SCRUM-92: 24, SCRUM-91: 5, SCRUM-88: 16, SCRUM-90: 5, SCRUM-80 / GitHub #29: 10, SCRUM-97: 2)
+- **CSV:** `TEST_CASES.csv` holds 377 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
+- **Current PR verification (SCRUM-97):** on the branch merged with main, full backend suite 564 passed (in-memory SQLite) and frontend 108/108 passed, on 2 Nov 2026. Historical statuses are preserved; they are not new execution claims.
 - **Automation:** `pytest` and Node test runner; see per-case execution evidence.
 
 ---
@@ -377,6 +377,15 @@ SCRUM-95 (22 rows)
 | TC-9522 | SCRUM-95 | Negative Path | AC2 | Saving a warning on a hold that expired while the dialog was open explains why | Node app-state/markup harness; API calls mocked; no rendered browser; Coordinator assigned to the event; one Pending hold whose expiry has passed since the dialog loaded | 1. Enter 30<br>2. Save warning<br>3. Repeat as a Lead | hold_expires_at 2000-01-01T00:00:00 | No request; the dialog says This hold has expired. Click Refresh to see its status.; the input and row are kept and the form closes; the Lead gets no message. | As expected | Node test runner: frontend/tests/venue-bookings.test.js::TC-9522 saving a warning on a hold that expired while the dialog was open explains why | Passed | Sprint 4 | Claude Code (automated, Node test runner) | 02-Nov-26 |
 | TC-9523 | SCRUM-95 | Happy Path | AC1 (D7) | Venue search sends the local period in UTC | Node app-state/markup harness; API calls mocked; no rendered browser; TZ set to Asia/Singapore | 1. Enter a search period<br>2. Search | 2026-11-20T10:00 to 2026-11-20T12:00 local | The query has start_time 2026-11-20T02:00:00.000Z and end_time 2026-11-20T04:00:00.000Z, as the booking submit sends. | As expected | Node test runner: frontend/tests/venue-bookings.test.js::TC-9523 search sends the local period in UTC, as the booking submit does | Passed | Sprint 4 | Claude Code (automated, Node test runner) | 02-Nov-26 |
 | TC-9524 | SCRUM-95 | Workflow Variation | AC1 (D7) | The one-off fix moves bookings saved before SCRUM-95 to UTC, once | Disposable in-memory SQLite; two bookings created before the cutoff at 10:00 Singapore wall time (one default hold expiry at that start, one staff expiry before the real start); one created after it in UTC | 1. migrate_scrum95.check<br>2. migrate_scrum95.migrate<br>3. Run both again | Cutoff 2026-11-03T02:00 | Check counts 2 and writes nothing; apply moves the 2 older bookings 8 hours earlier, pulls the late expiry back to the real start, keeps the newer booking and the earlier expiry; a second run is refused and changes nothing. | As expected | pytest backend/tests/test_scrum95_utc_migration.py | Passed | Sprint 4 | Claude Code (automated, pytest) | 02-Nov-26 |
+---
+
+### SCRUM-97 (2 rows, Sprint 4)
+
+| Test Case ID | Story | Test Path / Classification | Acceptance Criterion | Test Scenario | Pre-conditions | Test Steps | Test Data | Expected Result | Actual Result (PDFs / API) | Evidence | Status | Build / Sprint | Executed By | Date Executed |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- |
+| **TC-9701** | SCRUM-97 | Cross-Cutting | Done-when 1, 2 | CI workflow defines a frontend job running tests and build on push and pull request | Repository root configuration | 1. Parse .github/workflows/ci.yml<br>2. Check triggers for push and pull_request to main<br>3. Verify separate frontend job exists with setup-node, npm ci, npm test, and npm run build | ci.yml file content | Workflow runs frontend tests and build on push/PR; failure in test or build fails the job | As expected | pytest backend/tests/test_scrum97_ci.py::test_tc9701_ci_workflow_runs_frontend_tests_and_build | Passed | Sprint 4 | Sarah (automated, pytest) | 31-Oct-26 |
+| **TC-9702** | SCRUM-97 | Cross-Cutting | Done-when 3 | README documents how to run frontend tests locally | Repository root documentation | 1. Parse README.md<br>2. Verify local frontend test and build commands are documented | README.md file content | README contains npm test and npm run build instructions for local execution | As expected | pytest backend/tests/test_scrum97_ci.py::test_tc9702_readme_documents_frontend_testing | Passed | Sprint 4 | Sarah (automated, pytest) | 31-Oct-26 |
+
 ---
 
 ### SCRUM-89 (13 rows, Sprint 4)
