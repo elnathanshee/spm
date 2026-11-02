@@ -242,18 +242,96 @@ test("TC-9409 (Boundary) a blank title is caught before sending, and the edit ca
   assert.equal(state.eventDetail.detail.title, "Annual Gala");
 });
 
-test("TC-9410 (Cross-cutting) a save that returns after the view closed or the user logged out changes nothing", async () => {
+test("TC-9410 (Cross-cutting) a save that returns after the view was closed by the app still refreshes the lists; after logout it changes nothing", async () => {
+  for (const [label, leave, expected] of [
+    ["navigated away", state => state.closeEventDetail(), "events"],
+    ["logged out", state => { state.user = null; state.eventDetail = null; }, undefined],
+  ]) {
+    const state = withDetail(ORGANISER);
+    state.openRoutineEdit();
+    state.eventDetail.routine.form.purpose = "Networking";
+    let finish;
+    state.apiRequest = () => new Promise(resolve => { finish = resolve; });
+    const pending = state.saveRoutineEdit();
+    assert.equal(state.eventDetail.routine.busy, true);
+    await state.saveRoutineEdit();             // a second click while busy does nothing
+    leave(state);
+    finish({ ok: true, status: 200, data: event({ purpose: "Networking" }) });
+    await pending;
+    assert.equal(state.eventDetail, null, `${label}: the view stays closed`);
+    assert.equal(state.refreshed, expected, `${label}: list refresh`);
+  }
+});
+
+// Darryl's PR #42 review: closing the view while a save is in flight dropped the
+// result, and closing with unsaved edits discarded them silently.
+test("TC-9412 (Cross-cutting) the user can't close the view while a save is in flight, and the saved result is shown", async () => {
   const state = withDetail(ORGANISER);
   state.openRoutineEdit();
   state.eventDetail.routine.form.purpose = "Networking";
   let finish;
   state.apiRequest = () => new Promise(resolve => { finish = resolve; });
   const pending = state.saveRoutineEdit();
-  assert.equal(state.eventDetail.routine.busy, true);
-  await state.saveRoutineEdit();             // a second click while busy does nothing
-  state.closeEventDetail();
+  const view = state.eventDetail;
+  state.requestCloseEventDetail();           // ✕, backdrop or Escape
+  assert.equal(state.eventDetail, view, "the view stays open while saving");
   finish({ ok: true, status: 200, data: event({ purpose: "Networking" }) });
   await pending;
+  assert.equal(state.eventDetail.detail.purpose, "Networking");
+  assert.equal(state.eventDetail.notice, "Event details updated.");
+  assert.equal(state.refreshed, "events");
+  state.requestCloseEventDetail();
+  assert.equal(state.eventDetail, null, "closes once the save is done");
+
+  // ✕, the backdrop and Escape all go through the guarded close.
+  const dialog = HTML.slice(HTML.indexOf('<template x-if="eventDetail">'), HTML.indexOf('aria-labelledby="event-detail-title"') + 400);
+  assert.equal((dialog.match(/requestCloseEventDetail\(\)/g) || []).length, 3);
+  assert.doesNotMatch(dialog, /[^t]closeEventDetail\(\)/);
+});
+
+test("TC-9413 (Negative) closing with unsaved edits asks first in the view; Keep editing keeps them, Discard closes", () => {
+  const state = withDetail(ORGANISER);
+  state.openRoutineEdit();
+  state.eventDetail.routine.form.description = "Dinner, auction and live band";
+  assert.equal(state.routineIsDirty(), true);
+  state.requestCloseEventDetail();
+  assert.ok(state.eventDetail, "not closed yet");
+  assert.equal(state.eventDetail.routine.confirmDiscard, true, "the prompt is shown");
+  state.keepRoutineEdit();
+  assert.equal(state.eventDetail.routine.confirmDiscard, false);
+  assert.equal(state.eventDetail.routine.form.description, "Dinner, auction and live band", "typed text kept");
+  state.requestCloseEventDetail();
+  state.closeEventDetail();                  // Discard changes
   assert.equal(state.eventDetail, null);
-  assert.equal(state.refreshed, undefined, "no refresh for a closed view");
+
+  // No prompt when nothing changed (spaces only don't count), or with no form open.
+  for (const edit of [() => {}, routine => { routine.form.title = "  Annual Gala "; }, null]) {
+    const clean = withDetail(ORGANISER);
+    if (edit) { clean.openRoutineEdit(); edit(clean.eventDetail.routine); }
+    assert.equal(clean.routineIsDirty(), false);
+    clean.requestCloseEventDetail();
+    assert.equal(clean.eventDetail, null, "closes straight away");
+  }
+
+  // The prompt is in the page (D6), not a browser dialog.
+  assert.doesNotMatch(APP_SOURCE, /\bconfirm\(/);
+  const start = HTML.indexOf('id="routine-edit-form"');
+  const form = HTML.slice(start, HTML.indexOf("</form>", start));
+  assert.match(form, /x-show="eventDetail\.routine\.confirmDiscard"/);
+  assert.match(form, /@click="keepRoutineEdit\(\)"[^>]*>Keep editing/);
+  assert.match(form, /@click="closeEventDetail\(\)"[^>]*>Discard changes/);
+});
+
+test("TC-9414 (Cross-cutting) saving and the unsaved-edits check use the same comparison", async () => {
+  const state = withDetail(ORGANISER);
+  state.openRoutineEdit();
+  Object.assign(state.eventDetail.routine.form, { title: " Annual Gala ", purpose: "Networking", accessibility_needs: "  " });
+  const { changes } = state.routineChanges();
+  assert.deepEqual({ ...changes }, { purpose: "Networking" });
+  const sent = recorder(state, { ok: true, status: 200, data: event({ purpose: "Networking" }) });
+  await state.saveRoutineEdit();
+  assert.deepEqual({ ...sent[0].options.body }, { ...changes });
+  state.openRoutineEdit();
+  state.eventDetail.routine.form.title = " ";
+  assert.equal(state.routineChanges().error, "Title cannot be empty");
 });
