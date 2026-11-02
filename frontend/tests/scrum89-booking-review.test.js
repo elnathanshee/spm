@@ -184,7 +184,8 @@ test("TC-8910 the requester is shown by name, with a fallback when none was reco
 // details, far from the Approve/Reject buttons, and the clash was named twice.
 test("TC-8911 the in-dialog error scrolls into view when it appears", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  const errorArea = html.match(/<div class="dialog-error"(?:[^>"]|"[^"]*")*>/)?.[0] || "";
+  // [SCRUM-94] the event detail view has its own dialog-error, so find the booking review's.
+  const errorArea = html.match(/<div class="dialog-error"(?:[^>"]|"[^"]*")*x-show="staffBooking\.error"(?:[^>"]|"[^"]*")*>/)?.[0] || "";
   assert.match(errorArea, /x-show="staffBooking\.error"/);
   assert.match(errorArea, /x-effect="[^"]*staffBooking\?\.error[^"]*scrollIntoView/, "the error area scrolls itself into view when an error is set");
 });

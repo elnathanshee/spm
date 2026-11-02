@@ -11,6 +11,9 @@ import {
 import { beginAuthentication, finishAuthentication, resetSignedOutState } from "./src/session-state.js";
 import { NO_CHANGES, affectedBookingRows, bufferSummary, changedFields, createPayload, emptyVenueForm, flaggedBookingRows, formErrorsFrom, validateVenueForm, venueFormFrom } from "./src/venue-record.js"; // [SCRUM-92]
 
+// [SCRUM-94] The fields PATCH /events/{id} accepts (backend ROUTINE_FIELDS, SCRUM-28).
+const ROUTINE_FIELDS = ["title", "purpose", "description", "accessibility_needs", "registration_needs"];
+
 document.addEventListener("alpine:init", () => {
   Alpine.data("appState", () => ({
     user: null,
@@ -911,9 +914,10 @@ document.addEventListener("alpine:init", () => {
 
     closeEventDetail() { this.eventDetail = null; if (this.modal.kind !== "amend") this.closeModal(); },
     async openEventDetail(eventId) {
-      if (!["Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role))) return;
+      // [SCRUM-94] Organisers open their own requests too (GET /events/{id} only shows them their own).
+      if (!["Coordinator", "Event Coordinator Lead", "Organiser"].includes(this.normalizeRole(this.user?.role))) return;
       this.closeEventDetail();
-      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "" };
+      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "", routine: null, notice: "" };
       // Read back Alpine's reactive proxy for identity checks and reactive updates.
       const dialog = this.eventDetail;
       const recipient = this.user;
@@ -929,6 +933,59 @@ document.addEventListener("alpine:init", () => {
       if (value === null || value === undefined || value === "") return "Not provided";
       if (typeof value === "object") return JSON.stringify(value, null, 2);
       return key === "proposed_start" ? this.formatDate(value) : String(value);
+    },
+    // [SCRUM-94 | Renee] Update routine information during planning (PATCH /events/{id}, SCRUM-28).
+    // AC1, AC4: only the event's Organiser or its assigned Coordinator, and only while it is
+    // Approved, Planning or Confirmed (the backend's PLANNING_STATUSES).
+    canEditRoutine(event) {
+      if (!event || !["Approved", "Planning", "Confirmed"].includes(event.status)) return false;
+      const role = this.normalizeRole(this.user?.role);
+      const me = Number(this.user?.user_id);
+      return (role === "Organiser" && Number(event.organiser_id) === me)
+        || (role === "Coordinator" && event.assigned_coordinator_id != null && Number(event.assigned_coordinator_id) === me);
+    },
+    openRoutineEdit() {
+      const view = this.eventDetail;
+      if (!view?.detail || view.routine?.busy || !this.canEditRoutine(view.detail)) return;
+      view.notice = "";
+      view.routine = {
+        form: Object.fromEntries(ROUTINE_FIELDS.map(field => [field, view.detail[field] ?? ""])),
+        busy: false, error: "", message: "",
+      };
+    },
+    cancelRoutineEdit() {
+      const view = this.eventDetail;
+      if (view?.routine && !view.routine.busy) view.routine = null;
+    },
+    // AC2: send only the routine fields that changed; AC3, AC4: errors stay in the view.
+    async saveRoutineEdit() {
+      const view = this.eventDetail;
+      const routine = view?.routine;
+      if (!routine || routine.busy || !this.canEditRoutine(view.detail)) return;
+      routine.error = ""; routine.message = "";
+      const changes = {};
+      for (const field of ROUTINE_FIELDS) {
+        const next = String(routine.form[field] ?? "").trim();
+        if (field === "title" && !next) { routine.error = "Title cannot be empty"; return; }
+        if (next !== String(view.detail[field] ?? "").trim()) changes[field] = next || null;
+      }
+      if (!Object.keys(changes).length) { routine.message = "No changes to save."; return; }
+      routine.busy = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${view.id}`, { method: "PATCH", body: changes, inlineErrors: true });
+        if (this.user !== recipient || this.eventDetail !== view || view.routine !== routine) return;
+        if (!response.ok) { routine.error = this.dialogErrorMessage(response); return; }
+        // PATCH returns the shorter event_to_dict (no organiser or coordinator names),
+        // so only the routine fields are copied into the view.
+        for (const field of ROUTINE_FIELDS) if (field in response.data) view.detail[field] = response.data[field];
+        view.routine = null;
+        view.notice = "Event details updated.";
+        if (this.normalizeRole(this.user?.role) === "Organiser") await this.fetchEvents();
+        else await this.fetchAssignedEvents();
+      } finally {
+        if (view.routine === routine) routine.busy = false;
+      }
     },
     canDecideEvent(event, action = "approve") {
       if (this.normalizeRole(this.user?.role) !== "Coordinator" || !event) return false;

@@ -115,7 +115,7 @@ test("TC-9403 (AC2) the form is prefilled, only the changed routine field is sen
   assert.equal(sent.length, 1);
   assert.equal(sent[0].path, "/events/5");
   assert.equal(sent[0].options.method, "PATCH");
-  assert.deepEqual(sent[0].options.body, { description: "Dinner, auction and live band" });
+  assert.deepEqual({ ...sent[0].options.body }, { description: "Dinner, auction and live band" });
   assert.equal(sent[0].options.inlineErrors, true);
   const detail = state.eventDetail.detail;
   assert.equal(detail.description, "Dinner, auction and live band");
@@ -130,7 +130,7 @@ test("TC-9403 (AC2) the form is prefilled, only the changed routine field is sen
   coordinator.eventDetail.routine.form.accessibility_needs = "Step-free access";
   const coordinatorSent = recorder(coordinator, { ok: true, status: 200, data: event({ accessibility_needs: "Step-free access" }) });
   await coordinator.saveRoutineEdit();
-  assert.deepEqual(coordinatorSent[0].options.body, { accessibility_needs: "Step-free access" });
+  assert.deepEqual({ ...coordinatorSent[0].options.body }, { accessibility_needs: "Step-free access" });
   assert.equal(coordinator.refreshed, "assigned", "the coordinator's queue refreshes");
 });
 
@@ -166,7 +166,7 @@ test("TC-9405 (AC3) significant fields are read-only with a change-request note,
   Object.assign(state.eventDetail.routine.form, { proposed_start: "2027-01-01T10:00", expected_attendance: 999 });
   const sent = recorder(state, { ok: true, status: 200, data: event({ title: "Annual Gala 2026" }) });
   await state.saveRoutineEdit();
-  assert.deepEqual(sent[0].options.body, { title: "Annual Gala 2026" });
+  assert.deepEqual({ ...sent[0].options.body }, { title: "Annual Gala 2026" });
 });
 
 test("TC-9406 (AC3) a server 422 or 400 is shown in the view, and the form keeps what was typed", async () => {
