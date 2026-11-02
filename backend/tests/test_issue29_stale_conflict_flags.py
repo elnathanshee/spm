@@ -13,6 +13,8 @@ Expected behaviour (from #29), each test names the point it proves:
 
 The fix revalidates at read time: a stored flag is shown only while a real
 clash still exists. The flag rows are never removed (E5), so no table changes.
+Each booking view also shows the stored flag as conflict_flag_record, marked
+"Active" or "Resolved" (#29: "cleared or marked resolved").
 
 Times: Grand Hall, 30 min setup and 45 min turnaround. On day D:
   A  Pending  10:00-12:00  hold +3 days
@@ -296,3 +298,57 @@ def test_tc8019_active_reason_uses_the_current_buffers(client, db_session, seed_
     db_session.expire_all()
     stored = db_session.query(VenueBookingConflictFlag).filter_by(booking_id=a.id).one()
     assert "75m turnaround" in stored.reason
+
+
+# ---------------------------------------------------------------------------
+# #29 review: flags "cleared or marked resolved"
+# ---------------------------------------------------------------------------
+
+def test_tc8020_expired_hold_marks_the_flag_record_resolved(client, db_session, seed_data):
+    """TC-8020 (#29 E2, E5): while A and B clash, A's flag record is Active.
+    Once B's hold expires it is Resolved, and still shows the original clash
+    with B and the 75m reason, in the review and the venue's booking list."""
+    a, b, hall = seed_data["a"], seed_data["b"], seed_data["hall"]
+    record = _review(client, a)["conflict_flag_record"]
+    assert record["state"] == "Active"
+    assert record["conflicting_booking_id"] == b.id
+
+    _expire_hold(db_session, b)
+
+    for record in (_review(client, a)["conflict_flag_record"], _listed(client, hall)[a.id]["conflict_flag_record"]):
+        assert record["state"] == "Resolved"
+        assert record["conflicting_booking_id"] == b.id
+        assert "75m turnaround" in record["reason"]
+        assert record["flagged_at"] is not None
+
+
+def test_tc8021_record_stays_active_while_another_clash_remains(client, db_session, seed_data):
+    """TC-8021 (#29 E3, E5): if B expires but A still clashes with C, the
+    record stays Active and keeps naming B (the history), while conflict_flag
+    names C (the clash now)."""
+    a, b, hall, at = seed_data["a"], seed_data["b"], seed_data["hall"], seed_data["at"]
+    c = VenueBooking(event_id=seed_data["event"].id, venue_id=hall.id,
+                     booking_start=at(7), booking_end=at(9), status="Confirmed")
+    db_session.add(c)
+    db_session.commit()
+
+    _expire_hold(db_session, b)
+
+    body = _review(client, a)
+    assert body["conflict_flag"]["conflicting_booking_id"] == c.id
+    assert body["conflict_flag_record"]["state"] == "Active"
+    assert body["conflict_flag_record"]["conflicting_booking_id"] == b.id
+
+
+def test_tc8022_unflagged_booking_has_no_flag_record(client, db_session, seed_data):
+    """TC-8022 (#29, Negative): a booking that was never flagged shows no
+    record, not a Resolved one."""
+    hall, at = seed_data["hall"], seed_data["at"]
+    r = VenueBooking(event_id=seed_data["event"].id, venue_id=hall.id,
+                     booking_start=at(19), booking_end=at(20), status="Confirmed")
+    db_session.add(r)
+    db_session.commit()
+
+    body = _review(client, r)
+    assert body["conflict_flag"] is None
+    assert body["conflict_flag_record"] is None

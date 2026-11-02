@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, object_session
 from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
 from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
-from .booking_recheck import active_conflict_flag, recheck_venue_bookings  # [SCRUM-80 | Renee; GitHub #29]
+from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck_venue_bookings  # [SCRUM-80 | Renee; GitHub #29]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
@@ -420,6 +420,7 @@ def booking_detail_dict(
     """[GitHub #29, PR #35 review] For a list, pass one candidates_by_venue
     dict to every call, so each venue's bookings are loaded once."""
     decision_reason = booking.decision.reason if hasattr(booking, "decision") and booking.decision else None
+    active_flag = active_conflict_flag(object_session(booking), booking, candidates_by_venue)
     return {
         "booking_id": booking.id,
         "id": booking.id,
@@ -435,7 +436,9 @@ def booking_detail_dict(
         "rejection_reason": decision_reason or getattr(booking, "rejection_reason", None),
         "created_at": booking.created_at.isoformat() if hasattr(booking, "created_at") and booking.created_at else None,
         # [SCRUM-80 | Renee] [GitHub #29] the flag only while the clash still exists
-        "conflict_flag": active_conflict_flag(object_session(booking), booking, candidates_by_venue),
+        "conflict_flag": active_flag,
+        # [GitHub #29] the stored flag as first raised, marked Active or Resolved
+        "conflict_flag_record": conflict_flag_record(booking, active_flag),
         # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
         **hold_fields(booking),
     }

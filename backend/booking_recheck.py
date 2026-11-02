@@ -100,3 +100,19 @@ def active_conflict_flag(
         "reason": clash_reason(current, venue),
         "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
     }
+
+
+def conflict_flag_record(booking: VenueBooking, active: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """GitHub #29 (E5): the stored flag as first raised, for auditing, marked
+    "Active" while a clash remains (active_conflict_flag's result) and
+    "Resolved" once none does. Like SCRUM-81's "Expired", the state is worked
+    out when shown, so the stored row is never changed."""
+    flag = booking.conflict_flag
+    if flag is None:
+        return None
+    return {
+        "conflicting_booking_id": flag.conflicting_booking_id,
+        "reason": flag.reason,
+        "flagged_at": flag.flagged_at.isoformat() if flag.flagged_at else None,
+        "state": "Active" if active is not None else "Resolved",
+    }
