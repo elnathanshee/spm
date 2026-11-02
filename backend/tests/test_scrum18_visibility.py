@@ -259,3 +259,40 @@ def test_coordinator_cannot_book_venue_for_another_or_unassigned_event(client, d
     response = client.post(f"/venues/{data['venue'].id}/bookings", json=payload)
     assert response.status_code == 403
     assert db_session.query(VenueBooking).count() == original_count
+
+@pytest.mark.parametrize("username", ["org_b", "coord_a", "lead"])
+def test_scrum88_detail_names_and_latest_note_survive_resubmission(client, db_session, data, username):
+    """TC-8814 (SCRUM-88): detail shows organiser and coordinator names and the latest clarification note after resubmission."""
+    from backend.models import EventStatusHistory
+    from backend.status import RETURNED
+    event = data["events"]["other"]
+    event.status = SUBMITTED
+    for previous, new, reason in [(SUBMITTED, RETURNED, "First question"), (RETURNED, SUBMITTED, "Resubmitted"), (SUBMITTED, RETURNED, "Latest question"), (RETURNED, SUBMITTED, "Resubmitted again")]:
+        db_session.add(EventStatusHistory(event_id=event.id, previous_status=previous, new_status=new, actor_id=data["users"]["coord_b"].id, reason=reason))
+    db_session.commit()
+    authenticate(client, username)
+    response = client.get(f"/events/{event.id}")
+    assert response.status_code == 200
+    detail = response.json()
+    assert detail["organiser"] == "org_b"
+    assert detail["assigned_coordinator"] == "coord_b"
+    assert detail["clarification_note"] == "Latest question"
+    if username == "org_b":
+        rows = client.get("/events").json()
+        assert next(row for row in rows if row["id"] == event.id)["clarification_note"] is None
+
+
+@pytest.mark.parametrize("username,expected", [("lead", 404), ("coord_a", 404), ("org_a", 404), ("org_b", 200), ("venue", 403), ("attendee", 404)])
+def test_scrum88_draft_visibility_unchanged(client, data, username, expected):
+    """TC-8815 (SCRUM-88): event detail keeps the existing Draft visibility rules."""
+    authenticate(client, username)
+    assert client.get(f"/events/{data['events']['draft'].id}").status_code == expected
+
+
+def test_scrum88_unassigned_detail_has_optional_placeholders(client, data):
+    """TC-8816 (SCRUM-88): an unassigned event's detail returns null coordinator and note."""
+    authenticate(client, "lead")
+    detail = client.get(f"/events/{data['events']['unassigned'].id}").json()
+    assert detail["assigned_coordinator"] is None
+    assert detail["assigned_coordinator_id"] is None
+    assert detail["clarification_note"] is None

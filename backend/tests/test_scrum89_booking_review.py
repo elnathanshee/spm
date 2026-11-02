@@ -19,7 +19,9 @@ frontend/tests/scrum89-booking-review.test.js (TC-8904 to TC-8912).
 
 Bookings, at Grand Hall on day D (30 days ahead):
   P  Pending    10:00-12:00  requested by coord_sarah, with a conflict flag
-  N  Pending    14:00-16:00  no requester recorded (requests made before SCRUM-35)
+  N  Pending    13:00-14:00  no requester recorded (requests made before SCRUM-35);
+                             really clashes with P once 30 min setup and 45 min turnaround
+                             are included (GitHub #29: only a real clash shows a flag)
   X  Pending    18:00-20:00  hold already expired
 """
 
@@ -125,7 +127,7 @@ def seed_data(db_session):
     p = VenueBooking(event_id=event.id, venue_id=hall.id, requester_id=coord.id,
                      booking_start=at(10), booking_end=at(12), status="Pending")
     n = VenueBooking(event_id=event.id, venue_id=hall.id, requester_id=None,
-                     booking_start=at(14), booking_end=at(16), status="Pending")
+                     booking_start=at(13), booking_end=at(14), status="Pending")
     x = VenueBooking(event_id=event.id, venue_id=hall.id, requester_id=coord.id,
                      booking_start=at(18), booking_end=at(20), status="Pending")
     db_session.add_all([p, n, x])
@@ -194,7 +196,7 @@ def test_tc8902_review_has_venue_hold_and_conflict_context(client, seed_data):
     assert body["warning_minutes"] == 120
 
     assert body["conflict_flag"]["conflicting_booking_id"] == seed_data["n"].id
-    assert body["conflict_flag"]["reason"] == "Setup time now overlaps booking N"
+    assert f"Clashes with booking #{seed_data['n'].id}" in body["conflict_flag"]["reason"]
 
 
 # ---------------------------------------------------------------------------
