@@ -957,32 +957,52 @@ document.addEventListener("alpine:init", () => {
       const view = this.eventDetail;
       if (view?.routine && !view.routine.busy) view.routine = null;
     },
+    // PR #42 review: one comparison for saving and for the unsaved-edits check.
+    routineChanges(view = this.eventDetail) {
+      const changes = {};
+      let error = "";
+      if (!view?.routine || !view.detail) return { changes, error };
+      for (const field of ROUTINE_FIELDS) {
+        const next = String(view.routine.form[field] ?? "").trim();
+        if (field === "title" && !next) error = "Title cannot be empty";
+        if (next !== String(view.detail[field] ?? "").trim()) changes[field] = next || null;
+      }
+      return { changes, error };
+    },
+    routineIsDirty() { return Object.keys(this.routineChanges().changes).length > 0; },
+    // ✕, the backdrop and Escape: not while a save is in flight, and ask in the
+    // view (D6) before discarding unsaved edits. App code still calls closeEventDetail().
+    requestCloseEventDetail() {
+      const routine = this.eventDetail?.routine;
+      if (routine?.busy) return;
+      if (routine && this.routineIsDirty()) { routine.confirmDiscard = true; return; }
+      this.closeEventDetail();
+    },
+    keepRoutineEdit() { if (this.eventDetail?.routine) this.eventDetail.routine.confirmDiscard = false; },
     // AC2: send only the routine fields that changed; AC3, AC4: errors stay in the view.
     async saveRoutineEdit() {
       const view = this.eventDetail;
       const routine = view?.routine;
       if (!routine || routine.busy || !this.canEditRoutine(view.detail)) return;
-      routine.error = ""; routine.message = "";
-      const changes = {};
-      for (const field of ROUTINE_FIELDS) {
-        const next = String(routine.form[field] ?? "").trim();
-        if (field === "title" && !next) { routine.error = "Title cannot be empty"; return; }
-        if (next !== String(view.detail[field] ?? "").trim()) changes[field] = next || null;
-      }
+      routine.error = ""; routine.message = ""; routine.confirmDiscard = false;
+      const { changes, error } = this.routineChanges(view);
+      if (error) { routine.error = error; return; }
       if (!Object.keys(changes).length) { routine.message = "No changes to save."; return; }
       routine.busy = true;
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/events/${view.id}`, { method: "PATCH", body: changes, inlineErrors: true });
-        if (this.user !== recipient || this.eventDetail !== view || view.routine !== routine) return;
+        if (this.user !== recipient) return;
+        const refreshLists = () => this.normalizeRole(this.user?.role) === "Organiser" ? this.fetchEvents() : this.fetchAssignedEvents();
+        // PR #42 review: saved after the app closed the view (e.g. navigation): still refresh the lists.
+        if (this.eventDetail !== view || view.routine !== routine) { if (response.ok) await refreshLists(); return; }
         if (!response.ok) { routine.error = this.dialogErrorMessage(response); return; }
         // PATCH returns the shorter event_to_dict (no organiser or coordinator names),
         // so only the routine fields are copied into the view.
         for (const field of ROUTINE_FIELDS) if (field in response.data) view.detail[field] = response.data[field];
         view.routine = null;
         view.notice = "Event details updated.";
-        if (this.normalizeRole(this.user?.role) === "Organiser") await this.fetchEvents();
-        else await this.fetchAssignedEvents();
+        await refreshLists();
       } finally {
         if (view.routine === routine) routine.busy = false;
       }
