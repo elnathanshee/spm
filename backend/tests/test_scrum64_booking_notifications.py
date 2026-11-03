@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
+from backend.booking_rules import singapore_time
 from backend.models import Notification, User, LoginSession, VenueBooking
 from backend.notifications import notify_booking, KIND_BOOKING_REJECTED
 from backend.tests.test_scrum37_rejection_reason import db_session, client, seed_data
@@ -57,8 +58,9 @@ def test_booking_lifecycle(client, db_session, seed_data, outcome):
     assert len(notifications) == 1
     message = notifications[0]['message']
     assert seed_data['venue'].name in message
-    assert booking.booking_start.isoformat(sep=' ') in message
-    assert booking.booking_end.isoformat(sep=' ') in message
+    # [SCRUM-95] Stored in UTC; the message writes Singapore time.
+    assert singapore_time(booking.booking_start).isoformat(sep=' ') in message
+    assert singapore_time(booking.booking_end).isoformat(sep=' ') in message
     if outcome == 'reject':
         assert booking.decision.reason == reason.strip()
         assert reason.strip() in message

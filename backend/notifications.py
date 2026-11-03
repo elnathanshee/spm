@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user
+from .booking_rules import singapore_time  # [SCRUM-95]
 from .database import get_db
 from .models import Event, Notification, User, VenueBooking
 from .status import APPROVED, REJECTED, RETURNED, SUBMITTED
@@ -294,8 +295,8 @@ def notify_booking(db: Session, booking: VenueBooking, kind: str) -> None:
         outcome = "was approved" if kind == KIND_BOOKING_APPROVED else "was rejected"
     message = (
         f'Booking for "{booking.venue.name}" from '
-        f'{booking.booking_start.isoformat(sep=" ")} to '
-        f'{booking.booking_end.isoformat(sep=" ")} {outcome}.'
+        f'{singapore_time(booking.booking_start).isoformat(sep=" ")} to '
+        f'{singapore_time(booking.booking_end).isoformat(sep=" ")} {outcome}.'
     )
     if kind == KIND_BOOKING_REJECTED:
         reason = (booking.decision.reason if booking.decision else None) or booking.rejection_reason

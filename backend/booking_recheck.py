@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from .booking_rules import BLOCKING_STATUSES, conflicts_among, find_conflicts, is_blocking, venue_blocking_candidates
+from .booking_rules import BLOCKING_STATUSES, conflicts_among, find_conflicts, is_blocking, singapore_time, venue_blocking_candidates
 from .models import Venue, VenueBooking, VenueBookingConflictFlag
 
 
@@ -60,7 +60,7 @@ def clash_reason(other: VenueBooking, venue: Venue) -> str:
     """The message a flag shows for a clash with booking `other`."""
     return (
         f"Clashes with booking #{other.id} "
-        f"({other.booking_start.strftime('%Y-%m-%d %H:%M')} - {other.booking_end.strftime('%H:%M')}) "
+        f"({singapore_time(other.booking_start).strftime('%Y-%m-%d %H:%M')} - {singapore_time(other.booking_end).strftime('%H:%M')}) "
         f"once {venue.setup_time_mins}m setup and {venue.turnaround_time_mins}m turnaround are included"
     )
 

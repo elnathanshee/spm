@@ -312,14 +312,14 @@ def test_tc3813_several_clashes_name_the_earliest_starting(db_session, hall, eve
     Booking D 13:00-14:00 is added before booking D 10:00-12:00. Request
     D 11:00-13:30 clashes directly with both.
     Expected: check_venue_availability names the earliest-starting one:
-    (False, "Direct conflict with existing booking (D 10:00 - 12:00)")."""
+    (False, "Direct conflict with existing booking (D 18:00 - 20:00)")."""
     add_booking(db_session, hall, event, at(13), at(14))
     add_booking(db_session, hall, event, at(10), at(12))
 
     available, reason = check_venue_availability(hall, at(11), at(13, 30), db_session)
 
     assert available is False
-    assert reason == f"Direct conflict with existing booking ({D.isoformat()} 10:00 - 12:00)"
+    assert reason == f"Direct conflict with existing booking ({D.isoformat()} 18:00 - 20:00)"
 
 
 # ================================================================ regression: endpoints
@@ -364,8 +364,10 @@ def test_tc3809_conflict_reason_is_word_for_word_unchanged(client, db_session, u
     Booking D 10:00-12:00 at Grand Hall (30 min setup, 45 min turnaround).
     Search D 11:00-13:00 (a direct clash), then D 13:00-14:00 (a buffer-only clash).
     Expected, before and after the change:
-    "Direct conflict with existing booking (D 10:00 - 12:00)", then
-    "Conflicts with booking (D 10:00 - 12:00) once 30m setup and 45m turnaround are included"."""
+    "Direct conflict with existing booking (D 18:00 - 20:00)", then
+    "Conflicts with booking (D 18:00 - 20:00) once 30m setup and 45m turnaround are included".
+    [SCRUM-95] The words are unchanged. Stored times are UTC (D7) and messages
+    write them in Singapore time, so the booking at D 10:00 UTC reads 18:00."""
     add_booking(db_session, hall, event, at(10), at(12))
     client.cookies.set(COOKIE, "tok_coord1")
 
@@ -376,7 +378,7 @@ def test_tc3809_conflict_reason_is_word_for_word_unchanged(client, db_session, u
         return row["conflict_reason"]
 
     day = D.isoformat()
-    assert reason(at(11), at(13)) == f"Direct conflict with existing booking ({day} 10:00 - 12:00)"
+    assert reason(at(11), at(13)) == f"Direct conflict with existing booking ({day} 18:00 - 20:00)"
     assert reason(at(13), at(14)) == (
-        f"Conflicts with booking ({day} 10:00 - 12:00) once 30m setup and 45m turnaround are included"
+        f"Conflicts with booking ({day} 18:00 - 20:00) once 30m setup and 45m turnaround are included"
     )

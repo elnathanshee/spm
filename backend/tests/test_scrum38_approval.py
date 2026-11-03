@@ -222,14 +222,14 @@ def test_tc3815_a_confirmed_booking_blocks_the_period(client, v, e1, e2):
 def test_tc3816_a_coordinator_is_told_the_period_is_unavailable(client, db_session, v, e1, e2):
     """TC-3816 | Negative Path | AC3
     With a Confirmed booking D 10:00-12:00, coord_b requests 10:30-11:30 for E2.
-    Expected: 409 "Direct conflict with existing booking (D 10:00 - 12:00)", and
+    Expected: 409 "Direct conflict with existing booking (D 18:00 - 20:00)", and
     no booking is created. Also proven by TC-3503 and TC-3809."""
     confirmed(client, v, e1, at(10), at(12), "coord_a")
 
     resp = request(client, v, e2, at(10, 30), at(11, 30), "coord_b")
 
     assert resp.status_code == 409
-    assert resp.json()["detail"] == f"Direct conflict with existing booking ({D.isoformat()} 10:00 - 12:00)"
+    assert resp.json()["detail"] == f"Direct conflict with existing booking ({D.isoformat()} 18:00 - 20:00)"
     db_session.expire_all()
     assert db_session.query(VenueBooking).filter(VenueBooking.venue_id == v.id).count() == 1
 
@@ -285,7 +285,7 @@ def test_tc3820_approval_refused_after_a_buffer_change_creates_a_clash(client, d
     13:00-15:45), so it is Pending. Venue Staff raise V's turnaround to 90 minutes,
     so A now occupies V until 13:30.
     Expected: approving B gives 409 "Cannot approve: Conflicts with booking
-    (D 10:00 - 12:00) once 30m setup and 90m turnaround are included"; B stays
+    (D 18:00 - 20:00) once 30m setup and 90m turnaround are included"; B stays
     Pending with no decision recorded; A is unchanged (Confirmed, same times)."""
     a = confirmed(client, v, e1, at(10), at(12), "coord_a")
     b = hold(client, v, e2, at(13, 30), at(15), "coord_b")
@@ -296,7 +296,7 @@ def test_tc3820_approval_refused_after_a_buffer_change_creates_a_clash(client, d
 
     assert resp.status_code == 409
     assert resp.json()["detail"] == (
-        f"Cannot approve: Conflicts with booking ({D.isoformat()} 10:00 - 12:00) "
+        f"Cannot approve: Conflicts with booking ({D.isoformat()} 18:00 - 20:00) "
         "once 30m setup and 90m turnaround are included"
     )
     b_after = view(client, b)
@@ -385,7 +385,7 @@ def test_tc3825_exclude_booking_id_leaves_one_booking_out(db_session, v, e1):
     """TC-3825 | Happy Path | D7
     The only booking at V is b, D 10:00-12:00.
     Expected: check_venue_availability(V, D 10:00, D 12:00, db) gives (False,
-    "Direct conflict with existing booking (D 10:00 - 12:00)"); with
+    "Direct conflict with existing booking (D 18:00 - 20:00)"); with
     exclude_booking_id=b it gives (True, None). Calls without the argument are
     unchanged (TC-3809 and SCRUM-35's tests pass as they are)."""
     b = VenueBooking(venue_id=v.id, event_id=e1.id, booking_start=at(10), booking_end=at(12), status="Confirmed")
@@ -393,7 +393,7 @@ def test_tc3825_exclude_booking_id_leaves_one_booking_out(db_session, v, e1):
     db_session.commit()
 
     assert check_venue_availability(v, at(10), at(12), db_session) == (
-        False, f"Direct conflict with existing booking ({D.isoformat()} 10:00 - 12:00)",
+        False, f"Direct conflict with existing booking ({D.isoformat()} 18:00 - 20:00)",
     )
     assert check_venue_availability(v, at(10), at(12), db_session, exclude_booking_id=b.id) == (True, None)
 

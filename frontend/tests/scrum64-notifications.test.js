@@ -71,3 +71,34 @@ test("TC-6424 late responses cannot restore notifications after logout or accoun
   await pending;
   assert.deepEqual(state.notifications, []);
 });
+
+test("TC-9512 hold notifications retain payloads, distinct mappings and read behaviour with null booking IDs", async () => {
+  const { state } = app();
+  const kinds = ["hold_warning", "hold_expired", "hold_expiry_set"];
+  const titles = ["Hold expiry warning", "Hold expired", "Hold expiry updated"];
+  const tones = ["action", "warning", "info"];
+  const messages = kinds.map((kind, index) => ({ id: index + 1, event_id: 7, booking_id: null, kind, message: `Backend hold message ${index}`, read: false, created_at: "2026-10-28T09:00:00" }));
+  state.user = { user_id: 2, role: "Coordinator" };
+  const calls = [];
+  state.apiRequest = async (path, options) => {
+    calls.push(path);
+    if (!options) return { ok: true, data: messages };
+    assert.equal(options.method, "POST");
+    return { ok: true, data: { ...messages[0], read: true } };
+  };
+  await state.fetchNotifications();
+  assert.equal(state.unreadNotifications(), 3);
+  messages.forEach((notification, index) => {
+    assert.equal(state.notificationTitle(notification), titles[index]);
+    assert.equal(state.notificationTone(notification), tones[index]);
+    assert.equal(state.formatNotificationMessage(notification), notification.message);
+  });
+  state.notificationOpen = true;
+  await state.openNotification(messages[0]);
+  assert.equal(state.unreadNotifications(), 2);
+  assert.equal(state.notificationOpen, true);
+  await state.openNotification(state.notifications[0]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], "/notifications/1/read");
+  assert.equal(state.notificationTitle({ kind: "unknown" }), "Workspace update");
+});

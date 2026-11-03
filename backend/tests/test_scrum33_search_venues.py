@@ -650,12 +650,13 @@ def test_scrum33_tc26_offset_on_end_time_only_does_not_crash(coord_client):
     """TC-3326 (SCRUM-33 AC1, boundary): a period with a time zone offset on
     end_time but not on start_time is handled, not a 500.
 
-    The mirror of TC-3325. Together they cover dropping the offset from each
-    end before the start/end comparison.
+    The mirror of TC-3325. Together they cover converting each end to UTC
+    before the start/end comparison ([SCRUM-95]: 11:00+08:00 is 03:00 UTC, so
+    the period starts at 02:00 to stay valid).
     """
     res = coord_client.get(
         "/venues/search",
-        params={"start_time": "2026-11-20T10:00:00", "end_time": "2026-11-20T11:00:00+08:00"},
+        params={"start_time": "2026-11-20T02:00:00", "end_time": "2026-11-20T11:00:00+08:00"},
     )
 
     assert res.status_code == 200
