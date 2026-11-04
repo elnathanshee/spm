@@ -95,3 +95,13 @@ around these; each entry has the evidence.
   No backend code compares `booking_start`/`booking_end` with `event.proposed_start`.
 - **Needed:** a product decision on whether bookings must cover, or be near, the event's
   proposed date.
+
+## 9. No way to mark all notifications as read
+
+- **Screen:** Notification panel (top bar), every role.
+- **Evidence:** `backend/notifications.py` has only `GET /notifications` and
+  `POST /notifications/{notification_id}/read`, which marks one row. There is no bulk route.
+- **Frontend:** no "Mark all as read" button was added. Sending one request per unread
+  notification would fake a bulk action and could half-finish if one request fails.
+- **Needed:** a `POST /notifications/read-all` (or similar) that sets `read_at` on all of
+  the current user's visible unread notifications in one transaction.

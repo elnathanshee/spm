@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { resetSignedOutState } from "../src/session-state.js";
+import { normalizeRole } from "../src/rbac.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 function app() {
@@ -10,6 +11,7 @@ function app() {
   let poll;
   const context = {
     NAVIGATION: [],
+    normalizeRoleName: normalizeRole,
     requestedFrontendPath: () => null,
     document: { addEventListener: (_, fn) => fn() },
     Alpine: { data: (_, fn) => { factory = fn; } },
@@ -96,9 +98,31 @@ test("TC-9512 hold notifications retain payloads, distinct mappings and read beh
   state.notificationOpen = true;
   await state.openNotification(messages[0]);
   assert.equal(state.unreadNotifications(), 2);
-  assert.equal(state.notificationOpen, true);
+  // It opens the event the notification is about, and closes the panel
+  assert.equal(state.notificationOpen, false);
+  assert.equal(state.eventDetail.id, 7);
+  state.closeEventDetail();
   await state.openNotification(state.notifications[0]);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1], "/notifications/1/read");
+  assert.deepEqual(calls.filter(path => path.startsWith("/notifications/")), ["/notifications/1/read"]);
   assert.equal(state.notificationTitle({ kind: "unknown" }), "Workspace update");
+});
+
+test("TC-9811 a notification links only to a record its backend links and the user's role allow", () => {
+  const { state } = app();
+  const booking = { id: 1, event_id: 4, booking_id: 9, kind: "booking_submitted" };
+  const event = { id: 2, event_id: 4, booking_id: null, kind: "approved" };
+  const reassignedAway = { id: 3, event_id: null, booking_id: null, kind: "reassigned_away" };
+  state.user = { role: "Venue Staff" };
+  assert.deepEqual(JSON.parse(JSON.stringify(state.notificationTarget(booking))), { kind: "booking", id: 9, label: "Open booking" });
+  assert.equal(state.notificationTarget(event), null, "Venue Staff can't read GET /events/{id}");
+  for (const role of ["Organiser", "Coordinator", "Event Coordinator Lead"]) {
+    state.user = { role };
+    assert.equal(state.notificationTarget(event).kind, "event", role);
+    assert.equal(state.notificationTarget({ ...booking, kind: "booking_approved" }).id, 4, `${role} opens the booked event`);
+    assert.equal(state.notificationTarget(reassignedAway), null, "no link to an event the user lost access to");
+  }
+  for (const role of ["Technical Support", "Attendee"]) {
+    state.user = { role };
+    assert.equal(state.notificationTarget(event), null, role);
+  }
 });

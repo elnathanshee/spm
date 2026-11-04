@@ -172,7 +172,8 @@ document.addEventListener("alpine:init", () => {
 
     parseValidationErrors(detail) {
       if (!Array.isArray(detail)) return {};
-      return Object.fromEntries(detail.map(error => [error.loc?.at(-1) || "form", error.msg]));
+      // Pydantic prefixes custom validator messages with "Value error, ".
+      return Object.fromEntries(detail.map(error => [error.loc?.at(-1) || "form", String(error.msg ?? "").replace(/^Value error, /, "")]));
     },
 
     // Success shows as a toast that clears itself; errors and info stay until dismissed.
@@ -200,6 +201,7 @@ document.addEventListener("alpine:init", () => {
 
     async login(username, password) {
       if (!beginAuthentication(this)) return;
+      this.fieldErrors = {};
       const response = await this.apiRequest("/auth/login", { method: "POST", body: { username, password } });
       finishAuthentication(this);
       if (!response.ok) return;
@@ -224,7 +226,6 @@ document.addEventListener("alpine:init", () => {
     rolePath(role) { return defaultPathForRole(role); },
     canAccess(targetRole, userRole) { return roleCanAccess(targetRole, userRole); },
     pageTitle() { if (this.accessDenied) return "Access denied"; return this.navigation.find(entry => entry.path === this.currentPath)?.label || "Workspace"; },
-    roleWorkspace() { return { Organiser: "Event requests", Coordinator: "Planning & review", "Event Coordinator Lead": "Assignment oversight", "Venue Staff": "Venue operations", "Technical Support": "Technical operations", Attendee: "My events" }[this.user?.role] || "Event services"; },
     rolePageHeading() { return { "Venue Staff": "Venue operations", "Technical Support": "Technical support", Attendee: "Event directory" }[this.user?.role] || "Your workspace"; },
     rolePageDescription() { return { "Venue Staff": "Review venue-related work assigned to your role.", "Technical Support": "Keep track of technical and equipment arrangements assigned to you.", Attendee: "Find attendee-facing event information available to your role." }[this.user?.role] || "Your role-specific view of ConnectSphere."; },
     roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "The event directory isn't available yet. Events open to attendees will be listed here once it is." }[this.user?.role] || "There is no work requiring your attention right now."; },
@@ -834,12 +835,22 @@ document.addEventListener("alpine:init", () => {
       if (this.user === recipient && response.ok) this.notifications = this.notifications.map(item => item.id === notification.id ? response.data : item);
     },
 
+    // The record a notification can open, from its backend links: Venue Staff
+    // open the booking; roles that can read GET /events/{id} open the event.
+    // Notifications with neither link (e.g. reassigned_away) open nothing.
+    notificationTarget(notification) {
+      if (notification?.booking_id && this.isVenueStaff()) return { kind: "booking", id: notification.booking_id, label: "Open booking" };
+      if (notification?.event_id && ["Organiser", "Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role))) return { kind: "event", id: notification.event_id, label: "Open event request" };
+      return null;
+    },
+
     async openNotification(notification) {
       if (!notification.read) await this.markNotificationRead(notification);
-      if (notification.booking_id && this.isVenueStaff()) {
-        this.notificationOpen = false;
-        await this.openStaffBooking(notification.booking_id);
-      }
+      const target = this.notificationTarget(notification);
+      if (!target) return;
+      this.notificationOpen = false;
+      if (target.kind === "booking") await this.openStaffBooking(target.id);
+      else await this.openEventDetail(target.id);
     },
 
     canBookEvent(event) {
