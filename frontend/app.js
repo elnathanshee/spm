@@ -13,6 +13,25 @@ import { NO_CHANGES, affectedBookingRows, bufferSummary, changedFields, createPa
 
 // [SCRUM-94] The fields PATCH /events/{id} accepts (backend ROUTINE_FIELDS, SCRUM-28).
 const ROUTINE_FIELDS = ["title", "purpose", "description", "accessibility_needs", "registration_needs"];
+// One time zone for every date and time shown or typed: the backend's Singapore time
+// (booking_rules.SINGAPORE, SCRUM-95: "messages write booking times in Singapore time,
+// as the users read them"). Booking, hold and record times arrive as naive UTC; event
+// dates arrive as the naive Singapore wall time the Organiser typed.
+const DISPLAY_TIME_ZONE = "Asia/Singapore";
+const DISPLAY_OFFSET = "+08:00";
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TIME_ZONE, day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+const TIME_FORMAT = new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true });
+const DAY_KEY_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
+
+// One badge tone per backend status (event statuses: backend/status.py; booking
+// statuses: booking_rules and venues). The label is always the status itself.
+const STATUS_TONES = {
+  Draft: "neutral", Submitted: "waiting", "Under Review": "info", Returned: "attention",
+  Approved: "success", Rejected: "danger", Planning: "info", Confirmed: "success",
+  Completed: "neutral", Cancelled: "muted", Pending: "waiting", Tentative: "waiting", Expired: "muted",
+};
+
 // The amend fields GET /events/{id} returns but the GET /events list does not.
 const EVENT_DETAIL_HIDDEN = ["id", "status", "organiser_id", "assigned_coordinator_id"];
 const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equipment_requirements", "registration_needs"];
@@ -156,7 +175,14 @@ document.addEventListener("alpine:init", () => {
       return Object.fromEntries(detail.map(error => [error.loc?.at(-1) || "form", error.msg]));
     },
 
-    showAlert(message, kind = "error") { this.alert = { message, kind }; },
+    // Success shows as a toast that clears itself; errors and info stay until dismissed.
+    showAlert(message, kind = "error") {
+      const alert = { message, kind };
+      this.alert = alert;
+      if (kind === "success" && typeof setTimeout === "function") {
+        setTimeout(() => { if (this.alert?.message === alert.message && this.alert?.kind === "success") this.clearAlert(); }, 6000);
+      }
+    },
     clearAlert() { this.alert = { message: "", kind: "error" }; },
 
     async loadSession() {
@@ -203,7 +229,14 @@ document.addEventListener("alpine:init", () => {
     rolePageDescription() { return { "Venue Staff": "Review venue-related work assigned to your role.", "Technical Support": "Keep track of technical and equipment arrangements assigned to you.", Attendee: "Find attendee-facing event information available to your role." }[this.user?.role] || "Your role-specific view of ConnectSphere."; },
     roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "The event directory isn't available yet. Events open to attendees will be listed here once it is." }[this.user?.role] || "There is no work requiring your attention right now."; },
     roleIcon() { return { "Venue Staff": "building", "Technical Support": "equipment", Attendee: "ticket" }[this.user?.role] || "calendar"; },
-    userInitials() { return String(this.user?.username || "U").split(/[._\s-]+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); },
+    // One initials rule for avatars and monograms: the first letters of the first two
+    // words, or the first two letters of a single word ("organiser1" -> "OR").
+    initials(name) {
+      const words = String(name || "").split(/[^A-Za-z]+/).filter(Boolean);
+      if (!words.length) return "?";
+      return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+    },
+    userInitials() { return this.initials(this.user?.username); },
     unreadNotifications() { return this.notifications.filter(notification => !notification.read).length; },
     notificationTitle(notification) {
       return {
@@ -233,42 +266,56 @@ document.addEventListener("alpine:init", () => {
     notificationIcon(notification) {
       return this.notificationTone(notification) === "success" ? "check" : this.notificationTone(notification) === "warning" ? "alert" : notification?.booking_id ? "building" : "message";
     },
-    formatNotificationTime(value) {
-      if (!value) return "Recently";
-      // created_at is the backend's naive UTC (datetime.utcnow), like booking times.
-      const date = new Date(this.utcTimestamp(value));
-      if (Number.isNaN(date.getTime())) return "Recently";
-      return new Intl.DateTimeFormat("en-SG", { dateStyle: "medium", timeStyle: "short" }).format(date);
-    },
+    // created_at is the backend's naive UTC (datetime.utcnow), like booking times.
+    formatNotificationTime(value) { return this.parseServerTime(value, "utc") ? this.formatDateTime(value, "utc") : "Recently"; },
     formatNotificationMessage(notification) { return this.formatServerTimes(notification?.message); },
-    // [SCRUM-95] A time marked "UTC", Z or an offset is converted to local time. Unmarked times are
-    // the backend's Singapore time and are shown as written. "D 10:00 - 12:00" ends that day or the next.
+    // [SCRUM-95] Times in backend messages: marked "UTC", Z or an offset are converted;
+    // unmarked times are already Singapore time. "D 10:00 - 12:00" ends that day or the next.
     formatServerTimes(text) {
       return String(text || "").replace(
         /(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?(?: - (\d{2}:\d{2}))?( UTC)?/g,
         (match, day, time, zone, endTime, utc) => {
-          const suffix = zone || (utc ? "Z" : "");
+          const suffix = zone || (utc ? "Z" : DISPLAY_OFFSET);
           const start = new Date(`${day}T${time}${suffix}`);
           if (Number.isNaN(start.getTime())) return match;
-          if (!endTime) return this.formatDate(start);
+          if (!endTime) return this.formatDateTime(start);
           let end = new Date(`${day}T${endTime}${suffix}`);
           if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
-          return `${this.formatDate(start)} – ${start.toDateString() === end.toDateString() ? this.formatTime(end) : this.formatDate(end)}`;
+          return this.formatRange(start, end);
         },
       );
     },
-    bookingStatusClass(status) { return { Pending: "status-waiting", Confirmed: "status-approved", Rejected: "status-rejected", Expired: "status-rejected" }[status] || "status-neutral"; },
-    utcTimestamp(value) { return value && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value) ? `${value}Z` : value; },
-    parseUtc(value) { return value ? new Date(this.utcTimestamp(value)) : null; },
-    formatHoldExpiry(value) {
-      const timestamp = this.utcTimestamp(value);
-      return timestamp && Number.isFinite(Date.parse(timestamp)) ? this.formatDate(timestamp) : "Not set";
+
+    // ---- The one date and time format: "4 Nov 2026, 11:55 am", in Singapore time ----
+    // kind "utc": a naive value is UTC (bookings, holds, created_at).
+    // kind "local": a naive value is Singapore wall time (event dates, datetime-local inputs).
+    // A value with Z or an offset is exact either way.
+    parseServerTime(value, kind = "local") {
+      if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+      if (!value) return null;
+      const text = String(value);
+      const date = new Date(HAS_ZONE.test(text) ? text : `${text}${kind === "utc" ? "Z" : DISPLAY_OFFSET}`);
+      return Number.isNaN(date.getTime()) ? null : date;
     },
+    formatDateTime(value, kind = "local") {
+      const date = this.parseServerTime(value, kind);
+      return date ? DATE_TIME_FORMAT.format(date) : "Not set";
+    },
+    formatRange(start, end) {
+      if (!start || !end) return `${start ? this.formatDateTime(start) : "Not set"} – ${end ? this.formatDateTime(end) : "Not set"}`;
+      const sameDay = DAY_KEY_FORMAT.format(start) === DAY_KEY_FORMAT.format(end);
+      return `${this.formatDateTime(start)} – ${sameDay ? TIME_FORMAT.format(end) : this.formatDateTime(end)}`;
+    },
+    // A datetime-local value typed in Singapore time, as the instant it means.
+    inputToDate(value) { return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(String(value || "")) ? this.parseServerTime(value, "local") : null; },
+    utcTimestamp(value) { return value && !HAS_ZONE.test(value) ? `${value}Z` : value; },
+    parseUtc(value) { return this.parseServerTime(value, "utc"); },
+    formatHoldExpiry(value) { return this.formatDateTime(value, "utc"); },
+    formatUtc(value) { return this.formatDateTime(value, "utc"); },
     // [SCRUM-95] Booking times are stored in UTC (D7), like hold times.
-    formatSchedule(start, end) { return `${this.formatHoldExpiry(start)} – ${this.formatHoldExpiry(end)}`; },
+    formatSchedule(start, end) { return this.formatRange(this.parseUtc(start), this.parseUtc(end)); },
     // [SCRUM-89] AC5: the requester by name.
     requesterLabel(detail) { return detail?.requester_name || "Not recorded"; },
-    formatUtc(value) { return value ? this.formatDate(this.parseUtc(value).toISOString()) : "Not set"; },
     listText(items) { return Array.isArray(items) && items.length ? items.join(", ") : "Not recorded"; },
     filteredVenueBookings() {
       const workspace = this.venueWorkspace;
@@ -748,8 +795,9 @@ document.addEventListener("alpine:init", () => {
       const review = this.staffBooking;
       if (!this.isVenueStaff() || !review?.detail || review.busy || review.detail.status !== "Pending") return;
       this.fieldErrors = {}; review.error = "";
-      const expiry = review.holdExpiry ? new Date(review.holdExpiry) : null;
-      if (!expiry || Number.isNaN(expiry.getTime())) { this.fieldErrors.holdExpiry = "Choose the new expiry date and time"; return; }
+      // The input is Singapore time, like every time the app shows.
+      const expiry = this.inputToDate(review.holdExpiry);
+      if (!expiry) { this.fieldErrors.holdExpiry = "Choose the new expiry date and time"; return; }
       if (expiry <= new Date()) { this.fieldErrors.holdExpiry = "The new expiry must be in the future"; return; }
       const start = this.parseUtc(review.detail.booking_start);
       if (start && expiry > start) { this.fieldErrors.holdExpiry = "The new expiry can't be later than the booking's start"; return; }
@@ -812,7 +860,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     canUpdateHoldWarning(booking) {
-      return this.isOwnPendingHold(booking) && Date.parse(this.utcTimestamp(booking.hold_expires_at)) > Date.now();
+      return this.isOwnPendingHold(booking) && (this.parseUtc(booking.hold_expires_at)?.getTime() ?? 0) > Date.now();
     },
 
     async updateHoldWarning(booking) {
@@ -917,9 +965,9 @@ document.addEventListener("alpine:init", () => {
       try {
         const search = dialog.search || {};
         const queryParts = [];
-        // [SCRUM-95] The inputs hold local times; send them in UTC (D7), as the
+        // [SCRUM-95] The inputs hold Singapore times; send them in UTC (D7), as the
         // booking submit does. An unreadable value goes as typed for the API to reject.
-        const utc = value => Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : value;
+        const utc = value => this.inputToDate(value)?.toISOString() ?? value;
         if (search.start_time) queryParts.push(`start_time=${encodeURIComponent(utc(search.start_time))}`);
         if (search.end_time) queryParts.push(`end_time=${encodeURIComponent(utc(search.end_time))}`);
         if (search.min_capacity !== undefined && search.min_capacity !== null && search.min_capacity !== "") {
@@ -995,17 +1043,20 @@ document.addEventListener("alpine:init", () => {
       dialog.error = "";
       const { venue_id, booking_start, booking_end } = dialog.form;
       if (!dialog.venues.some(venue => venue.id === Number(venue_id))) this.fieldErrors.venue_id = "Select a venue";
-      if (!booking_start || !Number.isFinite(Date.parse(booking_start))) this.fieldErrors.booking_start = "Enter a valid start date and time";
-      else if (Date.parse(booking_start) <= Date.now()) this.fieldErrors.booking_start = "Start must be in the future";
-      if (!booking_end || !Number.isFinite(Date.parse(booking_end)) || Date.parse(booking_end) <= Date.parse(booking_start)) this.fieldErrors.booking_end = "End must be after start";
+      // The inputs are Singapore time, like every time the app shows.
+      const start = this.inputToDate(booking_start);
+      const end = this.inputToDate(booking_end);
+      if (!start) this.fieldErrors.booking_start = "Enter a valid start date and time";
+      else if (start <= new Date()) this.fieldErrors.booking_start = "Start must be in the future";
+      if (!end || !start || end <= start) this.fieldErrors.booking_end = "End must be after start";
       if (Object.keys(this.fieldErrors).length) return;
       dialog.busy = true;
       dialog.submitting = true;
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/venues/${Number(venue_id)}/bookings`, {
-          // [SCRUM-95] The inputs hold local times; send them in UTC (D7).
-          method: "POST", inlineErrors: true, body: { event_id: dialog.event.id, booking_start: new Date(booking_start).toISOString(), booking_end: new Date(booking_end).toISOString() },
+          // [SCRUM-95] Singapore-time inputs, sent in UTC (D7).
+          method: "POST", inlineErrors: true, body: { event_id: dialog.event.id, booking_start: start.toISOString(), booking_end: end.toISOString() },
         });
         if (this.user !== recipient || this.bookingDialog !== dialog) return;
         if (!response.ok) {
@@ -1241,10 +1292,13 @@ document.addEventListener("alpine:init", () => {
     },
     closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; this.amendOriginal = null; },
     async submitModal() { if (this.decisionBusy || !this.modal.open || this.modal.loading || this.modal.loadError) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
-    statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
-    suitabilityBadgeClass(status) { return { suitable: "status-approved", unsuitable: "status-rejected", unknown: "status-waiting" }[status] || "status-neutral"; },
-    availabilityClass(available) { return available ? "status-approved" : "status-rejected"; },
-    formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set"; },
-    formatTime(value) { return new Intl.DateTimeFormat("en", { timeStyle: "short" }).format(new Date(value)); },
+    // One tone per backend status, events and bookings alike (STATUS_TONES).
+    statusClass(status) { return `badge-${STATUS_TONES[status] || "neutral"}`; },
+    bookingStatusClass(status) { return this.statusClass(status); },
+    suitabilityBadgeClass(status) { return { suitable: "badge-success", unsuitable: "badge-danger", unknown: "badge-waiting" }[status] || "badge-neutral"; },
+    suitabilityLabel(status) { return { suitable: "Suitable", unsuitable: "Unsuitable", unknown: "Unknown" }[status] || String(status || "Unknown"); },
+    availabilityClass(available) { return available ? "badge-success" : "badge-danger"; },
+    formatDate(value) { return this.formatDateTime(value, "local"); },
+    formatTime(value) { const date = this.parseServerTime(value, "local"); return date ? TIME_FORMAT.format(date) : "Not set"; },
   }));
 });
