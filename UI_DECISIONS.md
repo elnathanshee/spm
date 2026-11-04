@@ -55,11 +55,11 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 
 | Rule | Where | Controlled by |
 |---|---|---|
-| Active work and finished requests are separate. Two chips, "Active" and "Completed", switch between them, each with its count. Completed means Rejected, Completed or Cancelled; everything else is active. | Assigned requests | `app.js` `COORDINATOR_GROUPS` (`active`), `coordinatorScopeChips()` |
+| Three filters, in this order: Active (the default), Completed, All. Completed means Rejected, Completed or Cancelled; everything else is active. All shows every assigned request once, under the same status sections. Each filter's count is the number of requests it shows with the current search. | Assigned requests | `app.js` `COORDINATOR_GROUPS` (`active`), `coordinatorScopeChips()`, `coordinatorInScope()`; tests TC-9931, TC-9932 |
 | Sections keep the backend's queue order: awaiting first review, longest wait first, then by proposed date (`coordinator.assigned_requests`). | Assigned requests | `app.js` `coordinatorGroups()` |
-| Counters are the sum of the sections on screen, after any search: "Need a decision" (Awaiting first review + Under review), "Waiting on the Organiser", "Approved and in planning" (Approved + Planning + Confirmed). Each counter's tooltip names its sections. Completed requests are counted on their chip. | Assigned requests | `app.js` `coordinatorCounters()`, `COORDINATOR_STAGES`; test TC-9932 |
+| Counts appear only on the filters and section headings; there is no summary row. Search applies within the selected filter. The number of matches is announced to screen readers, and when nothing matches the empty state names the filter and offers "Clear search". | Assigned requests | `index.html` Coordinator template; test TC-9701 |
 | One main action per row, from the backend's rules: "Start review" for Submitted; "Record decision" for Under Review, which opens the details panel holding Approve, Request clarification and Reject. No main action for other statuses or for unassigned requests. | Assigned requests | `app.js` `coordinatorPrimary()`, `canDecideEvent()`; test TC-9933 |
-| "Venue bookings" appears in every status, because the backend accepts booking requests in any status (confirmed; see item 10 below). | Assigned requests | `app.js` `canBookEvent()`; test TC-9934 |
+| "Venue bookings" follows the venue booking rule in section 4. | Assigned requests | `app.js` `canBookEvent()`; test TC-9934 |
 | Search covers title, organiser and #ID; on All events also the coordinator. All events also filters by status. Both work on the list already loaded. | Both Coordinator screens | `app.js` `coordinatorMatches()`, `filteredAllEvents()` |
 | Loading, load-error (keeping the list already shown), permission-denied and empty states. | Both Coordinator screens | `app.js` `recordListResult()`; test TC-9935 |
 
@@ -74,5 +74,49 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 7. **"Returned for clarification" uses an attention colour** (orange heading); no other section is coloured.
 8. **The collapsed rail hides the name, role and "Sign out" text.** They stay available to screen readers and as hover titles.
 9. **`.lead-row-actions` stays a page rule.** It's used by one screen. The request list (`.request-row` and related rules) moved to `components.css` when the Coordinator rows adopted it.
-10. **Resolved: "Venue bookings" only when the state allows it.** The Coordinator redesign asked for this, but the backend allows venue bookings in every state: `venues.submit_venue_booking_request` checks role, assignment, venue and clashes, not the event's status. `BACKEND_ISSUES.md` #5 records that the button stays until a backend rule exists, and hiding it would also hide the booking history of closed requests. Kept for every status. **Confirmed by the user (keep as is)** until `BACKEND_ISSUES.md` #5 adds a backend rule.
-11. **Counters by stage, not one per section.** One counter per section repeated every heading and wrapped onto two rows, so they're grouped into three stages.
+10. **Resolved: Venue bookings by request status.** See section 4 for the final rule. Still open: making finished requests view-only, which needs a backend rule first.
+11. **Resolved: Coordinator counters removed.** They repeated the filter and section counts (see the summary metric rule in section 4).
+
+## 4. Rules
+
+### Summary metrics
+
+**Don't show a summary metric that repeats a filter or section count. Use one only if it adds
+decision-making information not visible in the list.**
+
+- **Applies to:** every role's list pages.
+- **Follows it:** Organiser requests, Coordinator assigned requests and Coordinator all events.
+  Their counts appear only on filters and section headings. Guarded by UI-D8.
+- **⚠ Pages that break it, not changed yet:**
+
+  | Page | Metric | Repeats |
+  |---|---|---|
+  | Venue Staff, Venue operations | "Active venues" | The catalogue's "N total" |
+  | Venue Staff, Venue operations | "Pending requests" | The "Pending" filter chip's count |
+  | Venue Staff, Venue operations | "Unread updates" | The notification bell's unread badge |
+  | Lead, Assignment oversight | "Needs assignment" | The "N need assignment" pill in the page header |
+  | Lead, Assignment oversight | "Assigned events" | A count of the list below, which has no section for it |
+  | Technical Support, Equipment worklist | "Events" and "Equipment lines" | The number of event groups and item rows in the worklist |
+
+  The Lead's "Active coordinators" adds information that isn't in the list, so it meets the rule.
+
+### Venue bookings by request status
+
+- **Backend rule** (checked in `venues.py`, `events.py` and `venue_holds.py`):
+  - an assigned Coordinator can view an event's bookings (`get_event_bookings`), search venues
+    (`require_venue_searcher`), request a venue (`submit_venue_booking_request`) and set a hold
+    warning on their own live hold (`set_hold_warning`), in **every** request status;
+  - a Coordinator who isn't assigned is refused (403).
+- **Frontend rule:**
+  - **Booking changes are allowed in every status**, so the button shows for every status on an
+    assigned request.
+  - **No access:** the button is hidden (`canBookEvent` requires the assignment). On the
+    Coordinator pages every request is assigned to the Coordinator; "All events" has no
+    "Venue bookings" button.
+- **⚠ Flagged, not applied:**
+  - **View-only bookings for finished requests (Rejected, Completed, Cancelled).** The backend
+    allows changes in those statuses, so a view-only page would block actions it permits. It
+    needs a backend rule first (`BACKEND_ISSUES.md` #5).
+  - **Hiding the button for finished requests with no bookings.** The list
+    (`GET /coordinator/events/data`) carries no booking count. Checking would take a
+    `GET /events/{id}/bookings` call per row, which is out of scope here. The button stays.

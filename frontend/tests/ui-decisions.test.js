@@ -77,3 +77,22 @@ test("UI-D7 dates use one formatter in Singapore time; the SGT pill stays until 
   assert.deepEqual(raw, []);
   assert.match(html, /class="timezone-note"[^>]*>Times in SGT</);
 });
+
+test("UI-D8 no summary metric repeats a filter or section count on the Organiser and Coordinator pages", () => {
+  for (const path of ["/events", "/coordinator/events", "/coordinator/all-events"]) {
+    const start = html.indexOf(`currentPath === '${path}' && user.role`);
+    // The page runs to the next page template, or the end of <main>
+    const next = [html.indexOf('<template x-if="currentPath', start + 1), html.indexOf("</main>", start)].filter(at => at > 0);
+    const page = html.slice(start, Math.min(...next));
+    assert.ok(start > 0, path);
+    assert.doesNotMatch(page, /summary-strip|attention-pill/, `${path} has a summary metric`);
+  }
+});
+
+test("UI-D6b on phones the row is a column, so nothing in it keeps a width-based flex basis as its height", () => {
+  const phone = components.slice(components.indexOf("/* ---------- Request list"), components.indexOf("/* ---------- Tables"));
+  const block = phone.slice(phone.indexOf("@media (max-width: 640px)"));
+  assert.match(block, /\.request-row\{flex-direction:column;/);
+  assert.match(block, /\.request-summary\{flex:none\}/);
+  assert.match(block, /\.request-note\{flex-basis:auto\}/);
+});

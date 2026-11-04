@@ -31,11 +31,11 @@ function app(role) {
   return state;
 }
 
-test("TC-9701 (F4) Coordinator counters are the sections shown, and finished requests are kept apart", () => {
+test("TC-9701 (F4) the Coordinator page counts only on its filters and section headings, and keeps finished requests apart", () => {
   const page = html.slice(html.indexOf("currentPath === '/coordinator/events'"), html.indexOf("      </main>"));
-  // Each counter is a section on screen, so the counts can't disagree with the queue
-  assert.match(page, /<div class="summary-strip queue-counters"[^>]*><template x-for="counter in coordinatorCounters\(\)" :key="counter.key"><div[^>]*><span x-text="counter.label"><\/span><strong x-text="counter.count">/);
+  assert.doesNotMatch(page, /summary-strip|queue-counters/, "no summary row repeating the filter and section counts");
   assert.match(page, /x-for="chip in coordinatorScopeChips\(\)"/);
+  assert.match(page, /<span class="group-count" x-text="group.events.length">/);
   assert.doesNotMatch(page, /In progress|Review queue|including decided ones/);
 });
 

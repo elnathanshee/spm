@@ -212,11 +212,11 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 .request-note{flex-basis:100%;margin:0}
 .request-toolbar-single{grid-template-columns:minmax(0,32rem)}
 .request-workspace>.summary-strip{margin-bottom:0}
-.queue-counters{grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr))}
 @media (max-width: 640px) {
 .request-row{flex-direction:column;align-items:stretch;padding:var(--space-4)}
 .request-actions{order:1;flex-wrap:wrap;margin-left:0}
 .request-note{flex-basis:auto}
+.request-summary{flex:none}
 .request-group .queue-heading{padding:var(--space-4)}
 .request-title{flex-wrap:wrap}
 .request-title h3{white-space:normal}

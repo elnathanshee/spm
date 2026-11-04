@@ -33,26 +33,35 @@ test("TC-9931 active work and completed requests are separate, one section per s
   state.assignedView.scope = "completed";
   groups = plain(state.coordinatorGroups());
   assert.deepEqual(groups.map(group => group.label), ["Rejected"]);
-  assert.deepEqual(plain(state.coordinatorScopeChips()), [{ key: "active", label: "Active", count: 6 }, { key: "completed", label: "Completed", count: 1 }]);
+  assert.deepEqual(plain(state.coordinatorScopeChips()), [{ key: "active", label: "Active", count: 6 }, { key: "completed", label: "Completed", count: 1 }, { key: "all", label: "All", count: 7 }]);
+  // All: every request once, under the same sections, active ones first
+  state.assignedView.scope = "all";
+  groups = plain(state.coordinatorGroups());
+  assert.deepEqual(groups.map(group => group.label), ["Awaiting first review", "Under review", "Waiting on the Organiser", "Approved", "Rejected", "Other statuses"]);
+  const ids = groups.flatMap(group => group.events.map(event => event.id));
+  assert.deepEqual([...ids].sort(), [1, 2, 3, 4, 5, 6, 7], "no request is missing or shown twice");
+  assert.equal(state.coordinatorShownCount(), 7);
+  assert.equal(app().assignedView.scope, "active", "Active is the default");
   // Every non-Draft status has a named section, so none falls into "Other"
   for (const status of statuses) assert.notEqual(state.coordinatorGroupOf({ status }).key, "other", status);
 });
 
-test("TC-9932 counters add up the sections shown, so they always match the queue, including while searching", () => {
+test("TC-9932 each filter's count is what it shows, and search works within the selected filter", () => {
   const state = app();
-  state.assignedEvents = [row(1, "Submitted", { title: "Gala" }), row(2, "Submitted", { title: "Fair" }), row(3, "Under Review", { title: "Gala lunch" }), row(4, "Approved"), row(5, "Planning"), row(6, "Rejected")];
-  const counters = () => plain(state.coordinatorCounters()).map(counter => [counter.label, counter.count, counter.sections.join(" + ")]);
-  assert.deepEqual(counters(), [["Need a decision", 3, "Awaiting first review + Under review"], ["Approved and in planning", 2, "Approved + Planning"]]);
-  // The counters equal the rows in the sections they name
-  const shown = plain(state.coordinatorGroups()).reduce((sum, group) => sum + group.events.length, 0);
-  assert.equal(plain(state.coordinatorCounters()).reduce((sum, counter) => sum + counter.count, 0), shown);
+  state.assignedEvents = [row(1, "Submitted", { title: "Gala" }), row(2, "Submitted", { title: "Fair" }), row(3, "Under Review", { title: "Gala lunch" }), row(4, "Approved"), row(5, "Rejected", { title: "Gala picnic" })];
+  const chips = () => plain(state.coordinatorScopeChips()).map(chip => `${chip.label} ${chip.count}`);
+  assert.deepEqual(chips(), ["Active 4", "Completed 1", "All 5"]);
   state.assignedView.query = "gala";
-  assert.deepEqual(counters(), [["Need a decision", 2, "Awaiting first review + Under review"]]);
-  state.assignedView.query = "ORGANISER1";
-  assert.equal(counters().length, 2, "the organiser name is searched too");
-  state.assignedView.query = "";
+  assert.deepEqual(chips(), ["Active 2", "Completed 1", "All 3"], "counts follow the search");
+  for (const scope of ["active", "completed", "all"]) {
+    state.assignedView.scope = scope;
+    const chip = plain(state.coordinatorScopeChips()).find(item => item.key === scope);
+    assert.equal(state.coordinatorShownCount(), chip.count, `${scope}: the chip's count matches the rows shown`);
+  }
   state.assignedView.scope = "completed";
-  assert.deepEqual(counters(), [], "completed requests are counted on their chip, not the active counters");
+  state.assignedView.query = "fair";
+  assert.equal(state.coordinatorGroups().length, 0, "nothing in Completed matches");
+  assert.deepEqual(chips(), ["Active 1", "Completed 0", "All 1"], "the other filters say where the match is");
 });
 
 test("TC-9933 each row has at most one main action, matching what the backend allows", () => {

@@ -71,19 +71,17 @@ function savedSidebarCollapsed() {
 // routine edits from View details (PLANNING_STATUSES). Closed statuses have no decisions left.
 // Venue bookings are offered in every status: the backend accepts them in any (BACKEND_ISSUES #5).
 const COORDINATOR_GROUPS = [
-  { key: "submitted", stage: "decision", label: "Awaiting first review", description: "Not reviewed yet, longest wait first.", statuses: ["Submitted"], active: true, attention: true },
-  { key: "under-review", stage: "decision", label: "Under review", description: "You started the review. Record a decision from Record decision.", statuses: ["Under Review"], active: true },
-  { key: "returned", stage: "organiser", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can amend and resubmit it.", statuses: ["Returned"], active: true },
-  { key: "approved", stage: "planning", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"], active: true },
-  { key: "planning", stage: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"], active: true },
-  { key: "confirmed", stage: "planning", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"], active: true },
-  { key: "rejected", stage: "closed", label: "Rejected", description: "No further decisions can be made.", statuses: ["Rejected"], active: false },
-  { key: "completed", stage: "closed", label: "Completed", description: "No further decisions can be made.", statuses: ["Completed"], active: false },
-  { key: "cancelled", stage: "closed", label: "Cancelled", description: "No further decisions can be made.", statuses: ["Cancelled"], active: false },
+  { key: "submitted", label: "Awaiting first review", description: "Not reviewed yet, longest wait first.", statuses: ["Submitted"], active: true, attention: true },
+  { key: "under-review", label: "Under review", description: "You started the review. Record a decision from Record decision.", statuses: ["Under Review"], active: true },
+  { key: "returned", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can amend and resubmit it.", statuses: ["Returned"], active: true },
+  { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"], active: true },
+  { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"], active: true },
+  { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"], active: true },
+  { key: "rejected", label: "Rejected", description: "No further decisions can be made.", statuses: ["Rejected"], active: false },
+  { key: "completed", label: "Completed", description: "No further decisions can be made.", statuses: ["Completed"], active: false },
+  { key: "cancelled", label: "Cancelled", description: "No further decisions can be made.", statuses: ["Cancelled"], active: false },
 ];
-const COORDINATOR_OTHER = { key: "other", stage: "other", label: "Other statuses", description: "Each request shows its status below its title.", statuses: [], active: true };
-// Counters above the active queue: each is the sum of the sections it names, as shown.
-const COORDINATOR_STAGES = { decision: "Need a decision", organiser: "Waiting on the Organiser", planning: "Approved and in planning", other: "Other statuses" };
+const COORDINATOR_OTHER = { key: "other", label: "Other statuses", description: "Each request shows its status below its title.", statuses: [], active: true };
 const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 
 const ORGANISER_SORTS = {
@@ -480,14 +478,16 @@ document.addEventListener("alpine:init", () => {
         .map(group => ({ ...group, events: this.events.filter(event => this.organiserGroupOf(event) === group.key && this.organiserMatches(event)).sort(sort) }))
         .filter(group => group.events.length);
     },
+    // A chip appears for each section that has requests; its count is what it would show with the current search.
     organiserFilterChips() {
-      const chips = [{ key: "all", label: "All", count: this.events.length }];
+      const shown = key => this.events.filter(event => (key === "all" || this.organiserGroupOf(event) === key) && this.organiserMatches(event)).length;
+      const chips = [{ key: "all", label: "All", count: shown("all") }];
       for (const group of [...ORGANISER_GROUPS, { key: "other", label: "Other statuses" }]) {
-        const count = this.events.filter(event => this.organiserGroupOf(event) === group.key).length;
-        if (count) chips.push({ key: group.key, label: group.label, count });
+        if (this.events.some(event => this.organiserGroupOf(event) === group.key)) chips.push({ key: group.key, label: group.label, count: shown(group.key) });
       }
       return chips;
     },
+    organiserShownCount() { return this.organiserGroups().reduce((total, group) => total + group.events.length, 0); },
     clearOrganiserFilters() { Object.assign(this.eventsView, { query: "", group: "all" }); },
     // GET /events has no rejection reason (BACKEND_ISSUES.md #10). The Organiser's
     // "rejected" notification carries it, in the wording notify_organiser_of_status uses.
@@ -693,28 +693,20 @@ document.addEventListener("alpine:init", () => {
       return !text || [`#${event.id}`, event.title, event.organiser, event.assigned_coordinator].some(value => String(value || "").toLowerCase().includes(text));
     },
     coordinatorGroupOf(event) { return COORDINATOR_GROUPS.find(group => group.statuses.includes(event.status)) || COORDINATOR_OTHER; },
+    coordinatorInScope(event, scope) { return scope === "all" || this.coordinatorGroupOf(event).active === (scope === "active"); },
     coordinatorGroups() {
       const view = this.assignedView;
       return [...COORDINATOR_GROUPS, COORDINATOR_OTHER]
-        .filter(group => group.active === (view.scope === "active"))
+        .filter(group => view.scope === "all" || group.active === (view.scope === "active"))
         .map(group => ({ ...group, events: this.assignedEvents.filter(event => this.coordinatorGroupOf(event).key === group.key && this.coordinatorMatches(event, view.query)) }))
         .filter(group => group.events.length);
     },
-    coordinatorCounters() {
-      const counters = [];
-      for (const group of this.coordinatorGroups()) {
-        if (!COORDINATOR_STAGES[group.stage]) continue;
-        let counter = counters.find(item => item.key === group.stage);
-        if (!counter) counters.push(counter = { key: group.stage, label: COORDINATOR_STAGES[group.stage], count: 0, sections: [] });
-        counter.count += group.events.length;
-        counter.sections.push(group.label);
-      }
-      return counters;
-    },
     coordinatorScopeChips() {
-      const count = active => this.assignedEvents.filter(event => this.coordinatorGroupOf(event).active === active).length;
-      return [{ key: "active", label: "Active", count: count(true) }, { key: "completed", label: "Completed", count: count(false) }];
+      const query = this.assignedView.query;
+      const count = scope => this.assignedEvents.filter(event => this.coordinatorInScope(event, scope) && this.coordinatorMatches(event, query)).length;
+      return [{ key: "active", label: "Active", count: count("active") }, { key: "completed", label: "Completed", count: count("completed") }, { key: "all", label: "All", count: count("all") }];
     },
+    coordinatorShownCount() { return this.coordinatorGroups().reduce((total, group) => total + group.events.length, 0); },
     // The row's one main action, by status. Decisions themselves are made in the detail dialog.
     coordinatorPrimary(event) {
       if (!this.canDecideEvent(event)) return null;
