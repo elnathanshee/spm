@@ -27,41 +27,46 @@ const statuses = [...readFileSync(new URL("../../backend/status.py", import.meta
 test("TC-9931 active work and completed requests are separate, one section per status, in the backend's order", () => {
   const state = app();
   state.assignedEvents = [row(1, "Approved"), row(2, "Submitted"), row(3, "Rejected"), row(4, "Under Review"), row(5, "Returned"), row(6, "Submitted"), row(7, "Mystery")];
+  state.assignedView.scope = "active";
   let groups = plain(state.coordinatorGroups());
   assert.deepEqual(groups.map(group => group.label), ["Awaiting first review", "Under review", "Waiting on the Organiser", "Approved", "Other statuses"]);
   assert.deepEqual(groups[0].events.map(event => event.id), [2, 6], "the backend's longest-wait order is kept");
   state.assignedView.scope = "completed";
   groups = plain(state.coordinatorGroups());
   assert.deepEqual(groups.map(group => group.label), ["Rejected"]);
-  assert.deepEqual(plain(state.coordinatorScopeChips()), [{ key: "active", label: "Active", count: 6 }, { key: "completed", label: "Completed", count: 1 }, { key: "all", label: "All", count: 7 }]);
-  // All: every request once, under the same sections, active ones first
+  assert.deepEqual(plain(state.coordinatorScopeChips()), [{ key: "all", label: "All", count: 7 }, { key: "active", label: "Active", count: 6 }, { key: "completed", label: "Completed", count: 1 }]);
+  // All: every request once, under the same sections, those needing a decision first
   state.assignedView.scope = "all";
   groups = plain(state.coordinatorGroups());
   assert.deepEqual(groups.map(group => group.label), ["Awaiting first review", "Under review", "Waiting on the Organiser", "Approved", "Rejected", "Other statuses"]);
   const ids = groups.flatMap(group => group.events.map(event => event.id));
   assert.deepEqual([...ids].sort(), [1, 2, 3, 4, 5, 6, 7], "no request is missing or shown twice");
   assert.equal(state.coordinatorShownCount(), 7);
-  assert.equal(app().assignedView.scope, "active", "Active is the default");
+  assert.equal(app().assignedView.scope, "all", "All is the default");
   // Every non-Draft status has a named section, so none falls into "Other"
   for (const status of statuses) assert.notEqual(state.coordinatorGroupOf({ status }).key, "other", status);
 });
 
-test("TC-9932 each filter's count is what it shows, and search works within the selected filter", () => {
+test("TC-9932 chip counts are what each filter contains before search; search and sort apply within the filter", () => {
   const state = app();
-  state.assignedEvents = [row(1, "Submitted", { title: "Gala" }), row(2, "Submitted", { title: "Fair" }), row(3, "Under Review", { title: "Gala lunch" }), row(4, "Approved"), row(5, "Rejected", { title: "Gala picnic" })];
+  state.assignedEvents = [row(1, "Submitted", { title: "Gala", proposed_start: "2027-05-01T09:00:00" }), row(2, "Submitted", { title: "Fair", proposed_start: "2027-02-01T09:00:00" }), row(3, "Under Review", { title: "Gala lunch" }), row(4, "Approved"), row(5, "Rejected", { title: "Gala picnic" })];
   const chips = () => plain(state.coordinatorScopeChips()).map(chip => `${chip.label} ${chip.count}`);
-  assert.deepEqual(chips(), ["Active 4", "Completed 1", "All 5"]);
-  state.assignedView.query = "gala";
-  assert.deepEqual(chips(), ["Active 2", "Completed 1", "All 3"], "counts follow the search");
-  for (const scope of ["active", "completed", "all"]) {
+  assert.deepEqual(chips(), ["All 5", "Active 4", "Completed 1"]);
+  for (const scope of ["all", "active", "completed"]) {
     state.assignedView.scope = scope;
     const chip = plain(state.coordinatorScopeChips()).find(item => item.key === scope);
-    assert.equal(state.coordinatorShownCount(), chip.count, `${scope}: the chip's count matches the rows shown`);
+    assert.equal(state.coordinatorShownCount(), chip.count, `${scope}: with no search the chip's count matches the rows shown`);
   }
-  state.assignedView.scope = "completed";
-  state.assignedView.query = "fair";
-  assert.equal(state.coordinatorGroups().length, 0, "nothing in Completed matches");
-  assert.deepEqual(chips(), ["Active 1", "Completed 0", "All 1"], "the other filters say where the match is");
+  state.assignedView.query = "gala";
+  assert.deepEqual(chips(), ["All 5", "Active 4", "Completed 1"], "counts don't change while searching");
+  state.assignedView.scope = "active";
+  assert.equal(state.coordinatorShownCount(), 2, "search applies within Active");
+  // Sort within each section: queue order (backend) or proposed date
+  state.assignedView.query = "";
+  assert.deepEqual(plain(state.coordinatorGroups())[0].events.map(event => event.id), [1, 2]);
+  state.assignedView.sort = "start";
+  assert.deepEqual(plain(state.coordinatorGroups())[0].events.map(event => event.id), [2, 1]);
+  assert.deepEqual(plain(state.coordinatorGroups()).map(group => group.label), ["Awaiting first review", "Under review", "Approved"], "sorting never moves a section");
 });
 
 test("TC-9933 each row has at most one main action, matching what the backend allows", () => {
@@ -104,7 +109,9 @@ test("TC-9935 both Coordinator lists show loading, error and permission-denied s
   resetSignedOutState(state);
   assert.equal(state.assignedView.loaded, false);
   assert.equal(state.allEventsView.loaded, false);
-  for (const label of ["Loading your requests…", "You can't view assigned requests", "No requests assigned to you", "Loading events…", "You can't view these events", "No events match"]) assert.ok(html.includes(label), label);
+  for (const label of ["Loading your requests…", "You can't view assigned requests", "No requests assigned to you", "Loading events…", "You can't view these events"]) assert.ok(html.includes(label), label);
+  // No-match states come from the shared list controls
+  for (const key of ["assigned", "allEvents"]) assert.match(html, new RegExp(`<div class="list-controls" x-data="\\{ key: '${key}' \\}">`));
 });
 
 test("TC-9936 All events can be searched and filtered by status from the loaded list", () => {

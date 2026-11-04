@@ -84,6 +84,14 @@ const COORDINATOR_GROUPS = [
 const COORDINATOR_OTHER = { key: "other", label: "Other statuses", description: "Each request shows its status below its title.", statuses: [], active: true };
 const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 
+// Sort comparators shared by every list (UI_DECISIONS "List controls"). Missing values go last.
+const byAsc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(a[field] || "").localeCompare(String(b[field] || ""));
+const byDesc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(b[field] || "").localeCompare(String(a[field] || ""));
+const keepOrder = () => 0;
+// Event statuses in workflow order, for status filter chips
+const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"];
+const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
+
 const ORGANISER_SORTS = {
   // Soonest proposed date first; requests without a date last.
   start: (a, b) => (a.proposed_start ? 0 : 1) - (b.proposed_start ? 0 : 1) || String(a.proposed_start || "").localeCompare(String(b.proposed_start || "")),
@@ -107,8 +115,11 @@ document.addEventListener("alpine:init", () => {
     draftBusy: false,
     assignedEvents: [],
     allCoordinatorEvents: [],
-    assignedView: { ...listView(), scope: "active" },
-    allEventsView: { ...listView(), status: "all" },
+    assignedView: { ...listView(), scope: "all", sort: "queue" },
+    allEventsView: { ...listView(), status: "all", sort: "submitted" },
+    leadView: { query: "", filter: "all", sort: "submitted" },
+    bookingView: { query: "", sort: "start" },
+    technicalView: { query: "", sort: "event" },
     leadEvents: [],
     coordinators: [],
     notifications: [],
@@ -402,9 +413,12 @@ document.addEventListener("alpine:init", () => {
     filteredVenueBookings() {
       const workspace = this.venueWorkspace;
       if (!workspace) return [];
-      return workspace.bookingFilter === "All"
-        ? workspace.bookings
-        : workspace.bookings.filter(booking => booking.status === workspace.bookingFilter);
+      const view = this.bookingView || { query: "", sort: "start" };
+      const text = (view.query || "").trim().toLowerCase();
+      return workspace.bookings
+        .filter(booking => workspace.bookingFilter === "All" || booking.status === workspace.bookingFilter)
+        .filter(booking => !text || [`#${booking.id}`, booking.event_title, booking.venue_name].some(value => String(value || "").toLowerCase().includes(text)))
+        .sort(view.sort === "hold" ? byAsc("hold_expires_at") : byAsc("booking_start"));
     },
     bookingFilterCount(filter) {
       if (!this.venueWorkspace) return 0;
@@ -478,12 +492,12 @@ document.addEventListener("alpine:init", () => {
         .map(group => ({ ...group, events: this.events.filter(event => this.organiserGroupOf(event) === group.key && this.organiserMatches(event)).sort(sort) }))
         .filter(group => group.events.length);
     },
-    // A chip appears for each section that has requests; its count is what it would show with the current search.
+    // A chip for each section that has requests, counting what it contains before search.
     organiserFilterChips() {
-      const shown = key => this.events.filter(event => (key === "all" || this.organiserGroupOf(event) === key) && this.organiserMatches(event)).length;
-      const chips = [{ key: "all", label: "All", count: shown("all") }];
+      const chips = [{ key: "all", label: "All", count: this.events.length }];
       for (const group of [...ORGANISER_GROUPS, { key: "other", label: "Other statuses" }]) {
-        if (this.events.some(event => this.organiserGroupOf(event) === group.key)) chips.push({ key: group.key, label: group.label, count: shown(group.key) });
+        const count = this.events.filter(event => this.organiserGroupOf(event) === group.key).length;
+        if (count) chips.push({ key: group.key, label: group.label, count });
       }
       return chips;
     },
@@ -694,17 +708,18 @@ document.addEventListener("alpine:init", () => {
     },
     coordinatorGroupOf(event) { return COORDINATOR_GROUPS.find(group => group.statuses.includes(event.status)) || COORDINATOR_OTHER; },
     coordinatorInScope(event, scope) { return scope === "all" || this.coordinatorGroupOf(event).active === (scope === "active"); },
+    // Sections that need a decision come first in All and Active; sorting applies within each section.
     coordinatorGroups() {
       const view = this.assignedView;
+      const sort = view.sort === "start" ? byAsc("proposed_start") : keepOrder;
       return [...COORDINATOR_GROUPS, COORDINATOR_OTHER]
         .filter(group => view.scope === "all" || group.active === (view.scope === "active"))
-        .map(group => ({ ...group, events: this.assignedEvents.filter(event => this.coordinatorGroupOf(event).key === group.key && this.coordinatorMatches(event, view.query)) }))
+        .map(group => ({ ...group, events: this.assignedEvents.filter(event => this.coordinatorGroupOf(event).key === group.key && this.coordinatorMatches(event, view.query)).sort(sort) }))
         .filter(group => group.events.length);
     },
     coordinatorScopeChips() {
-      const query = this.assignedView.query;
-      const count = scope => this.assignedEvents.filter(event => this.coordinatorInScope(event, scope) && this.coordinatorMatches(event, query)).length;
-      return [{ key: "active", label: "Active", count: count("active") }, { key: "completed", label: "Completed", count: count("completed") }, { key: "all", label: "All", count: count("all") }];
+      const count = scope => this.assignedEvents.filter(event => this.coordinatorInScope(event, scope)).length;
+      return [{ key: "all", label: "All", count: count("all") }, { key: "active", label: "Active", count: count("active") }, { key: "completed", label: "Completed", count: count("completed") }];
     },
     coordinatorShownCount() { return this.coordinatorGroups().reduce((total, group) => total + group.events.length, 0); },
     // The row's one main action, by status. Decisions themselves are made in the detail dialog.
@@ -713,13 +728,66 @@ document.addEventListener("alpine:init", () => {
       return event.status === "Submitted" ? { label: "Start review", run: () => this.startReview(event.id) } : { label: "Record decision", run: () => this.openEventDetail(event.id) };
     },
     // All events (read-only): search and a status filter over the loaded list.
+    // Status chips in workflow order, only for statuses present; unknown statuses follow.
     allEventStatusChips() {
-      const statuses = [...new Set(this.allCoordinatorEvents.map(event => event.status))];
+      const present = [...new Set(this.allCoordinatorEvents.map(event => event.status))];
+      const statuses = [...EVENT_STATUS_ORDER.filter(status => present.includes(status)), ...present.filter(status => !EVENT_STATUS_ORDER.includes(status))];
       return [{ key: "all", label: "All", count: this.allCoordinatorEvents.length }, ...statuses.map(status => ({ key: status, label: status, count: this.allCoordinatorEvents.filter(event => event.status === status).length }))];
     },
     filteredAllEvents() {
       const view = this.allEventsView;
-      return this.allCoordinatorEvents.filter(event => (view.status === "all" || event.status === view.status) && this.coordinatorMatches(event, view.query));
+      return this.allCoordinatorEvents.filter(event => (view.status === "all" || event.status === view.status) && this.coordinatorMatches(event, view.query))
+        .sort(view.sort === "start" ? byAsc("proposed_start") : keepOrder);
+    },
+
+    // Lead: needs assignment (no Coordinator yet) or assigned, in the backend's order (oldest submission first).
+    leadFilterChips() {
+      const count = filter => this.leadEvents.filter(event => this.leadInFilter(event, filter)).length;
+      return [{ key: "all", label: "All", count: count("all") }, { key: "unassigned", label: "Needs assignment", count: count("unassigned") }, { key: "assigned", label: "Assigned", count: count("assigned") }];
+    },
+    leadInFilter(event, filter) { return filter === "all" || (filter === "unassigned") === !event.assigned_coordinator_id; },
+    filteredLeadEvents() {
+      const view = this.leadView;
+      return this.leadEvents.filter(event => this.leadInFilter(event, view.filter) && this.coordinatorMatches(event, view.query))
+        .sort(view.sort === "start" ? byAsc("proposed_start") : keepOrder);
+    },
+
+    // Technical Support: events grouped as before; search covers the event and each line, and
+    // sorting orders the events (and the lines within each).
+    technicalLineMatches(item, query) {
+      const text = (query || "").trim().toLowerCase();
+      return !text || [`#${item.event_id}`, item.event_title, item.equipment_type, item.technical_requirements, item.requested_by].some(value => String(value || "").toLowerCase().includes(text));
+    },
+
+    // ---- Shared list controls (UI_DECISIONS "List controls"): one config per list, one markup pattern.
+    listControls(key) {
+      const configs = {
+        organiser: () => ({ view: this.eventsView, filter: { target: this.eventsView, key: "group" }, chips: this.organiserFilterChips(), placeholder: "Title, purpose, description or #ID", label: "Show requests by status",
+          sorts: [{ value: "start", label: "Proposed date, soonest first" }, { value: "submitted", label: "Recently submitted" }, { value: "created", label: "Recently created" }], sortLabel: "Sort within each section", shown: this.organiserShownCount(), noun: "requests" }),
+        assigned: () => ({ view: this.assignedView, filter: { target: this.assignedView, key: "scope" }, chips: this.coordinatorScopeChips(), placeholder: "Title, organiser or #ID", label: "Show requests",
+          sorts: [{ value: "queue", label: "Queue order, longest wait first" }, { value: "start", label: "Proposed date, soonest first" }], sortLabel: "Sort within each section", shown: this.coordinatorShownCount(), noun: "requests" }),
+        allEvents: () => ({ view: this.allEventsView, filter: { target: this.allEventsView, key: "status" }, chips: this.allEventStatusChips(), placeholder: "Title, organiser, coordinator or #ID", label: "Show events by status",
+          sorts: [{ value: "submitted", label: "Oldest submission first" }, { value: "start", label: "Proposed date, soonest first" }], sortLabel: "Sort", shown: this.filteredAllEvents().length, noun: "events" }),
+        lead: () => ({ view: this.leadView, filter: { target: this.leadView, key: "filter" }, chips: this.leadFilterChips(), placeholder: "Title, organiser, coordinator or #ID", label: "Show requests by assignment",
+          sorts: [{ value: "submitted", label: "Oldest submission first" }, { value: "start", label: "Proposed date, soonest first" }], sortLabel: "Sort", shown: this.filteredLeadEvents().length, noun: "requests" }),
+        bookings: () => this.venueWorkspace && ({ view: this.bookingView, filter: { target: this.venueWorkspace, key: "bookingFilter" }, chips: BOOKING_FILTERS.map(filter => ({ key: filter, label: filter, count: this.bookingFilterCount(filter) })),
+          placeholder: "Event, venue or booking #ID", label: "Filter booking requests", sorts: [{ value: "start", label: "Booking date, soonest first" }, { value: "hold", label: "Hold expiring soonest" }], sortLabel: "Sort", shown: this.filteredVenueBookings().length, noun: "bookings" }),
+        technical: () => ({ view: this.technicalView, filter: null, chips: null, placeholder: "Event, equipment, requirements, recorded by or #ID", label: "",
+          sorts: [{ value: "event", label: "Event date, soonest first" }, { value: "recorded", label: "Recently recorded" }], sortLabel: "Sort", shown: this.technicalEventGroups().reduce((total, group) => total + group.items.length, 0), noun: "equipment lines" }),
+      };
+      const config = configs[key]?.();
+      if (!config) return null;
+      const selected = config.filter ? config.chips.find(chip => chip.key === config.filter.target[config.filter.key]) : null;
+      const scope = selected && !["all", "All"].includes(selected.key) ? ` in ${selected.label}` : "";
+      const query = (config.view.query || "").trim();
+      return { ...config, id: key, selected, query,
+        announce: query ? `${config.shown} ${config.shown === 1 ? config.noun.replace(/s$/, "").replace(/ lines$/, " line") : config.noun} match${config.shown === 1 ? "es" : ""}${scope}` : "",
+        noMatch: `No ${config.noun} match “${query}”${scope}` };
+    },
+    clearListSearch(key) {
+      const config = this.listControls(key);
+      if (config) config.view.query = "";
+      if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`${key}-search`)?.focus());
     },
 
     async fetchLeadData() {
@@ -776,11 +844,20 @@ document.addEventListener("alpine:init", () => {
 
     // The worklist's lines grouped by event, keeping the backend's order.
     technicalEventGroups() {
+      const view = this.technicalView || { query: "", sort: "event" };
       const groups = [];
       for (const item of this.technicalWorklist?.items || []) {
+        if (!this.technicalLineMatches(item, view.query)) continue;
         let group = groups.find(entry => entry.event_id === item.event_id);
         if (!group) groups.push(group = { event_id: item.event_id, event_title: item.event_title, event_proposed_start: item.event_proposed_start, items: [] });
         group.items.push(item);
+      }
+      if (view.sort === "recorded") {
+        for (const group of groups) {
+          group.items.sort(byDesc("created_at"));
+          group.latest = group.items[0]?.created_at || "";
+        }
+        groups.sort(byDesc("latest"));
       }
       return groups;
     },

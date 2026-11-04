@@ -188,7 +188,6 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
    Sections per status, rows with the title and details on the left and the actions on the right
    (UI_DECISIONS D4, D6). .request-group-attention marks the section that needs the user first. */
 .request-workspace{display:grid;gap:var(--space-4)}
-.request-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 16rem;align-items:end;gap:var(--space-4)}
 .request-load-error{justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-4)}
 .request-group .queue-heading{padding:var(--space-4) var(--space-5)}
 .request-group h2{display:flex;align-items:center;gap:var(--space-2)}
@@ -210,7 +209,6 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 .request-meta dd{margin:0;color:var(--text-secondary);font-weight:var(--weight-semibold);white-space:nowrap}
 .request-actions{justify-content:flex-end;flex-wrap:wrap;margin-left:auto}
 .request-note{flex-basis:100%;margin:0}
-.request-toolbar-single{grid-template-columns:minmax(0,32rem)}
 .request-workspace>.summary-strip{margin-bottom:0}
 @media (max-width: 640px) {
 .request-row{flex-direction:column;align-items:stretch;padding:var(--space-4)}
@@ -221,8 +219,6 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 .request-title{flex-wrap:wrap}
 .request-title h3{white-space:normal}
 .request-actions>.button{flex:1 1 8rem}
-.request-workspace .filter-chips{flex-wrap:nowrap;overflow-x:auto;margin-inline:calc(-1 * var(--space-4));padding:0 var(--space-4) var(--space-1);scrollbar-width:none}
-.request-toolbar{grid-template-columns:1fr}
 }
 
 /* ---------- Tables (grid tables with a header row) ---------- */
@@ -258,21 +254,37 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 .modal-header h2 { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .modal-header .eyebrow { margin-bottom: var(--space-1); }
 .modal-body { display: grid; gap: var(--space-4); padding: var(--space-6); }
+/* ---------- List controls (every role's lists; UI_DECISIONS "List controls") ----------
+   Search on the left with its label above, sort on the right when the list has one,
+   filter chips with counts on the row below ("All" first). Phones: stacked, chips scroll. */
+.list-controls { display: grid; gap: var(--space-3); }
+.list-controls-row { display: grid; grid-template-columns: minmax(0, 1fr) 16rem; align-items: end; gap: var(--space-4); }
+.list-controls-row.no-sort { grid-template-columns: minmax(0, 32rem); }
+.list-controls-inset { border-bottom: 1px solid var(--border); background: var(--surface-subtle); padding: var(--space-4) var(--space-5); }
+.list-controls-inset .list-no-match { box-shadow: none; }
+@media (max-width: 640px) {
+  .list-controls-row, .list-controls-row.no-sort { grid-template-columns: 1fr; gap: var(--space-3); }
+  .list-controls-inset { padding: var(--space-4); }
+  .list-controls .filter-chips {
+    flex-wrap: nowrap; overflow-x: auto; margin-inline: calc(-1 * var(--space-4));
+    padding: 0 var(--space-4) var(--space-1); scrollbar-width: none;
+  }
+}
+
 /* ---------- Filter chips ---------- */
-.filter-chips, .booking-filters { display: flex; gap: var(--space-2); overflow-x: auto; }
-.filter-chips { flex-wrap: wrap; overflow: visible; }
-.filter-chips button, .booking-filters button {
+.filter-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.filter-chips button {
   display: flex; flex: none; align-items: center; gap: var(--space-2); min-height: var(--control-height-compact);
   border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface);
   color: var(--text-secondary); padding: 0 var(--space-3); font-size: var(--text-sm); font-weight: var(--weight-semibold);
 }
-.filter-chips button:hover, .booking-filters button:hover { border-color: var(--border-control); color: var(--text); }
-.filter-chips button.active, .booking-filters button.active { border-color: var(--brand-600); background: var(--brand-50); color: var(--brand-700); }
-.filter-chips b, .booking-filters b {
+.filter-chips button:hover { border-color: var(--border-control); color: var(--text); }
+.filter-chips button.active { border-color: var(--brand-600); background: var(--brand-50); color: var(--brand-700); }
+.filter-chips b {
   display: grid; min-width: 1.25rem; height: 1.25rem; place-items: center; border-radius: var(--radius-pill);
   background: var(--surface-muted); padding: 0 var(--space-1); font-size: var(--text-xs);
 }
-.filter-chips button.active b, .booking-filters button.active b { background: var(--surface); }
+.filter-chips button.active b { background: var(--surface); }
 
 .modal-actions, .form-actions {
   justify-content: flex-end; border-top: 1px solid var(--border);

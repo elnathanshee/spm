@@ -11,8 +11,11 @@ export function resetSignedOutState(state) {
   state.assignedEvents = [];
   state.notificationOpen = false;
   state.allCoordinatorEvents = [];
-  state.assignedView = { loaded: false, error: "", denied: false, query: "", scope: "active" };
-  state.allEventsView = { loaded: false, error: "", denied: false, query: "", status: "all" };
+  state.assignedView = { loaded: false, error: "", denied: false, query: "", scope: "all", sort: "queue" };
+  state.allEventsView = { loaded: false, error: "", denied: false, query: "", status: "all", sort: "submitted" };
+  state.leadView = { query: "", filter: "all", sort: "submitted" };
+  state.bookingView = { query: "", sort: "start" };
+  state.technicalView = { query: "", sort: "event" };
   state.leadEvents = [];
   state.coordinators = [];
   state.notifications = [];

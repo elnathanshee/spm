@@ -34,7 +34,7 @@ function app(role) {
 test("TC-9701 (F4) the Coordinator page counts only on its filters and section headings, and keeps finished requests apart", () => {
   const page = html.slice(html.indexOf("currentPath === '/coordinator/events'"), html.indexOf("      </main>"));
   assert.doesNotMatch(page, /summary-strip|queue-counters/, "no summary row repeating the filter and section counts");
-  assert.match(page, /x-for="chip in coordinatorScopeChips\(\)"/);
+  assert.match(page, /<div class="list-controls" x-data="\{ key: 'assigned' \}">/);
   assert.match(page, /<span class="group-count" x-text="group.events.length">/);
   assert.doesNotMatch(page, /In progress|Review queue|including decided ones/);
 });

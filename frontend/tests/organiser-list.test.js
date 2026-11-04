@@ -107,7 +107,7 @@ test("TC-9904 the list shows loading, permission-denied and load-error states wi
 
   resetSignedOutState(state);
   assert.equal(state.eventsView.loaded, false);
-  for (const label of ["Loading your requests…", "You can't view these requests", "Couldn't load your requests", "No event requests yet", "No requests match"]) assert.ok(html.includes(label), label);
+  for (const label of ["Loading your requests…", "You can't view these requests", "Couldn't load your requests", "No event requests yet"]) assert.ok(html.includes(label), label);
 });
 
 test("TC-9905 rows have no status badge; View details comes first and Submit for review is the only filled button", () => {

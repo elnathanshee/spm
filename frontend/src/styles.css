@@ -234,6 +234,7 @@
 .lead-event-row{padding:1.35rem 1.4rem 0}
 .lead-event-row .inline-meta{margin-bottom:1rem}
 .unassigned-text{color:var(--tone-waiting-fg)!important;font-weight:750!important}
+.lead-summary{max-width:22rem}
 .lead-row-actions{align-items:flex-end;justify-content:space-between;row-gap:var(--space-4);margin:0 -1.4rem;border-top:1px solid var(--border);background:var(--surface-subtle);padding:.85rem 1.4rem}
 .lead-row-actions .button svg{width:1rem;height:1rem}
 .lead-row-actions>.assignment-controls{margin-left:auto}
@@ -284,7 +285,6 @@
 
 
 .operations-grid{grid-template-columns:minmax(0,1fr);gap:1.25rem}
-.booking-filters{border-bottom:1px solid var(--border);background:var(--surface-subtle);padding:.65rem 1.25rem}
 
 .booking-table-head,.booking-row{display:grid;grid-template-columns:minmax(15rem,1.45fr) minmax(14rem,1fr) 8rem 9rem;align-items:center;column-gap:1.25rem}
 .booking-row{padding:1.15rem 1.3rem}
@@ -317,7 +317,6 @@
 }
 
 @media(max-width:640px){
-.booking-filters{padding-inline:1rem}
 .booking-row{grid-template-columns:1fr;gap:.8rem;padding:1rem}
 .booking-title{align-items:center}
 .mobile-field-label{display:inline;color:var(--text-muted);font-size:var(--text-xs);font-weight:700;text-transform:uppercase}

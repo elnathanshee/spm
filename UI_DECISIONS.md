@@ -55,12 +55,12 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 
 | Rule | Where | Controlled by |
 |---|---|---|
-| Three filters, in this order: Active (the default), Completed, All. Completed means Rejected, Completed or Cancelled; everything else is active. All shows every assigned request once, under the same status sections. Each filter's count is the number of requests it shows with the current search. | Assigned requests | `app.js` `COORDINATOR_GROUPS` (`active`), `coordinatorScopeChips()`, `coordinatorInScope()`; tests TC-9931, TC-9932 |
+| Three filters, in this order: All (the default), Active, Completed. Completed means Rejected, Completed or Cancelled; everything else is active. All shows every assigned request once, under the same status sections, with the sections needing a decision first. Counts follow the list-controls rule (section 4). | Assigned requests | `app.js` `COORDINATOR_GROUPS` (`active`), `coordinatorScopeChips()`, `coordinatorInScope()`; tests TC-9931, TC-9932 |
 | Sections keep the backend's queue order: awaiting first review, longest wait first, then by proposed date (`coordinator.assigned_requests`). | Assigned requests | `app.js` `coordinatorGroups()` |
-| Counts appear only on the filters and section headings; there is no summary row. Search applies within the selected filter. The number of matches is announced to screen readers, and when nothing matches the empty state names the filter and offers "Clear search". | Assigned requests | `index.html` Coordinator template; test TC-9701 |
+| Counts appear only on the filters and section headings; there is no summary row. Search, sort and the no-match state come from the shared list controls (section 4). | Assigned requests | `index.html` Coordinator template; test TC-9701 |
 | One main action per row, from the backend's rules: "Start review" for Submitted; "Record decision" for Under Review, which opens the details panel holding Approve, Request clarification and Reject. No main action for other statuses or for unassigned requests. | Assigned requests | `app.js` `coordinatorPrimary()`, `canDecideEvent()`; test TC-9933 |
 | "Venue bookings" follows the venue booking rule in section 4. | Assigned requests | `app.js` `canBookEvent()`; test TC-9934 |
-| Search covers title, organiser and #ID; on All events also the coordinator. All events also filters by status. Both work on the list already loaded. | Both Coordinator screens | `app.js` `coordinatorMatches()`, `filteredAllEvents()` |
+| Search, filters and sort for both screens are listed in section 4, "List controls". | Both Coordinator screens | `app.js` `listControls()` |
 | Loading, load-error (keeping the list already shown), permission-denied and empty states. | Both Coordinator screens | `app.js` `recordListResult()`; test TC-9935 |
 
 ## 3. ⚠ To confirm
@@ -87,18 +87,18 @@ decision-making information not visible in the list.**
 - **Applies to:** every role's list pages.
 - **Follows it:** Organiser requests, Coordinator assigned requests and Coordinator all events.
   Their counts appear only on filters and section headings. Guarded by UI-D8.
-- **⚠ Pages that break it, not changed yet:**
+- **Removed with the shared list controls**, because they repeated a chip count:
+  - Lead: the "Needs assignment" and "Assigned events" cards, the "N need assignment" header pill,
+    and the list's "N requests" total.
+  - Venue Staff: the "Pending requests" card.
+- **Kept:** the Lead's "Active coordinators" adds information that isn't in the list.
+- **⚠ Pages that still break it, not changed yet:**
 
   | Page | Metric | Repeats |
   |---|---|---|
   | Venue Staff, Venue operations | "Active venues" | The catalogue's "N total" |
-  | Venue Staff, Venue operations | "Pending requests" | The "Pending" filter chip's count |
   | Venue Staff, Venue operations | "Unread updates" | The notification bell's unread badge |
-  | Lead, Assignment oversight | "Needs assignment" | The "N need assignment" pill in the page header |
-  | Lead, Assignment oversight | "Assigned events" | A count of the list below, which has no section for it |
-  | Technical Support, Equipment worklist | "Events" and "Equipment lines" | The number of event groups and item rows in the worklist |
-
-  The Lead's "Active coordinators" adds information that isn't in the list, so it meets the rule.
+  | Technical Support, Equipment worklist | "Events" and "Equipment lines" | The number of event groups and lines in the worklist |
 
 ### Venue bookings by request status
 
@@ -120,3 +120,37 @@ decision-making information not visible in the list.**
   - **Hiding the button for finished requests with no bookings.** The list
     (`GET /coordinator/events/data`) carries no booking count. Checking would take a
     `GET /events/{id}/bookings` call per row, which is out of scope here. The button stays.
+
+### List controls
+
+**Every list that people search or narrow uses the one list-controls component.** It has search on the left, with
+its label above the field, and sort on the right when the list has a useful order. Filter chips with counts sit
+on the row below. **"All" is always the first chip and the default selection**; the other chips follow the
+workflow order. On phones the search and sort stack, and the chips scroll in one row.
+
+- **Controlled by:** `app.js` `listControls(key)` (one config per list) and `clearListSearch(key)`; markup:
+  the identical `.list-controls` block in `index.html`, mounted with its key; style: `components.css`
+  "List controls" and "Filter chips". Guarded by TC-9941 and TC-9942.
+- **Behavior, the same on every list:**
+  - Chip counts are the records each filter contains **before search**. (They followed the search before
+    this change; changed on purpose.)
+  - Search applies within the selected filter. The number of matches is announced to screen readers.
+  - When nothing matches, the empty state says what wasn't found and in which filter, and offers "Clear search",
+    which returns focus to the search box. Escape in the search box also clears it.
+  - Sorting applies within each section where sections exist, and never moves a section.
+  - Placeholders name only the fields that search covers.
+  - No summary metric repeats a chip or section count (see "Summary metrics").
+
+| Role and list | Search covers | Filters ("All" first) | Sort | Notes |
+|---|---|---|---|---|
+| Organiser: Your event requests | Title, purpose, description, #ID | All, then one chip per status section that has requests | Proposed date (soonest); recently submitted; recently created | Unchanged except counts are before search. |
+| Coordinator: Assigned requests | Title, organiser, #ID | All (default), Active, Completed | Queue order, longest wait first (the backend's order); proposed date (soonest) | Sections needing a decision come first in All and Active. Sorting is within each section. |
+| Coordinator: All events | Title, organiser, coordinator, #ID | All, then each status present, in workflow order | Oldest submission first (the backend's order); proposed date (soonest) | One list without sections, so rows keep their status badge. |
+| Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | Oldest submission first (the backend's order); proposed date (soonest) | |
+| Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | Booking date (soonest); hold expiring soonest | Placed inside the booking panel (`.list-controls-inset`). |
+| Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | Event date, soonest first (the backend's order); recently recorded (sorts events and the lines within each) | Lines stay grouped by event. |
+| Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). |
+| Venue Staff: Venue catalogue | **None** | **None** | **None** | A short reference list of active venues on the same page; controls wouldn't help. |
+
+**⚠ Confirm:** Coordinator "All" as the default (it was "Active") and counts before search (they followed the search)
+both change earlier decisions, as asked.
