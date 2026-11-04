@@ -224,8 +224,9 @@ test("TC-9408 (AC1) Organisers can open the detail view of their own requests fr
   await state.openEventDetail(5);
   assert.deepEqual(sent.map(request => request.path), ["/events/5"]);
   assert.equal(state.eventDetail.detail.title, "Annual Gala");
-  const start = HTML.indexOf('x-for="event in events"');
-  const card = HTML.slice(start, HTML.indexOf("</template>", start));
+  // Every row in the grouped list has "View details"
+  const start = HTML.indexOf('x-for="event in group.events"');
+  const card = HTML.slice(start, HTML.indexOf("</li></template>", start));
   assert.match(card, /@click="openEventDetail\(event\.id\)"/);
 });
 

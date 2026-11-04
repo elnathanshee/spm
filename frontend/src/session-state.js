@@ -6,6 +6,8 @@ export function resetSignedOutState(state) {
   state.accessDenied = false;
   state.unbuiltRole = false;
   state.events = [];
+  state.eventsView = { loaded: false, error: "", denied: false, query: "", group: "all", sort: "start", busyId: null };
+  state.draftBusy = false;
   state.assignedEvents = [];
   state.notificationOpen = false;
   state.allCoordinatorEvents = [];

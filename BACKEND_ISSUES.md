@@ -105,3 +105,27 @@ around these; each entry has the evidence.
   notification would fake a bulk action and could half-finish if one request fails.
 - **Needed:** a `POST /notifications/read-all` (or similar) that sets `read_at` on all of
   the current user's visible unread notifications in one transaction.
+
+## 10. Organisers can't read a rejection reason from the event
+
+- **Screen:** Organiser request list (Closed group) and event detail dialog.
+- **Evidence:** `events.reject_event` saves the reason on an `EventStatusHistory` row and
+  returns it once as `rejection_reason`. `events.list_my_events` and
+  `events.get_visible_event` return no rejection reason (only `clarification_note`).
+  The only other copy is the Organiser's `rejected` notification message
+  (`notifications.notify_organiser_of_status`: `"... has been rejected. Reason: ..."`).
+- **Frontend:** the list shows the reason from that notification when there is one, and says
+  "No reason is shown here" when there isn't. It doesn't guess.
+- **Needed:** a `rejection_reason` field (latest `Rejected` history row) on `GET /events` and
+  `GET /events/{id}`, like `latest_clarification_note`.
+
+## 11. Drafts can't be edited
+
+- **Screen:** Organiser request list (Drafts group) and the create form.
+- **Evidence:** `events.amend_event` refuses `Draft` ("A Draft should be completed and submitted
+  instead."), and `events.update_event_routine_info` only accepts Approved, Planning and
+  Confirmed. No other route updates a Draft.
+- **Frontend:** Drafts offer only "Submit for review" and "View details", with a note that a
+  draft can be amended after it is submitted. The create form says the same.
+- **Needed:** a decision: either let `amend_event` (or a new `PATCH`) update Drafts, or treat a
+  Draft as final until submitted, in which case "Save as draft" may not be worth keeping.

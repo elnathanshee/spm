@@ -36,6 +36,23 @@ const STATUS_TONES = {
 const EVENT_DETAIL_HIDDEN = ["id", "status", "organiser_id", "assigned_coordinator_id"];
 const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equipment_requirements", "registration_needs"];
 
+// Organiser request groups, most urgent first. What each status lets the Organiser do comes
+// from events.py: submit (Draft, Returned), amend (Submitted, Under Review, Returned),
+// routine edits from the detail dialog (Approved, Planning, Confirmed).
+const ORGANISER_GROUPS = [
+  { key: "respond", label: "Needs your response", description: "A Coordinator asked for clarification. Update the request, then resubmit it.", statuses: ["Returned"] },
+  { key: "draft", label: "Drafts", description: "Not sent yet. Submit a draft when it is ready for review.", statuses: ["Draft"] },
+  { key: "review", label: "Awaiting review", description: "With a Coordinator. You can still amend these.", statuses: ["Submitted", "Under Review"] },
+  { key: "active", label: "Approved and in planning", description: "Open a request to update its routine details.", statuses: ["Approved", "Planning", "Confirmed"] },
+  { key: "closed", label: "Closed", description: "No further changes can be made.", statuses: ["Rejected", "Completed", "Cancelled"] },
+];
+const ORGANISER_SORTS = {
+  // Soonest proposed date first; requests without a date last.
+  start: (a, b) => (a.proposed_start ? 0 : 1) - (b.proposed_start ? 0 : 1) || String(a.proposed_start || "").localeCompare(String(b.proposed_start || "")),
+  submitted: (a, b) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")),
+  created: (a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")),
+};
+
 document.addEventListener("alpine:init", () => {
   Alpine.data("appState", () => ({
     user: null,
@@ -46,6 +63,8 @@ document.addEventListener("alpine:init", () => {
     accessDenied: false,
     unbuiltRole: false,
     events: [],
+    eventsView: { loaded: false, error: "", denied: false, query: "", group: "all", sort: "start", busyId: null },
+    draftBusy: false,
     assignedEvents: [],
     allCoordinatorEvents: [],
     leadEvents: [],
@@ -365,13 +384,62 @@ document.addEventListener("alpine:init", () => {
     },
 
     async fetchEvents() {
+      const recipient = this.user;
+      const view = this.eventsView;
       this.loading = true;
-      const response = await this.apiRequest("/events");
-      if (response.ok) this.events = response.data;
+      const response = await this.apiRequest("/events", { inlineErrors: true });
+      if (this.user !== recipient) return;
       this.loading = false;
+      if (response.ok) {
+        this.events = response.data;
+        Object.assign(view, { loaded: true, error: "", denied: false });
+      } else if (response.status !== 401) {
+        // A failed refresh keeps the list already shown and says so above it.
+        Object.assign(view, { denied: response.status === 403, error: this.dialogErrorMessage(response) });
+      }
     },
 
-    async createEventDraft(data) {
+    // Organiser list: search, filter and sort the requests GET /events already returned.
+    organiserMatches(event) {
+      const query = (this.eventsView.query || "").trim().toLowerCase();
+      if (!query) return true;
+      return [`#${event.id}`, event.title, event.purpose, event.description].some(text => String(text || "").toLowerCase().includes(query));
+    },
+    organiserGroupOf(event) { return ORGANISER_GROUPS.find(group => group.statuses.includes(event.status))?.key || "other"; },
+    organiserGroups() {
+      const sort = ORGANISER_SORTS[this.eventsView.sort] || ORGANISER_SORTS.start;
+      const groups = [...ORGANISER_GROUPS, { key: "other", label: "Other", description: "Requests with a status this screen doesn't group.", statuses: [] }];
+      return groups
+        .filter(group => this.eventsView.group === "all" || this.eventsView.group === group.key)
+        .map(group => ({ ...group, events: this.events.filter(event => this.organiserGroupOf(event) === group.key && this.organiserMatches(event)).sort(sort) }))
+        .filter(group => group.events.length);
+    },
+    organiserFilterChips() {
+      const chips = [{ key: "all", label: "All", count: this.events.length }];
+      for (const group of [...ORGANISER_GROUPS, { key: "other", label: "Other" }]) {
+        const count = this.events.filter(event => this.organiserGroupOf(event) === group.key).length;
+        if (count) chips.push({ key: group.key, label: group.label, count });
+      }
+      return chips;
+    },
+    clearOrganiserFilters() { Object.assign(this.eventsView, { query: "", group: "all" }); },
+    // GET /events has no rejection reason (BACKEND_ISSUES.md #10). The Organiser's
+    // "rejected" notification carries it, in the wording notify_organiser_of_status uses.
+    rejectionReason(event) {
+      const notice = this.notifications.filter(item => item.event_id === event.id && item.kind === "rejected").sort((a, b) => b.id - a.id)[0];
+      const message = notice?.message || "";
+      const marker = " Reason: ";
+      const at = message.indexOf(marker, Math.max(0, message.indexOf("has been rejected.")));
+      return at >= 0 ? message.slice(at + marker.length).trim() : "";
+    },
+    // Focus the first field the backend flagged, once Alpine has drawn the error.
+    focusFirstError(container) {
+      const focus = () => document.querySelector?.(`${container} [aria-invalid="true"]`)?.focus();
+      if (typeof this.$nextTick === "function") this.$nextTick(focus);
+    },
+
+    async createEventDraft(data, { submit = false } = {}) {
+      if (this.draftBusy) return;
       this.fieldErrors = {};
       const payload = {
         title: data.title ?? "",
@@ -384,8 +452,15 @@ document.addEventListener("alpine:init", () => {
         equipment_requirements: data.equipment_requirements ?? "",
         registration_needs: data.registration_needs ?? "",
       };
-      const response = await this.apiRequest("/events", { method: "POST", body: payload });
-      if (response.ok) {
+      this.draftBusy = true;
+      let response;
+      try {
+        response = await this.apiRequest("/events", { method: "POST", body: payload });
+      } finally {
+        this.draftBusy = false;
+      }
+      if (!response.ok) { this.focusFirstError(".request-form"); return; }
+      {
         this.draft = {
           title: "",
           purpose: "",
@@ -397,18 +472,38 @@ document.addEventListener("alpine:init", () => {
           equipment_requirements: "",
           registration_needs: "",
         };
+        if (!submit) {
+          this.navigate("/events");
+          this.showAlert("Your event request was saved as a draft.", "success");
+          return;
+        }
+        this.draftBusy = true;
+        let submitted;
+        try {
+          submitted = await this.apiRequest(`/events/${response.data.id}/submit`, { method: "POST", deferErrors: true });
+        } finally {
+          this.draftBusy = false;
+        }
         this.navigate("/events");
-        this.showAlert("Your event request was saved as a draft.", "success");
+        if (submitted.ok) this.showAlert("Your event request was submitted for review.", "success");
+        else if (submitted.status !== 401) this.showAlert(`Saved as a draft, but it wasn't submitted: ${this.dialogErrorMessage(submitted)}`);
       }
     },
 
     async submitEvent(eventId) {
-      const response = await this.apiRequest(`/events/${eventId}/submit`, { method: "POST" });
+      if (this.eventsView.busyId) return;
+      this.eventsView.busyId = eventId;
+      let response;
+      try {
+        response = await this.apiRequest(`/events/${eventId}/submit`, { method: "POST" });
+      } finally {
+        this.eventsView.busyId = null;
+      }
       if (response.ok) { await this.fetchEvents(); this.showAlert("Event request submitted for review.", "success"); }
     },
 
-    async amendEvent(eventId, data) {
-      this.fieldErrors = {};
+    // Only the fields that differ from what was loaded, so an unchanged field is never sent.
+    amendPayload(data) {
       const original = this.amendOriginal || (this.modal?.event ? {
         title: (this.modal.event.title || "").trim(),
         purpose: this.modal.event.purpose || "",
@@ -465,14 +560,42 @@ document.addEventListener("alpine:init", () => {
           if (v !== undefined) payload[k] = v;
         }
       }
+      return payload;
+    },
+    amendChangeCount() { return this.modal?.kind === "amend" && this.amendOriginal ? Object.keys(this.amendPayload(this.amendForm)).length : 0; },
 
-      if (!Object.keys(payload).length) {
+    // resubmit: a Returned request goes back for review after its changes are saved
+    // (POST /amend, then POST /submit). With no changes it is resubmitted as it is.
+    async amendEvent(eventId, data, { resubmit = false } = {}) {
+      this.fieldErrors = {};
+      const payload = this.amendPayload(data);
+      const changed = Object.keys(payload).length > 0;
+      if (!changed && !resubmit) {
         this.showAlert("No changes to save.", "info");
         return;
       }
-
-      const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
-      if (response.ok) { this.closeModal(); await this.fetchEvents(); this.showAlert("Event request updated.", "success"); }
+      this.decisionBusy = true;
+      try {
+        if (changed) {
+          const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
+          if (!response.ok) { this.focusFirstError(".amend-dialog"); return; }
+          // Saved: later diffs start from the values just stored.
+          this.amendOriginal = { ...this.amendOriginal, ...this.amendFormFrom({ ...this.amendOriginal, ...payload }) };
+        }
+        if (resubmit) {
+          const submitted = await this.apiRequest(`/events/${eventId}/submit`, { method: "POST", deferErrors: true });
+          if (!submitted.ok) {
+            if (submitted.status !== 401) this.showAlert(`${changed ? "Your changes were saved, but the request wasn't resubmitted" : "The request wasn't resubmitted"}: ${this.dialogErrorMessage(submitted)}`);
+            await this.fetchEvents();
+            return;
+          }
+        }
+        this.closeModal();
+        await this.fetchEvents();
+        this.showAlert(resubmit ? "Your request was resubmitted for review." : "Event request updated.", "success");
+      } finally {
+        this.decisionBusy = false;
+      }
     },
 
     async fetchAssignedEvents() {
@@ -1280,7 +1403,7 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
       this.amendOriginal = this.amendFormFrom(event);
       this.amendForm = { ...this.amendOriginal };
-      this.modal = { open: true, kind: "amend", event, loading: false, loadError: "" };
+      this.modal = { open: true, kind: "amend", event, loading: false, loadError: "", resubmit: event.status === "Returned" };
       // GET /events leaves out the venue, accessibility, equipment and registration
       // fields, so a row from the list is completed from GET /events/{id} first;
       // otherwise those fields would open blank and a save could overwrite them.
@@ -1302,7 +1425,7 @@ document.addEventListener("alpine:init", () => {
       }
     },
     closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; this.amendOriginal = null; },
-    async submitModal() { if (this.decisionBusy || !this.modal.open || this.modal.loading || this.modal.loadError) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
+    async submitModal() { if (this.decisionBusy || !this.modal.open || this.modal.loading || this.modal.loadError) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm, { resubmit: !!this.modal.resubmit }); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     // One tone per backend status, events and bookings alike (STATUS_TONES).
     statusClass(status) { return `badge-${STATUS_TONES[status] || "neutral"}`; },
     bookingStatusClass(status) { return this.statusClass(status); },
