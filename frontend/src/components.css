@@ -258,12 +258,16 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
    Search on the left with its label above, sort on the right when the list has one,
    filter chips with counts on the row below ("All" first). Phones: stacked, chips scroll. */
 .list-controls { display: grid; gap: var(--space-3); }
-.list-controls-row { display: grid; grid-template-columns: minmax(0, 1fr) 16rem; align-items: end; gap: var(--space-4); }
-.list-controls-row.no-sort { grid-template-columns: minmax(0, 32rem); }
+/* Search keeps at least 18rem; sort sits on the right and moves below it when both don't fit */
+.list-controls-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4); }
+.list-search { flex: 1 1 18rem; min-width: 0; }
+.list-sort { flex: 0 1 auto; min-width: 16rem; }
+.list-controls-row.no-sort .list-search { max-width: 32rem; }
 .list-controls-inset { border-bottom: 1px solid var(--border); background: var(--surface-subtle); padding: var(--space-4) var(--space-5); }
 .list-controls-inset .list-no-match { box-shadow: none; }
 @media (max-width: 640px) {
-  .list-controls-row, .list-controls-row.no-sort { grid-template-columns: 1fr; gap: var(--space-3); }
+  .list-search, .list-sort { flex: 1 1 100%; min-width: 0; }
+  .list-controls-row.no-sort .list-search { max-width: none; }
   .list-controls-inset { padding: var(--space-4); }
   .list-controls .filter-chips {
     flex-wrap: nowrap; overflow-x: auto; margin-inline: calc(-1 * var(--space-4));

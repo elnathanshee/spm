@@ -92,11 +92,11 @@ const keepOrder = () => 0;
 const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"];
 const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
 
+// Requests without the date (e.g. a Draft has no submitted date) go after those with one.
 const ORGANISER_SORTS = {
-  // Soonest proposed date first; requests without a date last.
-  start: (a, b) => (a.proposed_start ? 0 : 1) - (b.proposed_start ? 0 : 1) || String(a.proposed_start || "").localeCompare(String(b.proposed_start || "")),
-  submitted: (a, b) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")),
-  created: (a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")),
+  start: byAsc("proposed_start"),
+  submitted: byDesc("submitted_at"),
+  created: byDesc("created_at"),
 };
 
 document.addEventListener("alpine:init", () => {
@@ -763,17 +763,17 @@ document.addEventListener("alpine:init", () => {
     listControls(key) {
       const configs = {
         organiser: () => ({ view: this.eventsView, filter: { target: this.eventsView, key: "group" }, chips: this.organiserFilterChips(), placeholder: "Title, purpose, description or #ID", label: "Show requests by status",
-          sorts: [{ value: "start", label: "Proposed date, soonest first" }, { value: "submitted", label: "Recently submitted" }, { value: "created", label: "Recently created" }], sortLabel: "Sort within each section", shown: this.organiserShownCount(), noun: "requests" }),
+          sorts: [{ value: "start", label: "Earliest proposed date" }, { value: "submitted", label: "Recently submitted" }, { value: "created", label: "Recently created" }], sortLabel: "Sort by", shown: this.organiserShownCount(), noun: "requests" }),
         assigned: () => ({ view: this.assignedView, filter: { target: this.assignedView, key: "scope" }, chips: this.coordinatorScopeChips(), placeholder: "Title, organiser or #ID", label: "Show requests",
-          sorts: [{ value: "queue", label: "Queue order, longest wait first" }, { value: "start", label: "Proposed date, soonest first" }], sortLabel: "Sort within each section", shown: this.coordinatorShownCount(), noun: "requests" }),
+          sorts: [{ value: "queue", label: "Longest waiting" }, { value: "start", label: "Earliest proposed date" }], sortLabel: "Sort by", shown: this.coordinatorShownCount(), noun: "requests" }),
         allEvents: () => ({ view: this.allEventsView, filter: { target: this.allEventsView, key: "status" }, chips: this.allEventStatusChips(), placeholder: "Title, organiser, coordinator or #ID", label: "Show events by status",
-          sorts: [{ value: "submitted", label: "Oldest submission first" }, { value: "start", label: "Proposed date, soonest first" }], sortLabel: "Sort", shown: this.filteredAllEvents().length, noun: "events" }),
+          sorts: [{ value: "submitted", label: "Earliest submitted" }, { value: "start", label: "Earliest proposed date" }], sortLabel: "Sort by", shown: this.filteredAllEvents().length, noun: "events" }),
         lead: () => ({ view: this.leadView, filter: { target: this.leadView, key: "filter" }, chips: this.leadFilterChips(), placeholder: "Title, organiser, coordinator or #ID", label: "Show requests by assignment",
-          sorts: [{ value: "submitted", label: "Oldest submission first" }, { value: "start", label: "Proposed date, soonest first" }], sortLabel: "Sort", shown: this.filteredLeadEvents().length, noun: "requests" }),
+          sorts: [{ value: "submitted", label: "Earliest submitted" }, { value: "start", label: "Earliest proposed date" }], sortLabel: "Sort by", shown: this.filteredLeadEvents().length, noun: "requests" }),
         bookings: () => this.venueWorkspace && ({ view: this.bookingView, filter: { target: this.venueWorkspace, key: "bookingFilter" }, chips: BOOKING_FILTERS.map(filter => ({ key: filter, label: filter, count: this.bookingFilterCount(filter) })),
-          placeholder: "Event, venue or booking #ID", label: "Filter booking requests", sorts: [{ value: "start", label: "Booking date, soonest first" }, { value: "hold", label: "Hold expiring soonest" }], sortLabel: "Sort", shown: this.filteredVenueBookings().length, noun: "bookings" }),
+          placeholder: "Event, venue or booking #ID", label: "Filter booking requests", sorts: [{ value: "start", label: "Earliest booking date" }, { value: "hold", label: "Soonest hold expiry" }], sortLabel: "Sort by", shown: this.filteredVenueBookings().length, noun: "bookings" }),
         technical: () => ({ view: this.technicalView, filter: null, chips: null, placeholder: "Event, equipment, requirements, recorded by or #ID", label: "",
-          sorts: [{ value: "event", label: "Event date, soonest first" }, { value: "recorded", label: "Recently recorded" }], sortLabel: "Sort", shown: this.technicalEventGroups().reduce((total, group) => total + group.items.length, 0), noun: "equipment lines" }),
+          sorts: [{ value: "event", label: "Earliest event date" }, { value: "recorded", label: "Recently recorded" }], sortLabel: "Sort by", shown: this.technicalEventGroups().reduce((total, group) => total + group.items.length, 0), noun: "equipment lines" }),
       };
       const config = configs[key]?.();
       if (!config) return null;

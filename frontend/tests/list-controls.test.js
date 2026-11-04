@@ -113,3 +113,53 @@ test("TC-9945 Technical Support: search keeps the event grouping; sort orders ev
   state.technicalView.query = "outdoor";
   assert.deepEqual(shape(), [[11, [3]]], "technical requirements are searched");
 });
+
+test("TC-9946 sort controls are labelled 'Sort by' and each option is one standalone sentence-case phrase", () => {
+  const state = app("Venue Staff");
+  state.venueWorkspace = { bookingFilter: "All", bookings: [] };
+  for (const key of KEYS) {
+    const controls = state.listControls(key);
+    if (!controls?.sorts) continue;
+    assert.equal(controls.sortLabel, "Sort by", key);
+    for (const { label } of controls.sorts) {
+      assert.doesNotMatch(label, /[,:]/, `${key}: "${label}" has no commas or colons`);
+      assert.match(label, /^[A-Z][a-z]/, `${key}: "${label}" starts in sentence case`);
+      assert.equal(label.slice(1), label.slice(1).toLowerCase(), `${key}: "${label}" is sentence case`);
+      assert.ok(label.split(" ").length <= 3, `${key}: "${label}" is concise (1-3 words)`);
+      assert.doesNotMatch(label, /\bthen\b/, `${key}: "${label}" names only the main sort`);
+    }
+  }
+  // The same sort has the same name on every event list
+  for (const key of ["organiser", "assigned", "allEvents", "lead"]) assert.equal(state.listControls(key).sorts.find(option => option.value === "start").label, "Earliest proposed date", key);
+  const final = plain(Object.fromEntries(KEYS.map(key => [key, state.listControls(key)?.sorts?.map(option => option.label)])));
+  assert.deepEqual(final, {
+    organiser: ["Earliest proposed date", "Recently submitted", "Recently created"],
+    assigned: ["Longest waiting", "Earliest proposed date"],
+    allEvents: ["Earliest submitted", "Earliest proposed date"],
+    lead: ["Earliest submitted", "Earliest proposed date"],
+    bookings: ["Earliest booking date", "Soonest hold expiry"],
+    technical: ["Earliest event date", "Recently recorded"],
+  });
+});
+
+test("TC-9947 requests without the sorted date always come after those with one", () => {
+  const state = app("Organiser");
+  state.events = [
+    { id: 1, title: "Draft", status: "Draft", submitted_at: null, created_at: "2026-10-01T00:00:00", proposed_start: null },
+    { id: 2, title: "Old", status: "Submitted", submitted_at: "2026-09-01T00:00:00", created_at: "2026-08-01T00:00:00", proposed_start: "2027-05-01T09:00:00" },
+    { id: 3, title: "New", status: "Submitted", submitted_at: "2026-10-05T00:00:00", created_at: "2026-10-02T00:00:00", proposed_start: "2027-01-01T09:00:00" },
+    { id: 4, title: "Undated", status: "Submitted", submitted_at: null, created_at: "2026-10-03T00:00:00", proposed_start: null },
+  ];
+  const submitted = () => plain(state.organiserGroups()).find(group => group.key === "submitted").events.map(event => event.id);
+  state.eventsView.sort = "submitted";
+  assert.deepEqual(submitted(), [3, 2, 4], "Recently submitted: newest first, no submitted date last");
+  state.eventsView.sort = "start";
+  assert.deepEqual(submitted(), [3, 2, 4], "Earliest proposed date: no date last");
+  state.eventsView.sort = "created";
+  assert.deepEqual(submitted(), [4, 3, 2]);
+  // The Coordinator's queue option is the backend's order (longest waiting in Awaiting first review, then proposed date)
+  const coordinator = app("Coordinator");
+  coordinator.assignedEvents = [{ id: 7, status: "Approved", proposed_start: "2027-03-01T09:00:00" }, { id: 8, status: "Approved", proposed_start: null }];
+  coordinator.assignedView.sort = "start";
+  assert.deepEqual(plain(coordinator.coordinatorGroups())[0].events.map(event => event.id), [7, 8]);
+});

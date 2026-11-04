@@ -124,7 +124,8 @@ decision-making information not visible in the list.**
 ### List controls
 
 **Every list that people search or narrow uses the one list-controls component.** It has search on the left, with
-its label above the field, and sort on the right when the list has a useful order. Filter chips with counts sit
+its label above the field, and sort on the right when the list has a useful order. Search keeps at least 18rem;
+when both don't fit, sort moves below it. Filter chips with counts sit
 on the row below. **"All" is always the first chip and the default selection**; the other chips follow the
 workflow order. On phones the search and sort stack, and the chips scroll in one row.
 
@@ -143,14 +144,45 @@ workflow order. On phones the search and sort stack, and the chips scroll in one
 
 | Role and list | Search covers | Filters ("All" first) | Sort | Notes |
 |---|---|---|---|---|
-| Organiser: Your event requests | Title, purpose, description, #ID | All, then one chip per status section that has requests | Proposed date (soonest); recently submitted; recently created | Unchanged except counts are before search. |
-| Coordinator: Assigned requests | Title, organiser, #ID | All (default), Active, Completed | Queue order, longest wait first (the backend's order); proposed date (soonest) | Sections needing a decision come first in All and Active. Sorting is within each section. |
-| Coordinator: All events | Title, organiser, coordinator, #ID | All, then each status present, in workflow order | Oldest submission first (the backend's order); proposed date (soonest) | One list without sections, so rows keep their status badge. |
-| Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | Oldest submission first (the backend's order); proposed date (soonest) | |
-| Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | Booking date (soonest); hold expiring soonest | Placed inside the booking panel (`.list-controls-inset`). |
-| Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | Event date, soonest first (the backend's order); recently recorded (sorts events and the lines within each) | Lines stay grouped by event. |
+| Organiser: Your event requests | Title, purpose, description, #ID | All, then one chip per status section that has requests | "Earliest proposed date"; "Recently submitted"; "Recently created" | Unchanged except counts are before search. |
+| Coordinator: Assigned requests | Title, organiser, #ID | All (default), Active, Completed | "Longest waiting" (the backend's queue order); "Earliest proposed date" | Sections needing a decision come first in All and Active. Sorting is within each section. |
+| Coordinator: All events | Title, organiser, coordinator, #ID | All, then each status present, in workflow order | "Earliest submitted" (the backend's order); "Earliest proposed date" | One list without sections, so rows keep their status badge. |
+| Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | "Earliest submitted" (the backend's order); "Earliest proposed date" | |
+| Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | "Earliest booking date"; "Soonest hold expiry" | Placed inside the booking panel (`.list-controls-inset`). |
+| Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | "Earliest event date" (the backend's order); "Recently recorded" (sorts events and the lines within each) | Lines stay grouped by event. |
 | Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). |
 | Venue Staff: Venue catalogue | **None** | **None** | **None** | A short reference list of active venues on the same page; controls wouldn't help. |
 
 **⚠ Confirm:** Coordinator "All" as the default (it was "Active") and counts before search (they followed the search)
 both change earlier decisions, as asked.
+
+### Sort names
+
+**Sort controls use the label "Sort by". Each option is one standalone phrase in sentence case, with no colons or
+commas. It must make the sort field and direction clear and match what the sort actually does. Use the same name
+for the same sort across all roles. Examples: "Earliest proposed date", "Recently submitted", "Longest waiting".**
+
+**Keep sort names concise, ideally 1-3 words. Name only the main sort. Don't include tie-breakers, such as
+"then earliest proposed date", in the label.**
+
+- **Controlled by:** the `sorts` and `sortLabel` of each config in `app.js` `listControls()`. Guarded by TC-9946.
+- **Missing dates:** a request without the sorted date goes after the requests that have one, in either
+  direction (`byAsc`, `byDesc` in `app.js`). For example, a Draft has no submitted date, so it comes last under
+  "Recently submitted". Guarded by TC-9947.
+- **Final names:**
+
+  | Role and list | Sort options |
+  |---|---|
+  | Organiser: Your event requests | Earliest proposed date · Recently submitted · Recently created |
+  | Coordinator: Assigned requests | Longest waiting · Earliest proposed date |
+  | Coordinator: All events | Earliest submitted · Earliest proposed date |
+  | Lead: Assignment oversight | Earliest submitted · Earliest proposed date |
+  | Venue Staff: Booking requests | Earliest booking date · Soonest hold expiry |
+  | Technical Support: Equipment worklist | Earliest event date · Recently recorded |
+
+- **Coordinator "Longest waiting"** names the main sort of the backend's queue order
+  (`coordinator.assigned_requests`): requests awaiting first review by submission time, oldest first. Every other
+  request then follows by proposed date, earliest first. That second part isn't in the name, per the rule above.
+  `GET /coordinator/events/data` doesn't return `submitted_at`, so sections other than "Awaiting first review" can't be
+  sorted by waiting time; in those sections this option orders the same way as "Earliest proposed date".
+- **Every name is 1-3 words with no tie-breaker.** Guarded by TC-9946.
