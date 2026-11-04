@@ -119,11 +119,11 @@
 .request-group .queue-heading{padding:var(--space-4) var(--space-5)}
 .request-group h2{display:flex;align-items:center;gap:var(--space-2)}
 .group-count{display:inline-grid;min-width:1.5rem;height:1.5rem;place-items:center;border-radius:var(--radius-pill);background:var(--surface-muted);color:var(--text-secondary);padding:0 var(--space-2);font-size:var(--text-xs)}
-.request-group-respond{border-color:var(--tone-attention-border)}
-.request-group-respond .queue-heading{background:var(--tone-attention-bg)}
-.request-group-respond .group-count{background:var(--tone-attention-fg);color:var(--text-inverse)}
+.request-group-returned{border-color:var(--tone-attention-border)}
+.request-group-returned .queue-heading{background:var(--tone-attention-bg)}
+.request-group-returned .group-count{background:var(--tone-attention-fg);color:var(--text-inverse)}
 .request-list{margin:0;padding:0;list-style:none}
-.request-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;column-gap:var(--space-5);row-gap:var(--space-3);border-top:1px solid var(--border);padding:var(--space-4) var(--space-5)}
+.request-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:var(--space-5);row-gap:var(--space-3);border-top:1px solid var(--border);padding:var(--space-4) var(--space-5)}
 .request-row:first-child{border-top:0}
 .request-summary{min-width:0}
 .request-title{display:flex;align-items:baseline;gap:var(--space-2);min-width:0}
@@ -133,7 +133,7 @@
 .request-meta div{display:flex;gap:var(--space-1);font-size:var(--text-sm)}
 .request-meta dt{color:var(--text-muted)}
 .request-meta dd{margin:0;color:var(--text-secondary);font-weight:var(--weight-semibold);white-space:nowrap}
-.request-actions{justify-content:flex-end}
+.request-actions{justify-content:flex-end;flex-wrap:nowrap}
 .request-note{grid-column:1/-1;margin:0}
 .form-page{max-width:62rem;margin:auto}
 .form-page .page-header{margin-bottom:1.5rem}
@@ -444,15 +444,14 @@
 .routine-locked p{margin:.25rem 0 .6rem}
 
 
-/* Organiser requests: actions move under the summary below 1200px, and stack on phones */
+/* Create form: section labels above their fields below 1200px. Request rows stack on phones. */
 .form-grid>.field-group>input{min-width:0;width:100%}
-@media(max-width:1200px){.request-row{grid-template-columns:minmax(0,1fr) auto}
-.form-card fieldset{grid-template-columns:1fr;gap:var(--space-4);padding:var(--space-6)}
+@media(max-width:1200px){.form-card fieldset{grid-template-columns:1fr;gap:var(--space-4);padding:var(--space-6)}
 .form-card legend{float:none;width:auto}
 .request-form-summary{margin:var(--space-5) var(--space-6) 0}
-.request-actions{order:1;grid-column:1/-1;justify-content:flex-start}
 }
-@media(max-width:640px){.request-row{padding:var(--space-4)}
+@media(max-width:640px){.request-row{grid-template-columns:1fr;padding:var(--space-4)}
+.request-actions{order:1;flex-wrap:wrap}
 .request-group .queue-heading{padding:var(--space-4)}
 .request-title{flex-wrap:wrap}
 .request-title h3{white-space:normal}

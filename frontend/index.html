@@ -143,13 +143,12 @@
               <ul class="request-list"><template x-for="event in group.events" :key="event.id"><li class="request-row">
                 <div class="request-summary">
                   <div class="request-title"><h3 x-text="event.title"></h3><span class="request-id" x-text="`#${event.id}`"></span></div>
-                  <dl class="request-meta"><div><dt>Proposed</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt>Guests</dt><dd x-text="event.expected_attendance ?? 'Not set'"></dd></div><div><dt x-text="event.submitted_at ? 'Submitted' : 'Created'"></dt><dd x-text="formatUtc(event.submitted_at || event.created_at)"></dd></div></dl>
+                  <dl class="request-meta"><template x-if="group.key === 'other'"><div><dt>Status</dt><dd x-text="event.status"></dd></div></template><div><dt>Proposed</dt><dd x-text="formatDate(event.proposed_start)"></dd></div><div><dt>Guests</dt><dd x-text="event.expected_attendance ?? 'Not set'"></dd></div><div><dt x-text="event.submitted_at ? 'Submitted' : 'Created'"></dt><dd x-text="formatUtc(event.submitted_at || event.created_at)"></dd></div></dl>
                 </div>
-                <span class="status-badge" :class="statusClass(event.status)"><i></i><span x-text="event.status"></span></span>
                 <div class="request-actions button-group">
-                  <template x-if="event.status === 'Returned'"><button type="button" class="button button-primary" @click="openAmend(event)">Update and resubmit</button></template>
-                  <template x-if="event.status === 'Draft'"><button type="button" class="button button-primary" @click="submitEvent(event.id)" :disabled="!!eventsView.busyId" :aria-busy="eventsView.busyId === event.id"><span class="spinner" x-show="eventsView.busyId === event.id" aria-hidden="true"></span><span x-text="eventsView.busyId === event.id ? 'Submitting…' : 'Submit for review'"></span></button></template>
                   <button type="button" class="button button-secondary" @click="openEventDetail(event.id)">View details</button>
+                  <template x-if="event.status === 'Returned'"><button type="button" class="button button-secondary" @click="openAmend(event)">Update and resubmit</button></template>
+                  <template x-if="event.status === 'Draft'"><button type="button" class="button button-primary" @click="submitEvent(event.id)" :disabled="!!eventsView.busyId" :aria-busy="eventsView.busyId === event.id"><span class="spinner" x-show="eventsView.busyId === event.id" aria-hidden="true"></span><span x-text="eventsView.busyId === event.id ? 'Submitting…' : 'Submit for review'"></span></button></template>
                   <template x-if="['Submitted', 'Under Review'].includes(event.status)"><button type="button" class="button button-secondary" @click="openAmend(event)">Amend</button></template>
                 </div>
                 <template x-if="event.status === 'Returned'"><div class="callout callout-attention request-note"><strong>Coordinator's clarification request</strong><span x-text="event.clarification_note || 'No note was included with this request.'"></span></div></template>

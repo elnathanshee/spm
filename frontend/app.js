@@ -36,15 +36,23 @@ const STATUS_TONES = {
 const EVENT_DETAIL_HIDDEN = ["id", "status", "organiser_id", "assigned_coordinator_id"];
 const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equipment_requirements", "registration_needs"];
 
-// Organiser request groups, most urgent first. What each status lets the Organiser do comes
-// from events.py: submit (Draft, Returned), amend (Submitted, Under Review, Returned),
-// routine edits from the detail dialog (Approved, Planning, Confirmed).
+// Organiser request sections: one per status (backend/status.py), the ones that need the
+// Organiser first. The section heading is the request's status, so rows carry no badge.
+// Descriptions follow events.py: submit (Draft, Returned), amend (Submitted, Under Review,
+// Returned), routine edits from View details (PLANNING_STATUSES: Approved, Planning, Confirmed).
+// Submitted and Under Review stay apart: a Submitted request may not have a Coordinator yet
+// (the Lead assigns one), while Under Review means the assigned Coordinator started the review.
 const ORGANISER_GROUPS = [
-  { key: "respond", label: "Needs your response", description: "A Coordinator asked for clarification. Update the request, then resubmit it.", statuses: ["Returned"] },
-  { key: "draft", label: "Drafts", description: "Not sent yet. Submit a draft when it is ready for review.", statuses: ["Draft"] },
-  { key: "review", label: "Awaiting review", description: "With a Coordinator. You can still amend these.", statuses: ["Submitted", "Under Review"] },
-  { key: "active", label: "Approved and in planning", description: "Open a request to update its routine details.", statuses: ["Approved", "Planning", "Confirmed"] },
-  { key: "closed", label: "Closed", description: "No further changes can be made.", statuses: ["Rejected", "Completed", "Cancelled"] },
+  { key: "returned", label: "Returned for clarification", description: "A Coordinator asked a question. Update the request, then resubmit it.", statuses: ["Returned"] },
+  { key: "draft", label: "Drafts", description: "Not sent yet. Submit a draft when it's ready for review.", statuses: ["Draft"] },
+  { key: "submitted", label: "Submitted", description: "Sent for review. The review hasn't started yet, and you can still amend it.", statuses: ["Submitted"] },
+  { key: "under-review", label: "Under review", description: "A Coordinator is reviewing it. You can still amend it.", statuses: ["Under Review"] },
+  { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"] },
+  { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"] },
+  { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"] },
+  { key: "rejected", label: "Rejected", description: "A rejected request can't be amended.", statuses: ["Rejected"] },
+  { key: "completed", label: "Completed", description: "No further changes can be made.", statuses: ["Completed"] },
+  { key: "cancelled", label: "Cancelled", description: "No further changes can be made.", statuses: ["Cancelled"] },
 ];
 const ORGANISER_SORTS = {
   // Soonest proposed date first; requests without a date last.
@@ -408,7 +416,7 @@ document.addEventListener("alpine:init", () => {
     organiserGroupOf(event) { return ORGANISER_GROUPS.find(group => group.statuses.includes(event.status))?.key || "other"; },
     organiserGroups() {
       const sort = ORGANISER_SORTS[this.eventsView.sort] || ORGANISER_SORTS.start;
-      const groups = [...ORGANISER_GROUPS, { key: "other", label: "Other", description: "Requests with a status this screen doesn't group.", statuses: [] }];
+      const groups = [...ORGANISER_GROUPS, { key: "other", label: "Other statuses", description: "Each request shows its status below its title.", statuses: [] }];
       return groups
         .filter(group => this.eventsView.group === "all" || this.eventsView.group === group.key)
         .map(group => ({ ...group, events: this.events.filter(event => this.organiserGroupOf(event) === group.key && this.organiserMatches(event)).sort(sort) }))
@@ -416,7 +424,7 @@ document.addEventListener("alpine:init", () => {
     },
     organiserFilterChips() {
       const chips = [{ key: "all", label: "All", count: this.events.length }];
-      for (const group of [...ORGANISER_GROUPS, { key: "other", label: "Other" }]) {
+      for (const group of [...ORGANISER_GROUPS, { key: "other", label: "Other statuses" }]) {
         const count = this.events.filter(event => this.organiserGroupOf(event) === group.key).length;
         if (count) chips.push({ key: group.key, label: group.label, count });
       }

@@ -34,15 +34,20 @@ function recorder(state, responses) {
 
 const row = (id, status, extra = {}) => ({ id, title: `Event ${id}`, purpose: "", description: "", status, proposed_start: null, expected_attendance: 10, created_at: `2026-10-0${id}T00:00:00`, submitted_at: null, clarification_note: null, ...extra });
 
-test("TC-9901 requests are grouped by what they need from the Organiser, most urgent first", () => {
+test("TC-9901 each status has its own section, the ones needing the Organiser first; empty sections are hidden", () => {
   const state = app();
-  state.events = [row(1, "Approved"), row(2, "Draft"), row(3, "Rejected"), row(4, "Returned"), row(5, "Under Review"), row(6, "Submitted"), row(7, "Mystery")];
-  const groups = plain(state.organiserGroups());
-  assert.deepEqual(groups.map(group => group.key), ["respond", "draft", "review", "active", "closed", "other"]);
-  assert.deepEqual(groups.map(group => group.events.map(event => event.id)), [[4], [2], [5, 6], [1], [3], [7]]);
-  // Every backend status lands in a named group
   const statuses = [...readFileSync(new URL("../../backend/status.py", import.meta.url), "utf8").matchAll(/=\s*"([^"]+)"/g)].map(match => match[1]);
-  for (const status of statuses) assert.notEqual(state.organiserGroupOf({ status }), "other", status);
+  assert.equal(statuses.length, 10);
+  state.events = [...statuses.map((status, index) => row(index + 1, status)), row(11, "Mystery")];
+  const groups = plain(state.organiserGroups());
+  assert.deepEqual(groups.map(group => group.label), ["Returned for clarification", "Drafts", "Submitted", "Under review", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled", "Other statuses"]);
+  assert.ok(groups.every(group => group.events.length === 1 && group.statuses.length <= 1), "one status per section");
+  assert.deepEqual(groups.map(group => group.events[0].status), ["Returned", "Draft", "Submitted", "Under Review", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled", "Mystery"]);
+  assert.equal(groups.flatMap(group => group.events).length, state.events.length, "no request disappears");
+  state.events = [row(1, "Submitted")];
+  assert.deepEqual(plain(state.organiserGroups()).map(group => group.key), ["submitted"]);
+  // Submitted may have no Coordinator yet, so its description doesn't claim one
+  assert.doesNotMatch(plain(state.organiserGroups())[0].description, /Coordinator/);
 });
 
 test("TC-9902 search, status group filter and sort work on the loaded list", () => {
@@ -62,11 +67,11 @@ test("TC-9902 search, status group filter and sort work on the loaded list", () 
   state.eventsView.query = "#14";
   assert.deepEqual(ids(), [14]);
   state.eventsView.query = "";
-  state.eventsView.group = "review";
+  state.eventsView.group = "submitted";
   assert.deepEqual(ids(), [2, 1, 3]);
   assert.deepEqual(plain(state.organiserFilterChips()), [
-    { key: "all", label: "All", count: 4 }, { key: "draft", label: "Drafts", count: 1 }, { key: "review", label: "Awaiting review", count: 3 },
-  ], "only groups with requests get a chip");
+    { key: "all", label: "All", count: 4 }, { key: "draft", label: "Drafts", count: 1 }, { key: "submitted", label: "Submitted", count: 3 },
+  ], "only sections with requests get a chip");
   state.clearOrganiserFilters();
   assert.equal(state.eventsView.group, "all");
 });
@@ -105,12 +110,16 @@ test("TC-9904 the list shows loading, permission-denied and load-error states wi
   for (const label of ["Loading your requests…", "You can't view these requests", "Couldn't load your requests", "No event requests yet", "No requests match"]) assert.ok(html.includes(label), label);
 });
 
-test("TC-9905 each request has one primary action, chosen by its status", () => {
+test("TC-9905 rows have no status badge; View details comes first and Submit for review is the only filled button", () => {
   const start = html.indexOf('x-for="event in group.events"');
   const rowHtml = html.slice(start, html.indexOf("</li></template>", start));
-  const primaries = [...rowHtml.matchAll(/<template x-if="event\.status === '(\w+)'"><button type="button" class="button button-primary"[^>]*>/g)].map(match => match[1]);
-  assert.deepEqual(primaries, ["Returned", "Draft"], "only requests that need the Organiser get a primary button");
-  assert.match(rowHtml, /Update and resubmit/);
+  assert.doesNotMatch(rowHtml, /status-badge/, "the section heading shows the status");
+  assert.match(rowHtml, /x-if="group\.key === 'other'"><div><dt>Status<\/dt><dd x-text="event\.status">/, "an ungrouped status is still shown");
+  const actions = rowHtml.slice(rowHtml.indexOf('class="request-actions'), rowHtml.indexOf("</div>", rowHtml.indexOf('class="request-actions')));
+  assert.match(actions, /^class="request-actions button-group">\s*<button type="button" class="button button-secondary" @click="openEventDetail\(event\.id\)">View details/);
+  assert.deepEqual([...rowHtml.matchAll(/button-primary/g)].length, 1);
+  assert.match(rowHtml, /event\.status === 'Draft'"><button type="button" class="button button-primary"/);
+  assert.match(rowHtml, /event\.status === 'Returned'"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Update and resubmit/);
   assert.match(rowHtml, /\['Submitted', 'Under Review'\]\.includes\(event\.status\)"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Amend/);
   assert.match(rowHtml, /event\.clarification_note \|\| 'No note was included/);
 });
