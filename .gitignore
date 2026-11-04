@@ -224,6 +224,7 @@ dev.db
 # Node dependencies and build artifacts
 node_modules/
 .vite/
+.vercel/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
