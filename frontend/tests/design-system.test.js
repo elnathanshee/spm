@@ -75,7 +75,8 @@ test("TC-9803 every backend status has one badge tone, and that tone exists", ()
   assert.doesNotMatch(html, /Awaiting review'/);
   // A status badge shows the same status it is coloured by
   const statusBadges = [...html.matchAll(/:class="(?:booking)?[sS]tatusClass\(([^)]+)\)"[^>]*>(?:<i><\/i>)?<span x-text="([^"]+)"|:class="(?:booking)?[sS]tatusClass\(([^)]+)\)" x-text="([^"]+)"/g)];
-  assert.ok(statusBadges.length >= 8);
+  // Lists sectioned by status (Organiser, Coordinator queue) carry no row badge (UI_DECISIONS D4)
+  assert.ok(statusBadges.length >= 6);
   for (const match of statusBadges) assert.equal(match[2] ?? match[4], match[1] ?? match[3], match[0]);
 });
 

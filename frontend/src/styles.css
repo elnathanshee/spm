@@ -107,28 +107,6 @@
 .queue-actions{justify-content:flex-end;margin-top:var(--space-4)}
 
 /* Organiser: requests grouped by what they need */
-.request-workspace{display:grid;gap:var(--space-4)}
-.request-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 16rem;align-items:end;gap:var(--space-4)}
-.request-load-error{justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-4)}
-.request-group .queue-heading{padding:var(--space-4) var(--space-5)}
-.request-group h2{display:flex;align-items:center;gap:var(--space-2)}
-.group-count{display:inline-grid;min-width:1.5rem;height:1.5rem;place-items:center;border-radius:var(--radius-pill);background:var(--surface-muted);color:var(--text-secondary);padding:0 var(--space-2);font-size:var(--text-xs)}
-.request-group-returned{border-color:var(--tone-attention-border)}
-.request-group-returned .queue-heading{background:var(--tone-attention-bg)}
-.request-group-returned .group-count{background:var(--tone-attention-fg);color:var(--text-inverse)}
-.request-list{margin:0;padding:0;list-style:none}
-.request-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:var(--space-5);row-gap:var(--space-3);border-top:1px solid var(--border);padding:var(--space-4) var(--space-5)}
-.request-row:first-child{border-top:0}
-.request-summary{min-width:0}
-.request-title{display:flex;align-items:baseline;gap:var(--space-2);min-width:0}
-.request-title h3{overflow:hidden;margin:0;font-size:var(--text-md);font-weight:var(--weight-bold);text-overflow:ellipsis;white-space:nowrap}
-.request-id{flex:none;color:var(--text-muted);font-size:var(--text-xs)}
-.request-meta{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-5);margin:var(--space-1) 0 0}
-.request-meta div{display:flex;gap:var(--space-1);font-size:var(--text-sm)}
-.request-meta dt{color:var(--text-muted)}
-.request-meta dd{margin:0;color:var(--text-secondary);font-weight:var(--weight-semibold);white-space:nowrap}
-.request-actions{justify-content:flex-end;flex-wrap:nowrap}
-.request-note{grid-column:1/-1;margin:0}
 .form-page{max-width:62rem;margin:auto}
 .form-page .page-header{margin-bottom:1.5rem}
 .form-card,.queue-panel{overflow:hidden}
@@ -174,7 +152,7 @@
 .queue-actions .button{width:100%}
 .form-card fieldset{grid-template-columns:1fr;gap:1.25rem;padding:1.4rem 1rem}
 .form-card legend{float:none;width:auto}
-.form-grid,.requirement-grid,.request-toolbar{grid-template-columns:1fr}
+.form-grid,.requirement-grid{grid-template-columns:1fr}
 .request-form-summary{margin:var(--space-4) var(--space-4) 0}
 }
 
@@ -408,14 +386,6 @@
 @media(max-width:1200px){.form-card fieldset{grid-template-columns:1fr;gap:var(--space-4);padding:var(--space-6)}
 .form-card legend{float:none;width:auto}
 .request-form-summary{margin:var(--space-5) var(--space-6) 0}
-}
-@media(max-width:640px){.request-row{grid-template-columns:1fr;padding:var(--space-4)}
-.request-actions{order:1;flex-wrap:wrap}
-.request-group .queue-heading{padding:var(--space-4)}
-.request-title{flex-wrap:wrap}
-.request-title h3{white-space:normal}
-.request-actions>.button{flex:1 1 8rem}
-.request-workspace .filter-chips{flex-wrap:nowrap;overflow-x:auto;margin-inline:calc(-1 * var(--space-4));padding:0 var(--space-4) var(--space-1);scrollbar-width:none}
 }
 
 /* Sidebar control: an .icon-control (components.css) beside the breadcrumb */

@@ -31,11 +31,12 @@ function app(role) {
   return state;
 }
 
-test("TC-9701 (F4) the Coordinator count is labelled for what it counts and the list says it holds decided requests", () => {
-  const page = html.slice(html.indexOf("currentPath === '/coordinator/events'"), html.indexOf("</section></template>", html.indexOf("currentPath === '/coordinator/events'")));
-  assert.match(page, /<span>Under review<\/span><strong x-text="assignedEvents.filter\(event => event.status === 'Under Review'\).length">/);
-  assert.doesNotMatch(page, /In progress|Review queue/);
-  assert.match(page, /<h2>All assigned requests<\/h2><p>[^<]*including decided ones/);
+test("TC-9701 (F4) Coordinator counters are the sections shown, and finished requests are kept apart", () => {
+  const page = html.slice(html.indexOf("currentPath === '/coordinator/events'"), html.indexOf("      </main>"));
+  // Each counter is a section on screen, so the counts can't disagree with the queue
+  assert.match(page, /<div class="summary-strip queue-counters"[^>]*><template x-for="counter in coordinatorCounters\(\)" :key="counter.key"><div[^>]*><span x-text="counter.label"><\/span><strong x-text="counter.count">/);
+  assert.match(page, /x-for="chip in coordinatorScopeChips\(\)"/);
+  assert.doesNotMatch(page, /In progress|Review queue|including decided ones/);
 });
 
 test("TC-9702 (F5) event detail leaves out the id, the status and the raw user ids, and keeps the rest in order", () => {

@@ -43,7 +43,7 @@ const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equip
 // Submitted and Under Review stay apart: a Submitted request may not have a Coordinator yet
 // (the Lead assigns one), while Under Review means the assigned Coordinator started the review.
 const ORGANISER_GROUPS = [
-  { key: "returned", label: "Returned for clarification", description: "A Coordinator asked a question. Update the request, then resubmit it.", statuses: ["Returned"] },
+  { key: "returned", label: "Returned for clarification", description: "A Coordinator asked a question. Update the request, then resubmit it.", statuses: ["Returned"], attention: true },
   { key: "draft", label: "Drafts", description: "Not sent yet. Submit a draft when it's ready for review.", statuses: ["Draft"] },
   { key: "submitted", label: "Submitted", description: "Sent for review. The review hasn't started yet, and you can still amend it.", statuses: ["Submitted"] },
   { key: "under-review", label: "Under review", description: "A Coordinator is reviewing it. You can still amend it.", statuses: ["Under Review"] },
@@ -65,6 +65,26 @@ function savedSidebarCollapsed() {
   } catch { /* storage blocked: use the default */ }
   return typeof window.innerWidth === "number" && window.innerWidth < 1024;
 }
+
+// Coordinator queue sections: one per status, active work first. Actions come from events.py:
+// start review (Submitted), approve / request clarification / reject (Submitted, Under Review),
+// routine edits from View details (PLANNING_STATUSES). Closed statuses have no decisions left.
+// Venue bookings are offered in every status: the backend accepts them in any (BACKEND_ISSUES #5).
+const COORDINATOR_GROUPS = [
+  { key: "submitted", stage: "decision", label: "Awaiting first review", description: "Not reviewed yet, longest wait first.", statuses: ["Submitted"], active: true, attention: true },
+  { key: "under-review", stage: "decision", label: "Under review", description: "You started the review. Record a decision from Record decision.", statuses: ["Under Review"], active: true },
+  { key: "returned", stage: "organiser", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can amend and resubmit it.", statuses: ["Returned"], active: true },
+  { key: "approved", stage: "planning", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"], active: true },
+  { key: "planning", stage: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"], active: true },
+  { key: "confirmed", stage: "planning", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"], active: true },
+  { key: "rejected", stage: "closed", label: "Rejected", description: "No further decisions can be made.", statuses: ["Rejected"], active: false },
+  { key: "completed", stage: "closed", label: "Completed", description: "No further decisions can be made.", statuses: ["Completed"], active: false },
+  { key: "cancelled", stage: "closed", label: "Cancelled", description: "No further decisions can be made.", statuses: ["Cancelled"], active: false },
+];
+const COORDINATOR_OTHER = { key: "other", stage: "other", label: "Other statuses", description: "Each request shows its status below its title.", statuses: [], active: true };
+// Counters above the active queue: each is the sum of the sections it names, as shown.
+const COORDINATOR_STAGES = { decision: "Need a decision", organiser: "Waiting on the Organiser", planning: "Approved and in planning", other: "Other statuses" };
+const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 
 const ORGANISER_SORTS = {
   // Soonest proposed date first; requests without a date last.
@@ -89,6 +109,8 @@ document.addEventListener("alpine:init", () => {
     draftBusy: false,
     assignedEvents: [],
     allCoordinatorEvents: [],
+    assignedView: { ...listView(), scope: "active" },
+    allEventsView: { ...listView(), status: "all" },
     leadEvents: [],
     coordinators: [],
     notifications: [],
@@ -645,14 +667,67 @@ document.addEventListener("alpine:init", () => {
     async fetchAssignedEvents() {
       const recipient = this.user;
       this.loading = true;
-      const response = await this.apiRequest("/coordinator/events/data");
-      if (this.user === recipient && response.ok) this.assignedEvents = response.data;
-      if (this.user === recipient) this.loading = false;
+      const response = await this.apiRequest("/coordinator/events/data", { inlineErrors: true });
+      if (this.user !== recipient) return;
+      this.loading = false;
+      if (response.ok) this.assignedEvents = response.data;
+      this.recordListResult(this.assignedView, response);
     },
     async fetchAllCoordinatorEvents() {
       const recipient = this.user;
-      const response = await this.apiRequest("/coordinator/events/all-data");
-      if (this.user === recipient && response.ok) this.allCoordinatorEvents = response.data;
+      const response = await this.apiRequest("/coordinator/events/all-data", { inlineErrors: true });
+      if (this.user !== recipient) return;
+      if (response.ok) this.allCoordinatorEvents = response.data;
+      this.recordListResult(this.allEventsView, response);
+    },
+    // A failed refresh keeps the list already shown and says so above it; 401 signs out instead.
+    recordListResult(view, response) {
+      if (response.ok) Object.assign(view, { loaded: true, error: "", denied: false });
+      else if (response.status !== 401) Object.assign(view, { denied: response.status === 403, error: this.dialogErrorMessage(response) });
+    },
+
+    // Coordinator queue: sections per status from the loaded list, in the backend's queue order
+    // (awaiting first review longest wait first, then by proposed date).
+    coordinatorMatches(event, query) {
+      const text = (query || "").trim().toLowerCase();
+      return !text || [`#${event.id}`, event.title, event.organiser, event.assigned_coordinator].some(value => String(value || "").toLowerCase().includes(text));
+    },
+    coordinatorGroupOf(event) { return COORDINATOR_GROUPS.find(group => group.statuses.includes(event.status)) || COORDINATOR_OTHER; },
+    coordinatorGroups() {
+      const view = this.assignedView;
+      return [...COORDINATOR_GROUPS, COORDINATOR_OTHER]
+        .filter(group => group.active === (view.scope === "active"))
+        .map(group => ({ ...group, events: this.assignedEvents.filter(event => this.coordinatorGroupOf(event).key === group.key && this.coordinatorMatches(event, view.query)) }))
+        .filter(group => group.events.length);
+    },
+    coordinatorCounters() {
+      const counters = [];
+      for (const group of this.coordinatorGroups()) {
+        if (!COORDINATOR_STAGES[group.stage]) continue;
+        let counter = counters.find(item => item.key === group.stage);
+        if (!counter) counters.push(counter = { key: group.stage, label: COORDINATOR_STAGES[group.stage], count: 0, sections: [] });
+        counter.count += group.events.length;
+        counter.sections.push(group.label);
+      }
+      return counters;
+    },
+    coordinatorScopeChips() {
+      const count = active => this.assignedEvents.filter(event => this.coordinatorGroupOf(event).active === active).length;
+      return [{ key: "active", label: "Active", count: count(true) }, { key: "completed", label: "Completed", count: count(false) }];
+    },
+    // The row's one main action, by status. Decisions themselves are made in the detail dialog.
+    coordinatorPrimary(event) {
+      if (!this.canDecideEvent(event)) return null;
+      return event.status === "Submitted" ? { label: "Start review", run: () => this.startReview(event.id) } : { label: "Record decision", run: () => this.openEventDetail(event.id) };
+    },
+    // All events (read-only): search and a status filter over the loaded list.
+    allEventStatusChips() {
+      const statuses = [...new Set(this.allCoordinatorEvents.map(event => event.status))];
+      return [{ key: "all", label: "All", count: this.allCoordinatorEvents.length }, ...statuses.map(status => ({ key: status, label: status, count: this.allCoordinatorEvents.filter(event => event.status === status).length }))];
+    },
+    filteredAllEvents() {
+      const view = this.allEventsView;
+      return this.allCoordinatorEvents.filter(event => (view.status === "all" || event.status === view.status) && this.coordinatorMatches(event, view.query));
     },
 
     async fetchLeadData() {

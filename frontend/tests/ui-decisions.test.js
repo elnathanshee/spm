@@ -43,11 +43,19 @@ test("UI-D4 Organiser list: one section per status, no row badges; the details p
   assert.match(html, /eventDetail\.detail"><div><span class="status-badge"/);
 });
 
-test("UI-D5 list rows keep actions on the right, View details first, one filled button", () => {
-  assert.match(styles, /\.request-row\{display:grid;grid-template-columns:minmax\(0,1fr\) auto;/);
-  assert.match(styles, /\.request-actions\{justify-content:flex-end;flex-wrap:nowrap\}/);
+test("UI-D5 list rows keep actions on the right, View details first, at most one filled button", () => {
+  // Shared by the Organiser and Coordinator lists since the Coordinator redesign (UI_DECISIONS item 9)
+  assert.match(components, /\.request-row\{display:flex;flex-wrap:wrap;align-items:center;/);
+  assert.match(components, /\.request-summary\{flex:1 1 18rem;min-width:0\}/);
+  assert.match(components, /\.request-actions\{justify-content:flex-end;flex-wrap:wrap;margin-left:auto\}/, "actions keep to the right edge, even when they wrap below");
+  assert.doesNotMatch(styles, /\.request-row\{/, "the request list lives in components.css only");
   assert.match(organiserRow, /<div class="request-actions button-group">\s*<button type="button" class="button button-secondary" @click="openEventDetail\(event\.id\)">View details/);
   assert.equal((organiserRow.match(/button-primary/g) || []).length, 1);
+  const start = html.indexOf('x-for="event in group.events"', html.indexOf("currentPath === '/coordinator/events'"));
+  const coordinatorRow = html.slice(start, html.indexOf("</li></template>", start));
+  assert.match(coordinatorRow, /<div class="request-actions button-group">\s*<button type="button" class="button button-secondary" @click="openEventDetail\(event\.id\)">View details/);
+  assert.equal((coordinatorRow.match(/button-primary/g) || []).length, 1);
+  assert.doesNotMatch(coordinatorRow, /status-badge/);
 });
 
 test("UI-D6 the sidebar control is a quiet .icon-control sized by tokens", () => {

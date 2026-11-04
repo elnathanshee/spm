@@ -184,6 +184,47 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
   .booking-detail-grid .wide { grid-column: auto; }
 }
 
+/* ---------- Request list (Organiser requests, Coordinator queues) ----------
+   Sections per status, rows with the title and details on the left and the actions on the right
+   (UI_DECISIONS D4, D6). .request-group-attention marks the section that needs the user first. */
+.request-workspace{display:grid;gap:var(--space-4)}
+.request-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 16rem;align-items:end;gap:var(--space-4)}
+.request-load-error{justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-4)}
+.request-group .queue-heading{padding:var(--space-4) var(--space-5)}
+.request-group h2{display:flex;align-items:center;gap:var(--space-2)}
+.group-count{display:inline-grid;min-width:1.5rem;height:1.5rem;place-items:center;border-radius:var(--radius-pill);background:var(--surface-muted);color:var(--text-secondary);padding:0 var(--space-2);font-size:var(--text-xs)}
+.request-group-attention{border-color:var(--tone-attention-border)}
+.request-group-attention .queue-heading{background:var(--tone-attention-bg)}
+.request-group-attention .group-count{background:var(--tone-attention-fg);color:var(--text-inverse)}
+.request-list{margin:0;padding:0;list-style:none}
+/* A wrapping row: the actions stay beside the details while they fit, and drop below them, still right-aligned, when they don't */
+.request-row{display:flex;flex-wrap:wrap;align-items:center;column-gap:var(--space-5);row-gap:var(--space-3);border-top:1px solid var(--border);padding:var(--space-4) var(--space-5)}
+.request-row:first-child{border-top:0}
+.request-summary{flex:1 1 18rem;min-width:0}
+.request-title{display:flex;align-items:baseline;gap:var(--space-2);min-width:0}
+.request-title h3{overflow:hidden;margin:0;font-size:var(--text-md);font-weight:var(--weight-bold);text-overflow:ellipsis;white-space:nowrap}
+.request-id{flex:none;color:var(--text-muted);font-size:var(--text-xs)}
+.request-meta{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-5);margin:var(--space-1) 0 0}
+.request-meta div{display:flex;gap:var(--space-1);font-size:var(--text-sm)}
+.request-meta dt{color:var(--text-muted)}
+.request-meta dd{margin:0;color:var(--text-secondary);font-weight:var(--weight-semibold);white-space:nowrap}
+.request-actions{justify-content:flex-end;flex-wrap:wrap;margin-left:auto}
+.request-note{flex-basis:100%;margin:0}
+.request-toolbar-single{grid-template-columns:minmax(0,32rem)}
+.request-workspace>.summary-strip{margin-bottom:0}
+.queue-counters{grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr))}
+@media (max-width: 640px) {
+.request-row{flex-direction:column;align-items:stretch;padding:var(--space-4)}
+.request-actions{order:1;flex-wrap:wrap;margin-left:0}
+.request-note{flex-basis:auto}
+.request-group .queue-heading{padding:var(--space-4)}
+.request-title{flex-wrap:wrap}
+.request-title h3{white-space:normal}
+.request-actions>.button{flex:1 1 8rem}
+.request-workspace .filter-chips{flex-wrap:nowrap;overflow-x:auto;margin-inline:calc(-1 * var(--space-4));padding:0 var(--space-4) var(--space-1);scrollbar-width:none}
+.request-toolbar{grid-template-columns:1fr}
+}
+
 /* ---------- Tables (grid tables with a header row) ---------- */
 .table-head, .booking-table-head, .venue-list-head {
   border-bottom: 1px solid var(--border); background: var(--surface-subtle);
