@@ -7,6 +7,8 @@ import { normalizeRole, resolveRolePath } from "../src/rbac.js";
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const components = readFileSync(new URL("../src/components.css", import.meta.url), "utf8");
+const tokens = readFileSync(new URL("../src/tokens.css", import.meta.url), "utf8");
 
 // A fresh app with its own storage and viewport width.
 function app({ width = 1440, saved, storageThrows = false } = {}) {
@@ -64,7 +66,8 @@ test("TC-9922 below 768px the same control opens and closes an overlay, and wide
 test("TC-9923 the control is a labelled 40px icon button beside the breadcrumb", () => {
   assert.match(html, /<div class="topbar-start"><button type="button" class="sidebar-toggle icon-control"[^>]*:aria-expanded="sidebarExpanded\(\)" aria-controls="app-sidebar" :aria-label="sidebarExpanded\(\) \? 'Collapse sidebar' : 'Expand sidebar'"[^>]*x-html="iconFor\(compactNav \? 'menu' : 'panel-left'\)"><\/button><div class="breadcrumb">/);
   assert.doesNotMatch(html, /menu-button/);
-  assert.match(styles, /\.icon-control\{display:grid;width:2\.5rem;height:2\.5rem;/);
+  assert.match(components, /\.icon-control \{\s*display: grid; width: var\(--icon-control-size\); height: var\(--icon-control-size\);/);
+  assert.match(tokens, /--icon-control-size: 2\.5rem;/);
   // Collapsed nav labels are hidden visually, not removed, so buttons keep their names
   assert.match(html, /<span class="nav-label" x-text="item\.label"><\/span>/);
   assert.match(styles, /\.sidebar-collapsed \.nav-label,[^{]*\{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect\(0 0 0 0\)/);

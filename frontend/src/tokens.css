@@ -109,5 +109,12 @@
   /* Controls */
   --control-height: 2.5rem;
   --control-height-compact: 2rem;
+  --icon-control-size: 2.5rem;           /* quiet icon buttons: 40px target */
+
+  /* Sidebar. The overlay breakpoint (768px) is COMPACT_NAV_QUERY in app.js and
+     the media queries in styles.css; CSS variables can't be used in media queries. */
+  --sidebar-width-expanded: 14.5rem;
+  --sidebar-width-rail: 4.5rem;
+  --sidebar-width-overlay: min(17rem, 85vw);
   --duration: .16s;
 }

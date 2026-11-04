@@ -75,6 +75,13 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
   color: var(--text-muted); font-size: var(--text-xl); line-height: 1;
 }
 .icon-button:hover:not(:disabled) { background: var(--surface-muted); color: var(--text); }
+/* Quiet icon button for the shell: no border, 40px target (sidebar control, notifications) */
+.icon-control {
+  display: grid; width: var(--icon-control-size); height: var(--icon-control-size); flex: none; place-items: center;
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-muted);
+}
+.icon-control:hover { background: var(--surface-muted); color: var(--text); }
+.icon-control svg { width: 1.25rem; height: 1.25rem; }
 
 /* One gap between buttons, wherever buttons sit together */
 .button-row, .button-group, .card-actions, .queue-actions, .form-actions, .modal-actions, .panel-actions,
@@ -133,6 +140,48 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 /* ---------- Cards ---------- */
 .card, .event-card, .queue-panel, .form-card, .create-venue-card, .venue-notice, .state-card {
   border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-md);
+}
+
+/* ---------- Summary cards ----------
+   .summary-strip: one bordered strip of figures (Coordinator).
+   .summary-strip.operations-summary: separate cards with an accent line (Lead, Venue Staff,
+   Technical Support). The label sits 12px (--space-3) after the line; the number stays right. */
+.summary-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); overflow: hidden; margin-bottom: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.summary-strip > div { display: flex; min-height: 4.4rem; align-items: center; justify-content: space-between; border-right: 1px solid var(--border); padding: 1rem 1.25rem; }
+.summary-strip > div:last-child { border: 0; }
+.summary-strip span { color: var(--text-muted); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.summary-strip strong { color: var(--brand-900); font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1; }
+.operations-summary { gap: 1rem; overflow: visible; border: 0; background: transparent; }
+.operations-summary > div {
+  position: relative; justify-content: flex-start; gap: var(--space-3); min-height: 6rem;
+  border: 1px solid var(--border) !important; border-radius: var(--radius-lg); background: var(--surface);
+  box-shadow: var(--shadow-sm); padding: 1.15rem 1.25rem;
+}
+.operations-summary > div::before { content: ""; flex: none; width: .18rem; height: 2.25rem; border-radius: 9px; background: var(--border-strong); }
+.operations-summary > div:nth-child(2)::before { background: var(--warning-accent); }
+.operations-summary > div:nth-child(3)::before { background: var(--brand-400); }
+.operations-summary span { display: flex; flex-direction: column; gap: .25rem; color: var(--text-secondary); font-size: var(--text-sm); }
+.operations-summary > div > span { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.operations-summary > div > strong { flex: none; }
+.operations-summary span small { color: var(--text-muted); font-size: var(--text-xs); font-weight: 500; }
+@media (max-width: 640px) {
+  .summary-strip { grid-template-columns: 1fr; }
+  .summary-strip > div { min-height: 3.65rem; border-right: 0; border-bottom: 1px solid var(--border); }
+  .operations-summary { grid-template-columns: 1fr; gap: .65rem; }
+  .operations-summary > div { min-height: 4.75rem; border-bottom: 1px solid var(--border) !important; }
+}
+
+/* ---------- Detail grid (event detail, booking review, booking dialog) ----------
+   A status badge directly above the grid gets 16px (--space-4) of space. */
+.booking-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin: 0; }
+.booking-detail-grid > div { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-subtle); padding: .75rem; }
+.booking-detail-grid .wide { grid-column: 1 / -1; }
+.status-badge + .booking-detail-grid { margin-top: var(--space-4); }
+.booking-detail-grid dt { color: var(--text-muted); font-size: var(--text-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.booking-detail-grid dd { margin: .3rem 0 0; color: var(--text); font-size: var(--text-sm); line-height: 1.45; }
+@media (max-width: 640px) {
+  .booking-detail-grid { grid-template-columns: 1fr; }
+  .booking-detail-grid .wide { grid-column: auto; }
 }
 
 /* ---------- Tables (grid tables with a header row) ---------- */
