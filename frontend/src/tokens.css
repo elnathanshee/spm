@@ -91,7 +91,7 @@
   --space-8: 2rem;
   --space-10: 2.5rem;
   --space-12: 3rem;
-  --gap-actions: var(--space-2);   /* between buttons, everywhere */
+  --gap-actions: var(--space-3);   /* between buttons, everywhere (12px) */
 
   /* Shape and depth */
   --radius-sm: .375rem;
