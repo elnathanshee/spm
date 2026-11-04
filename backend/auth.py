@@ -1,3 +1,4 @@
+import os
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, field_validator
@@ -8,6 +9,12 @@ from .models import LoginSession, User
 from .security import verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def session_cookie_secure() -> bool:
+    """Vercel (which sets VERCEL) serves the site over HTTPS only, so the
+    session cookie is Secure there. Local development runs on plain http."""
+    return bool(os.getenv("VERCEL"))
 
 SUPPORTED_APPLICATION_ROLES = frozenset({
     "organiser",
@@ -102,6 +109,7 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
         httponly=True,
         samesite="lax",
         path="/",
+        secure=session_cookie_secure(),
     )
 
     role_redirects = {
@@ -151,7 +159,7 @@ def logout(
             session.valid = False
             db.commit()
 
-    response.delete_cookie(key="connectsphere_session", path="/")
+    response.delete_cookie(key="connectsphere_session", path="/", secure=session_cookie_secure())
     return {
         "message": "Logged out successfully",
         "redirect_url": "/login",

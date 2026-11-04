@@ -6,11 +6,28 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 # Automatically load environment variables from .env
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+def database_url() -> str:
+    """The database to use: DATABASE_URL, or a local SQLite file (dev.db).
 
-# Normalize postgres:// to postgresql:// for SQLAlchemy compatibility
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    Vercel sets VERCEL in every deployment. Its filesystem is read-only, so
+    the dev.db fallback can't work there: a missing DATABASE_URL is an error
+    that says what to set, instead of a SQLite crash on first use.
+    """
+    url = os.getenv("DATABASE_URL")
+    if not url and os.getenv("VERCEL"):
+        raise RuntimeError(
+            "DATABASE_URL is not set. Add it in the Vercel project's "
+            "Environment Variables, then redeploy."
+        )
+    if url is None:
+        url = "sqlite:///./dev.db"
+    # Normalize postgres:// to postgresql:// for SQLAlchemy compatibility
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return url
+
+
+DATABASE_URL = database_url()
 
 def engine_options(database_url: str) -> dict:
     """Return conservative connection settings for the configured database.
