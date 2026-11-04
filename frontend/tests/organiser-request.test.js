@@ -259,3 +259,47 @@ test("TC-9005 (Reset): resetSignedOutState clears all 9 fields on draft and amen
   assert.equal(state.amendForm.equipment_requirements, "");
   assert.equal(state.amendForm.registration_needs, "");
 });
+
+test("TC-9005 amend from a list row loads the full request so no field opens blank", async () => {
+  const state = app("organiser");
+  // GET /events rows have no venue, accessibility, equipment or registration fields.
+  const { venue_requirements, accessibility_needs, equipment_requirements, registration_needs, ...listRow } = sampleEvent;
+  let release;
+  const paths = [];
+  state.apiRequest = (path) => { paths.push(path); return new Promise(resolve => { release = () => resolve({ ok: true, status: 200, data: sampleEvent }); }); };
+
+  state.openAmend(listRow);
+  assert.deepEqual(paths, ["/events/42"]);
+  assert.equal(state.modal.loading, true);
+  await state.submitModal();
+  assert.deepEqual(paths, ["/events/42"], "no save while the request is loading");
+
+  release();
+  await new Promise(resolve => setTimeout(resolve));
+  assert.equal(state.modal.loading, false);
+  assert.equal(state.amendForm.venue_requirements, sampleEvent.venue_requirements);
+  assert.equal(state.amendForm.equipment_requirements, sampleEvent.equipment_requirements);
+  assert.equal(state.amendOriginal.registration_needs, sampleEvent.registration_needs);
+});
+
+test("TC-9006 amend shows the load failure and cannot be saved", async () => {
+  const state = app("organiser");
+  const { venue_requirements, ...listRow } = sampleEvent;
+  const paths = [];
+  state.apiRequest = async (path) => { paths.push(path); return { ok: false, status: 404, data: { detail: "Event not found" } }; };
+
+  state.openAmend(listRow);
+  await new Promise(resolve => setTimeout(resolve));
+  assert.equal(state.modal.loadError, "Event not found");
+  await state.submitModal();
+  assert.deepEqual(paths, ["/events/42"]);
+});
+
+test("TC-9007 a full event opens Amend without another request", () => {
+  const state = app("organiser");
+  let called = false;
+  state.apiRequest = async () => { called = true; return { ok: true, data: {} }; };
+  state.openAmend(sampleEvent);
+  assert.equal(called, false);
+  assert.equal(state.modal.loading, false);
+});

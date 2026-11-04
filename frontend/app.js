@@ -13,6 +13,8 @@ import { NO_CHANGES, affectedBookingRows, bufferSummary, changedFields, createPa
 
 // [SCRUM-94] The fields PATCH /events/{id} accepts (backend ROUTINE_FIELDS, SCRUM-28).
 const ROUTINE_FIELDS = ["title", "purpose", "description", "accessibility_needs", "registration_needs"];
+// The amend fields GET /events/{id} returns but the GET /events list does not.
+const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equipment_requirements", "registration_needs"];
 
 document.addEventListener("alpine:init", () => {
   Alpine.data("appState", () => ({
@@ -987,6 +989,9 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // The statuses POST /events/{id}/assign and /reassign accept (backend lead.py assignable_statuses).
+    canAssignEvent(event) { return ["Submitted", "Under Review", "Returned"].includes(event?.status); },
+
     async saveAssignment(event) {
       if (!event.selectedCoordinatorId) { this.showAlert("Select a Coordinator first."); return; }
       const action = event.assigned_coordinator_id ? "reassign" : "assign";
@@ -1149,10 +1154,8 @@ document.addEventListener("alpine:init", () => {
       this.decisionForm = { reason: "" };
       this.modal = { open: true, kind, event };
     },
-    openAmend(event) {
-      this.fieldErrors = {};
-      this.clearAlert();
-      this.amendOriginal = {
+    amendFormFrom(event) {
+      return {
         title: (event.title || "").trim(),
         purpose: event.purpose || "",
         description: event.description || "",
@@ -1163,11 +1166,35 @@ document.addEventListener("alpine:init", () => {
         equipment_requirements: event.equipment_requirements || "",
         registration_needs: event.registration_needs || "",
       };
+    },
+    openAmend(event) {
+      this.fieldErrors = {};
+      this.clearAlert();
+      this.amendOriginal = this.amendFormFrom(event);
       this.amendForm = { ...this.amendOriginal };
-      this.modal = { open: true, kind: "amend", event };
+      this.modal = { open: true, kind: "amend", event, loading: false, loadError: "" };
+      // GET /events leaves out the venue, accessibility, equipment and registration
+      // fields, so a row from the list is completed from GET /events/{id} first;
+      // otherwise those fields would open blank and a save could overwrite them.
+      if (!AMEND_DETAIL_FIELDS.every(field => field in event)) this.loadAmendDetail(event.id);
+    },
+    async loadAmendDetail(eventId) {
+      const modal = this.modal;
+      modal.loading = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${eventId}`, { inlineErrors: true });
+        if (this.user !== recipient || this.modal !== modal) return;
+        if (!response.ok) { modal.loadError = this.dialogErrorMessage(response); return; }
+        modal.event = response.data;
+        this.amendOriginal = this.amendFormFrom(response.data);
+        this.amendForm = { ...this.amendOriginal };
+      } finally {
+        if (this.modal === modal) modal.loading = false;
+      }
     },
     closeModal() { this.modal = { open: false, kind: "", event: null }; this.fieldErrors = {}; this.amendOriginal = null; },
-    async submitModal() { if (this.decisionBusy || !this.modal.open) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
+    async submitModal() { if (this.decisionBusy || !this.modal.open || this.modal.loading || this.modal.loadError) return; const eventId = this.modal.event.id; if (this.modal.kind === "amend") return this.amendEvent(eventId, this.amendForm); if (!this.decisionForm.reason.trim()) { this.fieldErrors = { reason: "A reason is required" }; return; } return this.modal.kind === "reject" ? this.handleReject(eventId, this.decisionForm.reason) : this.handleReturn(eventId, this.decisionForm.reason); },
     statusClass(status) { return { Submitted: "status-waiting", "Under Review": "status-review", Approved: "status-approved", Rejected: "status-rejected", Returned: "status-returned" }[status] || "status-neutral"; },
     suitabilityBadgeClass(status) { return { suitable: "status-approved", unsuitable: "status-rejected", unknown: "status-waiting" }[status] || "status-neutral"; },
     availabilityClass(available) { return available ? "status-approved" : "status-rejected"; },

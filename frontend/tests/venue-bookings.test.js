@@ -708,3 +708,23 @@ test("TC-9105 (AC5): Lead can search/check for any event; Coordinator only for a
   await coordState.checkSuitability("Projector");
   assert.equal(coordState.bookingDialog.suitabilityError, "You can only check venue suitability for events assigned to you");
 });
+
+test("TC-3530 booking history renders once and Lead assignment shows only for assignable statuses", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const dialog = html.slice(html.indexOf('<template x-if="bookingDialog">'), html.indexOf('<template x-if="modal.open">'));
+  assert.equal((dialog.match(/x-for="booking in bookingDialog.bookings"/g) || []).length, 1);
+  assert.match(html, /class="assignment-controls" x-show="canAssignEvent\(event\)"/);
+  assert.match(html, /aria-label="Close event request">×<\/button>/);
+  const state = app("lead");
+  for (const status of ["Submitted", "Under Review", "Returned"]) assert.equal(state.canAssignEvent({ status }), true, status);
+  for (const status of ["Draft", "Approved", "Rejected", "Planning", "Confirmed"]) assert.equal(state.canAssignEvent({ status }), false, status);
+});
+
+test("TC-3531 the event detail close button is not disabled when nothing is saving", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  // Alpine 3.17 leaves a :disabled bound to undefined disabled, so an optional
+  // chain that can return undefined must be coerced to a boolean.
+  assert.match(html, /:disabled="!!eventDetail.routine\?\.busy" aria-label="Close event request"/);
+  const risky = [...html.matchAll(/:disabled="([^"]*)"/g)].map(match => match[1]).filter(expr => /\?\./.test(expr) && !/^!!/.test(expr));
+  assert.deepEqual(risky, []);
+});
