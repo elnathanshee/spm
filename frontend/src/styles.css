@@ -231,10 +231,6 @@
 .capacity{color:var(--text-muted);font-size:var(--text-xs)}
 .capacity b{color:var(--text-secondary);font-size:var(--text-xs)}
 
-.lead-event-row{padding:1.35rem 1.4rem 0}
-.lead-event-row .inline-meta{margin-bottom:1rem}
-.unassigned-text{color:var(--tone-waiting-fg)!important;font-weight:750!important}
-.lead-summary{max-width:22rem}
 .lead-row-actions{align-items:flex-end;justify-content:space-between;row-gap:var(--space-4);margin:0 -1.4rem;border-top:1px solid var(--border);background:var(--surface-subtle);padding:.85rem 1.4rem}
 .lead-row-actions .button svg{width:1rem;height:1rem}
 .lead-row-actions>.assignment-controls{margin-left:auto}
@@ -409,3 +405,37 @@
 .topbar{gap:var(--space-3)}
 }
 @media(prefers-reduced-motion:reduce){.sidebar,.app-area{transition:none}}
+
+/* Lead: compact assignment table. Five columns from 1280px; below that the actions and the
+   assignment form the row's second line (UI_DECISIONS D2: buttons left, assignment right). */
+.lead-workload h2{margin:0;font-size:var(--text-md)}
+.lead-workload>p{margin:var(--space-1) 0 var(--space-3);color:var(--text-muted);font-size:var(--text-sm)}
+.lead-table-head,.lead-table-row{display:grid;grid-template-columns:minmax(14rem,1fr) 8.5rem 7.5rem auto minmax(15rem,.8fr);align-items:center;column-gap:var(--space-3)}
+.lead-table-head{padding:var(--space-3) var(--space-5)}
+.lead-table-body{margin:0;padding:0;list-style:none}
+.lead-table-row{border-top:1px solid var(--border);padding:var(--space-3) var(--space-5)}
+.lead-table-row:first-child{border-top:0}
+.lead-table-row.needs-attention{box-shadow:inset 3px 0 var(--warning-accent)}
+.lead-cell-request{min-width:0}
+.lead-cell-request strong{display:block;overflow-wrap:anywhere;font-size:var(--text-base)}
+.lead-cell-request small{display:block;margin-top:var(--space-1);color:var(--text-muted);font-size:var(--text-xs)}
+.lead-cell-date{font-size:var(--text-sm)}
+.row-flags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-1)}
+.row-flags:empty{display:none}
+.row-flag{border:1px solid var(--tone-attention-border);border-radius:var(--radius-pill);background:var(--tone-attention-bg);color:var(--tone-attention-fg);padding:0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold)}
+.lead-table .lead-row-actions{display:contents}
+.lead-table .button-group{flex-wrap:nowrap}
+.lead-table .assignment-controls{display:block}
+.lead-assign-form{display:flex;align-items:center;gap:var(--gap-actions)}
+.lead-assign-form .select-field{flex:1;min-width:0}
+.lead-assign-message{margin:var(--space-1) 0 0;font-size:var(--text-xs)}
+.lead-current-coordinator{font-size:var(--text-sm)}
+@media(max-width:1279px){.lead-table-head{display:none}
+.lead-table-row{grid-template-columns:minmax(0,1fr) auto auto;row-gap:var(--space-3)}
+.lead-table .lead-row-actions{display:flex;grid-column:1/-1;margin:0;border:0;background:transparent;padding:0}
+.lead-table .assignment-controls,.lead-table .lead-current-coordinator{min-width:min(20rem,100%)}
+}
+@media(max-width:640px){.lead-table-row{grid-template-columns:1fr;padding:var(--space-4)}
+.lead-table .button-group{flex-wrap:wrap}
+.lead-table .assignment-controls,.lead-table .lead-current-coordinator{min-width:0}
+}

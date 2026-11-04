@@ -16,7 +16,7 @@ Files: `tokens.css` = `frontend/src/tokens.css`, `components.css` = `frontend/sr
 | # | Rule | Where it applies | Controlled by | Commit |
 |---|---|---|---|---|
 | D1 | A status badge directly above a details grid has 16px (`--space-4`) of space below it. | Event request details panel (every role that opens it). The same rule covers any `.status-badge` placed right before a `.booking-detail-grid`. | `components.css` "Detail grid" (`.status-badge + .booking-detail-grid`) | `46b239c` |
-| D2 | Related buttons sit together in one `.button-group`, in their original order. Separate controls form their own group on the right. All button rows use one 12px gap (`--gap-actions`). | Lead request cards: "Open request" and "Venue bookings" on the left; "Assigned coordinator" and "Assign coordinator"/"Save reassignment" on the right, shown only for Submitted, Under Review and Returned (`canAssignEvent`). Every button row uses the gap. | Gap: `tokens.css` `--gap-actions`; group: `components.css` `.button-group`; placement: `styles.css` `.lead-row-actions` | `46b239c` |
+| D2 | Related buttons sit together in one `.button-group`, in their original order. Separate controls form their own group on the right. All button rows use one 12px gap (`--gap-actions`). | Lead assignment table: "Open request" and "Venue bookings" grouped in one cell; the Coordinator choice and "Assign"/"Reassign" in the cell to its right, shown only for Submitted, Under Review and Returned (`canAssignEvent`). Below 1280px they form the row's second line, buttons on the left and assignment on the right. Every button row uses the gap. | Gap: `tokens.css` `--gap-actions`; group: `components.css` `.button-group`; placement: `styles.css` `.lead-row-actions` (its two groups become table cells from 1280px) | `46b239c`, Lead redesign |
 | D3 | Summary card labels start 12px (`--space-3`) after the coloured line. Numbers stay right-aligned. Long labels wrap between words. Cards wrap to fewer columns rather than squeeze. | Summary cards on Assignment oversight (Lead), Venue operations (Venue Staff) and Equipment worklist (Technical Support). The Coordinator's summary strip uses the same component without the line. | `components.css` "Summary cards" (`.summary-strip`, `.operations-summary`) | `46b239c`, `8bf1e3c` |
 | D4 | Request lists have one section per status, headed by the status in plain words. Rows have no status badge. Empty sections are hidden. An unknown status goes to "Other statuses" and shows on its row. The section that needs the user first is marked `.request-group-attention`. | Organiser "Your event requests"; Coordinator "Assigned requests". Not "All events", whose single list mixes statuses, so its rows keep the badge. | `app.js` `ORGANISER_GROUPS`, `COORDINATOR_GROUPS`; style: `components.css` "Request list" | `bc6a7cf`, Coordinator redesign |
 | D5 | The status badge stays in the request details panel. | Event request details panel. | `index.html` event detail template; badge style: `components.css` `.status-badge` | `bc6a7cf` |
@@ -63,6 +63,17 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 | Search, filters and sort for both screens are listed in section 4, "List controls". | Both Coordinator screens | `app.js` `listControls()` |
 | Loading, load-error (keeping the list already shown), permission-denied and empty states. | Both Coordinator screens | `app.js` `recordListResult()`; test TC-9935 |
 
+### Lead screen
+
+| Rule | Where | Controlled by |
+|---|---|---|
+| A compact table: request (title, #ID, organiser, guests), proposed date, status, the "Open request" and "Venue bookings" group, then the assignment. From 1280px it has five columns; below that each row has two lines; on phones it stacks. | Assignment oversight | `index.html` Lead template; `styles.css` "Lead: compact assignment table" |
+| "Needs attention" is the default order: requests that need a Coordinator (unassigned and assignable), then requests past their proposed date that still await a decision (Submitted, Under Review, Returned), then the rest. Each group keeps the backend's order (earliest submitted). Those rows have a left accent and a flag ("Needs assignment", "Proposed date passed"). | Assignment oversight | `app.js` `leadAttentionRank()`, `leadNeedsAssignment()`, `leadDatePassed()`; test TC-9954 |
+| "Assign" or "Reassign" is enabled, and filled, only when the chosen Coordinator differs from the current one; the backend refuses a same-Coordinator reassignment. While saving it reads "Saving…". Success shows on the row ("Assigned to coord1.") and as a toast. A refusal shows the backend's message on the row only. | Assignment oversight | `app.js` `assignmentChanged()`, `saveAssignment()`, `assignmentState`; tests TC-9951, TC-9952 |
+| A choice not saved yet survives the 15-second refresh, unless the request's assignment changed meanwhile. | Assignment oversight | `app.js` `fetchLeadData()`; test TC-9953 |
+| Coordinator workload: one summary card per active Coordinator with their open requests (every status except Rejected, Completed and Cancelled). It's counted from `GET /lead/events`, which holds every non-Draft event. `GET /lead/coordinators` returns no workload field. The same count shows in each option of the Coordinator choice. | Assignment oversight | `app.js` `coordinatorOpenCount()`; `components.css` "Summary cards" (D3); test TC-9955 |
+| Loading, load-error (keeping the list shown), permission-denied and empty states. If the Coordinator list fails to load, a message says assignment is unavailable. | Assignment oversight | `app.js` `fetchLeadData()`, `recordListResult()`; test TC-9956 |
+
 ## 3. ⚠ To confirm
 
 1. **12px between buttons everywhere.** The design system used 8px. It became 12px in `46b239c` for the Lead cards and now applies to every button row.
@@ -76,6 +87,11 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 9. **`.lead-row-actions` stays a page rule.** It's used by one screen. The request list (`.request-row` and related rules) moved to `components.css` when the Coordinator rows adopted it.
 10. **Resolved: Venue bookings by request status.** See section 4 for the final rule. Still open: making finished requests view-only, which needs a backend rule first.
 11. **Resolved: Coordinator counters removed.** They repeated the filter and section counts (see the summary metric rule in section 4).
+12. **"At risk" means the proposed date has passed while the request still awaits a decision.** The backend has no
+    risk field, so this is the only data-backed signal. The date comparison inherits the time zone uncertainty in
+    `BACKEND_ISSUES.md` #12, so it can be off by up to 8 hours near the boundary.
+13. **Workload counts open requests, meaning everything but Rejected, Completed and Cancelled.** Approved, Planning
+    and Confirmed count as open because the Coordinator still plans them.
 
 ## 4. Rules
 
@@ -91,7 +107,8 @@ decision-making information not visible in the list.**
   - Lead: the "Needs assignment" and "Assigned events" cards, the "N need assignment" header pill,
     and the list's "N requests" total.
   - Venue Staff: the "Pending requests" card.
-- **Kept:** the Lead's "Active coordinators" adds information that isn't in the list.
+- **Kept:** the Lead's workload cards (open requests per Coordinator) add information that isn't in the list.
+  They replaced the single "Active coordinators" card.
 - **⚠ Pages that still break it, not changed yet:**
 
   | Page | Metric | Repeats |
@@ -147,7 +164,7 @@ workflow order. On phones the search and sort stack, and the chips scroll in one
 | Organiser: Your event requests | Title, purpose, description, #ID | All, then one chip per status section that has requests | "Earliest proposed date"; "Recently submitted"; "Recently created" | Unchanged except counts are before search. |
 | Coordinator: Assigned requests | Title, organiser, #ID | All (default), Active, Completed | "Longest waiting" (the backend's queue order); "Earliest proposed date" | Sections needing a decision come first in All and Active. Sorting is within each section. |
 | Coordinator: All events | Title, organiser, coordinator, #ID | All, then each status present, in workflow order | "Earliest submitted" (the backend's order); "Earliest proposed date" | One list without sections, so rows keep their status badge. |
-| Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | "Earliest submitted" (the backend's order); "Earliest proposed date" | |
+| Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | "Needs attention" (default); "Earliest submitted" (the backend's order); "Earliest proposed date" | A table, not sections, so rows keep their status badge. |
 | Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | "Earliest booking date"; "Soonest hold expiry" | Placed inside the booking panel (`.list-controls-inset`). |
 | Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | "Earliest event date" (the backend's order); "Recently recorded" (sorts events and the lines within each) | Lines stay grouped by event. |
 | Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). |
@@ -176,7 +193,7 @@ for the same sort across all roles. Examples: "Earliest proposed date", "Recentl
   | Organiser: Your event requests | Earliest proposed date · Recently submitted · Recently created |
   | Coordinator: Assigned requests | Longest waiting · Earliest proposed date |
   | Coordinator: All events | Earliest submitted · Earliest proposed date |
-  | Lead: Assignment oversight | Earliest submitted · Earliest proposed date |
+  | Lead: Assignment oversight | Needs attention · Earliest submitted · Earliest proposed date |
   | Venue Staff: Booking requests | Earliest booking date · Soonest hold expiry |
   | Technical Support: Equipment worklist | Earliest event date · Recently recorded |
 

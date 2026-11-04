@@ -136,7 +136,7 @@ test("TC-9946 sort controls are labelled 'Sort by' and each option is one standa
     organiser: ["Earliest proposed date", "Recently submitted", "Recently created"],
     assigned: ["Longest waiting", "Earliest proposed date"],
     allEvents: ["Earliest submitted", "Earliest proposed date"],
-    lead: ["Earliest submitted", "Earliest proposed date"],
+    lead: ["Needs attention", "Earliest submitted", "Earliest proposed date"],
     bookings: ["Earliest booking date", "Soonest hold expiry"],
     technical: ["Earliest event date", "Recently recorded"],
   });

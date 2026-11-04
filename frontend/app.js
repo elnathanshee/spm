@@ -117,7 +117,8 @@ document.addEventListener("alpine:init", () => {
     allCoordinatorEvents: [],
     assignedView: { ...listView(), scope: "all", sort: "queue" },
     allEventsView: { ...listView(), status: "all", sort: "submitted" },
-    leadView: { query: "", filter: "all", sort: "submitted" },
+    leadView: { query: "", filter: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" },
+    assignmentState: {},
     bookingView: { query: "", sort: "start" },
     technicalView: { query: "", sort: "event" },
     leadEvents: [],
@@ -748,8 +749,9 @@ document.addEventListener("alpine:init", () => {
     leadInFilter(event, filter) { return filter === "all" || (filter === "unassigned") === !event.assigned_coordinator_id; },
     filteredLeadEvents() {
       const view = this.leadView;
+      const sorts = { attention: (a, b) => this.leadAttentionRank(a) - this.leadAttentionRank(b), start: byAsc("proposed_start"), submitted: keepOrder };
       return this.leadEvents.filter(event => this.leadInFilter(event, view.filter) && this.coordinatorMatches(event, view.query))
-        .sort(view.sort === "start" ? byAsc("proposed_start") : keepOrder);
+        .sort(sorts[view.sort] || keepOrder);
     },
 
     // Technical Support: events grouped as before; search covers the event and each line, and
@@ -769,7 +771,7 @@ document.addEventListener("alpine:init", () => {
         allEvents: () => ({ view: this.allEventsView, filter: { target: this.allEventsView, key: "status" }, chips: this.allEventStatusChips(), placeholder: "Title, organiser, coordinator or #ID", label: "Show events by status",
           sorts: [{ value: "submitted", label: "Earliest submitted" }, { value: "start", label: "Earliest proposed date" }], sortLabel: "Sort by", shown: this.filteredAllEvents().length, noun: "events" }),
         lead: () => ({ view: this.leadView, filter: { target: this.leadView, key: "filter" }, chips: this.leadFilterChips(), placeholder: "Title, organiser, coordinator or #ID", label: "Show requests by assignment",
-          sorts: [{ value: "submitted", label: "Earliest submitted" }, { value: "start", label: "Earliest proposed date" }], sortLabel: "Sort by", shown: this.filteredLeadEvents().length, noun: "requests" }),
+          sorts: [{ value: "attention", label: "Needs attention" }, { value: "submitted", label: "Earliest submitted" }, { value: "start", label: "Earliest proposed date" }], sortLabel: "Sort by", shown: this.filteredLeadEvents().length, noun: "requests" }),
         bookings: () => this.venueWorkspace && ({ view: this.bookingView, filter: { target: this.venueWorkspace, key: "bookingFilter" }, chips: BOOKING_FILTERS.map(filter => ({ key: filter, label: filter, count: this.bookingFilterCount(filter) })),
           placeholder: "Event, venue or booking #ID", label: "Filter booking requests", sorts: [{ value: "start", label: "Earliest booking date" }, { value: "hold", label: "Soonest hold expiry" }], sortLabel: "Sort by", shown: this.filteredVenueBookings().length, noun: "bookings" }),
         technical: () => ({ view: this.technicalView, filter: null, chips: null, placeholder: "Event, equipment, requirements, recorded by or #ID", label: "",
@@ -791,14 +793,26 @@ document.addEventListener("alpine:init", () => {
     },
 
     async fetchLeadData() {
+      const recipient = this.user;
       this.loading = true;
       const [eventsResponse, coordinatorsResponse] = await Promise.all([
-        this.apiRequest("/lead/events"),
-        this.apiRequest("/lead/coordinators"),
+        this.apiRequest("/lead/events", { inlineErrors: true }),
+        this.apiRequest("/lead/coordinators", { inlineErrors: true }),
       ]);
-      if (eventsResponse.ok) this.leadEvents = eventsResponse.data.map(event => ({ ...event, selectedCoordinatorId: event.assigned_coordinator_id || "" }));
-      if (coordinatorsResponse.ok) this.coordinators = coordinatorsResponse.data;
+      if (this.user !== recipient) return;
       this.loading = false;
+      if (eventsResponse.ok) {
+        // A choice not saved yet is kept when the list refreshes, unless the request's assignment changed meanwhile.
+        const previous = new Map(this.leadEvents.map(event => [event.id, event]));
+        this.leadEvents = eventsResponse.data.map(event => {
+          const before = previous.get(event.id);
+          const unsaved = before && before.assigned_coordinator_id === event.assigned_coordinator_id && this.assignmentChanged(before);
+          return { ...event, selectedCoordinatorId: unsaved ? before.selectedCoordinatorId : (event.assigned_coordinator_id || "") };
+        });
+      }
+      this.recordListResult(this.leadView, eventsResponse);
+      if (coordinatorsResponse.ok) this.coordinators = coordinatorsResponse.data;
+      this.leadView.coordinatorsError = coordinatorsResponse.ok || coordinatorsResponse.status === 401 ? "" : this.dialogErrorMessage(coordinatorsResponse);
     },
 
     async fetchNotifications() {
@@ -1406,14 +1420,39 @@ document.addEventListener("alpine:init", () => {
     // The statuses POST /events/{id}/assign and /reassign accept (backend lead.py assignable_statuses).
     canAssignEvent(event) { return ["Submitted", "Under Review", "Returned"].includes(event?.status); },
 
+    // Unsaved means a Coordinator is chosen and it isn't the one already assigned (the backend refuses a same-Coordinator reassignment).
+    assignmentChanged(event) {
+      return !!event?.selectedCoordinatorId && String(event.selectedCoordinatorId) !== String(event.assigned_coordinator_id ?? "");
+    },
+    rowAssignment(event) { return this.assignmentState[event.id] || {}; },
     async saveAssignment(event) {
       if (!event.selectedCoordinatorId) { this.showAlert("Select a Coordinator first."); return; }
+      if (!this.assignmentChanged(event) || this.rowAssignment(event).busy) return;
       const action = event.assigned_coordinator_id ? "reassign" : "assign";
-      const response = await this.apiRequest(`/events/${event.id}/${action}`, { method: "POST", body: { coordinator_id: Number(event.selectedCoordinatorId) } });
+      const name = this.coordinators.find(coordinator => String(coordinator.id) === String(event.selectedCoordinatorId))?.username || "the Coordinator";
+      this.assignmentState = { ...this.assignmentState, [event.id]: { busy: true } };
+      const response = await this.apiRequest(`/events/${event.id}/${action}`, { method: "POST", body: { coordinator_id: Number(event.selectedCoordinatorId) }, inlineErrors: true });
       if (response.ok) {
+        this.assignmentState = { ...this.assignmentState, [event.id]: { message: `${action === "assign" ? "Assigned" : "Reassigned"} to ${name}.` } };
         await this.fetchLeadData();
-        this.showAlert(`Event request #${event.id} ${action === "assign" ? "assigned" : "reassigned"}.`, "success");
+        this.showAlert(`Event request #${event.id} ${action === "assign" ? "assigned" : "reassigned"} to ${name}.`, "success");
+      } else {
+        this.assignmentState = { ...this.assignmentState, [event.id]: { error: response.status === 401 ? "" : this.dialogErrorMessage(response) } };
       }
+      // The button was disabled while saving (and stays so once saved), and the row may move when it re-sorts:
+      // keep keyboard focus on this row's Coordinator choice.
+      if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`coordinator-${event.id}`)?.focus());
+    },
+    // What needs the Lead first. "Proposed date passed" is shown only while the request still awaits a decision.
+    leadNeedsAssignment(event) { return !event.assigned_coordinator_id && this.canAssignEvent(event); },
+    leadDatePassed(event) {
+      const start = this.parseServerTime(event.proposed_start, "local");
+      return ["Submitted", "Under Review", "Returned"].includes(event.status) && !!start && start < new Date();
+    },
+    leadAttentionRank(event) { return this.leadNeedsAssignment(event) ? 0 : this.leadDatePassed(event) ? 1 : 2; },
+    // Open requests per Coordinator, counted from the list already loaded (the Lead sees every non-Draft event).
+    coordinatorOpenCount(coordinatorId) {
+      return this.leadEvents.filter(event => String(event.assigned_coordinator_id) === String(coordinatorId) && this.coordinatorGroupOf(event).active).length;
     },
 
     closeEventDetail() { this.eventDetail = null; if (this.modal.kind !== "amend") this.closeModal(); },
