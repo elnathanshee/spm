@@ -54,6 +54,18 @@ const ORGANISER_GROUPS = [
   { key: "completed", label: "Completed", description: "No further changes can be made.", statuses: ["Completed"] },
   { key: "cancelled", label: "Cancelled", description: "No further changes can be made.", statuses: ["Cancelled"] },
 ];
+// The desktop sidebar's collapsed state, kept in this browser between page loads.
+// With no saved choice the sidebar starts as a rail on narrow screens (under 1024px).
+const SIDEBAR_KEY = "connectsphere.sidebarCollapsed";
+const COMPACT_NAV_QUERY = "(max-width: 767px)";
+function savedSidebarCollapsed() {
+  try {
+    const saved = globalThis.localStorage?.getItem(SIDEBAR_KEY);
+    if (saved === "true" || saved === "false") return saved === "true";
+  } catch { /* storage blocked: use the default */ }
+  return typeof window.innerWidth === "number" && window.innerWidth < 1024;
+}
+
 const ORGANISER_SORTS = {
   // Soonest proposed date first; requests without a date last.
   start: (a, b) => (a.proposed_start ? 0 : 1) - (b.proposed_start ? 0 : 1) || String(a.proposed_start || "").localeCompare(String(b.proposed_start || "")),
@@ -66,6 +78,8 @@ document.addEventListener("alpine:init", () => {
     user: null,
     currentPath: "/login",
     sidebarOpen: false,
+    sidebarCollapsed: savedSidebarCollapsed(),
+    compactNav: !!window.matchMedia?.(COMPACT_NAV_QUERY).matches,
     loading: false,
     pendingPath: requestedFrontendPath(window.location.hash),
     accessDenied: false,
@@ -120,8 +134,28 @@ document.addEventListener("alpine:init", () => {
       if (window.location.hash) {
         window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
       }
+      // Below 768px the sidebar is an overlay; leaving that width closes it.
+      const compact = window.matchMedia?.(COMPACT_NAV_QUERY);
+      compact?.addEventListener?.("change", event => {
+        this.compactNav = event.matches;
+        if (!event.matches) this.sidebarOpen = false;
+      });
       await this.loadSession();
       window.setInterval(() => this.refreshWorkspace(), 15000);
+    },
+
+    // One control: on phones it opens and closes the overlay; wider, it collapses the sidebar to a rail.
+    sidebarExpanded() { return this.compactNav ? this.sidebarOpen : !this.sidebarCollapsed; },
+    toggleSidebar() {
+      if (this.compactNav) {
+        this.sidebarOpen = !this.sidebarOpen;
+        // Move focus into the overlay, which sits before the top bar in tab order.
+        // Each role sees only its own items, so take the first one that is shown.
+        if (this.sidebarOpen && typeof this.$nextTick === "function") this.$nextTick(() => [...(document.querySelectorAll?.("#app-sidebar .nav-item") || [])].find(item => item.offsetParent)?.focus());
+        return;
+      }
+      this.sidebarCollapsed = !this.sidebarCollapsed;
+      try { globalThis.localStorage?.setItem(SIDEBAR_KEY, String(this.sidebarCollapsed)); } catch { /* not saved; still applies now */ }
     },
 
     normalizeRole(role) {
@@ -372,6 +406,8 @@ document.addEventListener("alpine:init", () => {
         bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>',
         check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>',
         alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 9v5m0 3h.01"/></svg>',
+        "panel-left": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>',
+        menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
       };
       return icons[name] || icons.calendar;
     },

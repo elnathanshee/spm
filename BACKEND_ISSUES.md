@@ -129,3 +129,26 @@ around these; each entry has the evidence.
   draft can be amended after it is submitted. The create form says the same.
 - **Needed:** a decision: either let `amend_event` (or a new `PATCH`) update Drafts, or treat a
   Draft as final until submitted, in which case "Save as draft" may not be worth keeping.
+
+## 12. Returned times can't be shown as reliable Singapore Time (blocks the timezone label change)
+
+- **Screen:** every role: event dates, booking periods, hold expiries, created, submitted and
+  notification times. Blocks replacing the "Times in SGT" pill with per-value "SGT" labels.
+- **Evidence:**
+  - **Event `proposed_start` has no defined zone.** `EventCreate`/`EventAmend` accept a naive
+    datetime and store it as given. The frontend sends the `datetime-local` value as a Singapore
+    wall time and shows it as one (`app.js` `parseServerTime(value, "local")`).
+    `events.validate_event_business_rules` compares the same naive value with
+    `datetime.utcnow()`, so the backend treats it as UTC. They disagree by 8 hours
+    (UI_BACKEND_MAP.md §4.4, M7).
+  - **Some stored booking times are not UTC.** Bookings are meant to be naive UTC
+    (`booking_rules.to_naive_utc`, D7), and the frontend converts them to Singapore time. On the
+    shared database, rows written before SCRUM-95 still hold Singapore wall times (#3:
+    `migrate_scrum95 --check` reports 2 bookings), so they show 8 hours late.
+  - JSON times carry no zone marker (`venues.booking_detail_dict`, `events.list_my_events`), so
+    the frontend can't tell which convention a value follows.
+- **Frontend:** unchanged. The "Times in SGT" pill and the existing formatting stay. Labelling
+  each value "SGT" would state a zone the data doesn't guarantee.
+- **Needed:** decide the zone of `proposed_start` (store UTC like bookings, or validate it as
+  Singapore time), apply the SCRUM-95 migration (#3), and ideally return times with an explicit
+  offset (`...Z` or `+08:00`).
