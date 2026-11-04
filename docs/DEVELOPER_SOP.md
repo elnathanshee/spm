@@ -30,7 +30,7 @@ We follow **Trunk-Based Development (TBD)** with short-lived feature branches to
    git push -u origin feature/SCRUM-<id>-<name>
    ```
 5. **Peer Review & Merge:**
-   - At least one teammate review is required.
+   - A review by at least one teammate is required where possible (the team rule since 8 Oct 2026, applied to all sprints; see the Definition of Done).
    - All automated test suites (`pytest`) and CI checks must pass.
    - Merge into `main` using standard PR merge / squash merge.
    - Delete the remote feature branch after merging.
