@@ -18,7 +18,7 @@ test('TC-8801 three entry points and one safe complete detail renderer preserve 
  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
  assert.equal((html.match(/@click="openEventDetail\(event.id\)"/g) || []).length, 4); // [SCRUM-94] + the Organiser's My event requests
  assert.match(html, /x-for="\(value, key\) in eventDetail.detail"/); assert.match(html, /x-text="eventFieldValue\(key, value\)"/);
- const s = app(); s.apiRequest = async path => { assert.equal(path, '/events/7'); return { ok: true, data: detail }; };
+ const s = app(); s.apiRequest = async path => { assert.match(path, /^\/events\/7(\/equipment-requests)?$/); return { ok: true, data: path.endsWith('/equipment-requests') ? { equipment_requests: [] } : detail }; }; // [SCRUM-93] the event view also loads its equipment list
  await s.openEventDetail(7); assert.equal(s.eventDetail.detail, detail);
  for (const [key, value] of Object.entries(detail)) assert.ok(s.eventFieldValue(key, value).length);
  assert.equal(s.eventFieldValue('description', detail.description), detail.description);
@@ -118,7 +118,7 @@ const alpineReactive = vm.runInNewContext(alpineSource.replace(/export \{[\s\S]*
 });
 for (const status of [200, 0, 403, 404]) test(`TC-8811 Alpine reactive detail clears loading and renders success/error (${status})`, async () => {
  const s = alpineReactive(app()); s.currentPath = '/coordinator/all-events'; let finish;
- s.apiRequest = path => { assert.equal(path, '/events/7'); return new Promise(resolve => finish = resolve); };
+ s.apiRequest = path => { assert.match(path, /^\/events\/7(\/equipment-requests)?$/); return path.endsWith('/equipment-requests') ? Promise.resolve({ ok: true, data: { equipment_requests: [] } }) : new Promise(resolve => finish = resolve); }; // [SCRUM-93] the event view also loads its equipment list
  const pending = s.openEventDetail(7);
  assert.equal(s.eventDetail.loading, true); assert.equal(s.eventDetail.detail, null);
  finish({ ok: status === 200, status, data: detail }); await pending;

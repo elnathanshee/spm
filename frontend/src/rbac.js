@@ -29,7 +29,8 @@ const ROLE_PATHS = {
   Attendee: "/attendee",
 };
 
-const PLACEHOLDER_PATHS = new Set(["/technical", "/attendee"]);
+// [SCRUM-93] /technical is a built screen now; only the Attendee view is still a placeholder.
+const PLACEHOLDER_PATHS = new Set(["/attendee"]);
 
 export function normalizeRole(role) {
   return NORMALIZED_ROLES[String(role || "").trim().toLowerCase()] || role;
