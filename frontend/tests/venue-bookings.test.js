@@ -229,7 +229,8 @@ test("TC-9501 hold presentation uses returned fields, UTC interpretation and exp
   const controlsStart = row.indexOf('<template x-if="canUpdateHoldWarning');
   assert.ok(detailsStart >= 0 && detailsStart < controlsStart);
   assert.match(row.slice(detailsStart, controlsStart), /Hold expiry:.*Warning:/);
-  assert.doesNotMatch(html.slice(0, html.indexOf('<template x-if="bookingDialog">')), /hold-warning-|formatHoldExpiry\(booking.hold_expires_at\)/);
+  // The warning form stays in the Coordinator's dialog. Venue Staff rows may show the expiry as text (UI_AUDIT F8).
+  assert.doesNotMatch(html.slice(0, html.indexOf('<template x-if="bookingDialog">')), /hold-warning-|updateHoldWarning/);
   assert.equal(state.bookingStatusClass("Expired"), "status-rejected");
   assert.equal(state.bookingStatusClass("Confirmed"), "status-approved");
   assert.equal(state.formatHoldExpiry(null), "Not set");

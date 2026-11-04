@@ -17,7 +17,7 @@ const detail = { id: 7, title: '<script>Safe</script>', purpose: 'Purpose', desc
 test('TC-8801 three entry points and one safe complete detail renderer preserve content', async () => {
  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
  assert.equal((html.match(/@click="openEventDetail\(event.id\)"/g) || []).length, 4); // [SCRUM-94] + the Organiser's My event requests
- assert.match(html, /x-for="\(value, key\) in eventDetail.detail"/); assert.match(html, /x-text="eventFieldValue\(key, value\)"/);
+ assert.match(html, /x-for="\[key, value\] in eventDetailEntries\(eventDetail.detail\)"/); // UI_AUDIT F5: id, status and raw user ids are shown elsewhere assert.match(html, /x-text="eventFieldValue\(key, value\)"/);
  const s = app(); s.apiRequest = async path => { assert.equal(path, '/events/7'); return { ok: true, data: detail }; };
  await s.openEventDetail(7); assert.equal(s.eventDetail.detail, detail);
  for (const [key, value] of Object.entries(detail)) assert.ok(s.eventFieldValue(key, value).length);

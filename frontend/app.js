@@ -14,6 +14,7 @@ import { NO_CHANGES, affectedBookingRows, bufferSummary, changedFields, createPa
 // [SCRUM-94] The fields PATCH /events/{id} accepts (backend ROUTINE_FIELDS, SCRUM-28).
 const ROUTINE_FIELDS = ["title", "purpose", "description", "accessibility_needs", "registration_needs"];
 // The amend fields GET /events/{id} returns but the GET /events list does not.
+const EVENT_DETAIL_HIDDEN = ["id", "status", "organiser_id", "assigned_coordinator_id"];
 const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equipment_requirements", "registration_needs"];
 
 document.addEventListener("alpine:init", () => {
@@ -200,7 +201,7 @@ document.addEventListener("alpine:init", () => {
     roleWorkspace() { return { Organiser: "Event requests", Coordinator: "Planning & review", "Event Coordinator Lead": "Assignment oversight", "Venue Staff": "Venue operations", "Technical Support": "Technical operations", Attendee: "My events" }[this.user?.role] || "Event services"; },
     rolePageHeading() { return { "Venue Staff": "Venue operations", "Technical Support": "Technical support", Attendee: "Event directory" }[this.user?.role] || "Your workspace"; },
     rolePageDescription() { return { "Venue Staff": "Review venue-related work assigned to your role.", "Technical Support": "Keep track of technical and equipment arrangements assigned to you.", Attendee: "Find attendee-facing event information available to your role." }[this.user?.role] || "Your role-specific view of ConnectSphere."; },
-    roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "There are no attendee events available right now. Events open to your role will appear here." }[this.user?.role] || "There is no work requiring your attention right now."; },
+    roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "The event directory isn't available yet. Events open to attendees will be listed here once it is." }[this.user?.role] || "There is no work requiring your attention right now."; },
     roleIcon() { return { "Venue Staff": "building", "Technical Support": "equipment", Attendee: "ticket" }[this.user?.role] || "calendar"; },
     userInitials() { return String(this.user?.username || "U").split(/[._\s-]+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); },
     unreadNotifications() { return this.notifications.filter(notification => !notification.read).length; },
@@ -1057,6 +1058,11 @@ document.addEventListener("alpine:init", () => {
         if (response.ok) dialog.detail = response.data;
         else dialog.error = response.status === 403 ? "You don't have permission to view this request." : response.status === 404 ? "Event request not found." : "Request details could not be loaded. Please try again.";
       } finally { if (this.user === recipient && this.eventDetail === dialog) dialog.loading = false; }
+    },
+    // The id is in the dialog title and the status in its badge; the raw user ids
+    // repeat the organiser and coordinator names shown alongside them.
+    eventDetailEntries(detail) {
+      return Object.entries(detail || {}).filter(([key]) => !EVENT_DETAIL_HIDDEN.includes(key));
     },
     eventFieldLabel(key) { return ({ organiser: "Organiser", assigned_coordinator: "Assigned Coordinator", proposed_start: "Proposed date and time", clarification_note: "Latest clarification note" })[key] || key.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase()); },
     eventFieldValue(key, value) {

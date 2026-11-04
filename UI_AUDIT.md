@@ -37,7 +37,9 @@ Severity scale:
 
 ## 2. Issues found
 
-**Fixed since this audit:** F1, F2 and F6 (frontend only). Each was checked in the browser.
+**Fixed since this audit:** F1, F2 and F6, then F4, F5, F7, F8 and F9 (frontend only). Each was checked in the browser
+with the affected role. **Still open:** F3, which waits on `BACKEND_ISSUES.md` #5, and the stale clarification
+note in F5, which comes from the backend (A5).
 The Technical Support worklist was verified against the real, currently empty, `GET /equipment-requests`.
 
 ### Frontend
