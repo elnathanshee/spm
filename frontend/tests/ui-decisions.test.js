@@ -24,8 +24,11 @@ test("UI-D1 a status badge above a details grid gets 16px of space (components.c
 test("UI-D2 related buttons sit together in a .button-group with the shared 12px gap", () => {
   assert.match(tokens, /--gap-actions: var\(--space-3\);/);
   assert.match(components, /\.button-row, \.button-group,[^{]*\{\s*display: flex; flex-wrap: wrap; align-items: center; gap: var\(--gap-actions\);/);
-  assert.match(html, /<div class="lead-row-actions"><div class="button-group"><button[^>]*>Open request<\/button><button[^>]*>.*?Venue bookings<\/button><\/div><div class="assignment-controls"/);
-  assert.match(styles, /\.lead-row-actions>\.assignment-controls\{margin-left:auto\}/);
+  // Lead table: the assignment controls sit in the Coordinator column, Venue bookings alone in Actions (right-aligned)
+  const lead = html.slice(html.indexOf('x-for="event in filteredLeadEvents()"'), html.indexOf("</tr></template>", html.indexOf('x-for="event in filteredLeadEvents()"')));
+  assert.match(lead, /<td data-label="Coordinator" class="lead-cell-coordinator"><div class="assignment-controls" x-show="canAssignEvent\(event\)">/);
+  assert.match(lead, /<td data-label="Actions" class="cell-end"><button type="button" class="button button-secondary button-compact" x-show="canBookEvent\(event\)" @click="openBookings\(event\)">/);
+  assert.doesNotMatch(lead, />Open request</, "the title opens the request");
 });
 
 test("UI-D3 summary card labels sit 12px after their accent line; numbers stay right (components.css)", () => {
@@ -43,7 +46,7 @@ test("UI-D4 Organiser list: one section per status, no row badges; the details p
   assert.match(html, /eventDetail\.detail"><div><span class="status-badge"/);
 });
 
-test("UI-D5 list rows keep actions on the right, View details first, at most one filled button", () => {
+test("UI-D5 list rows keep actions on the right, open through the title (Coordinator) or View details first (Organiser), at most one filled button", () => {
   // Shared by the Organiser and Coordinator lists since the Coordinator redesign (UI_DECISIONS item 9)
   assert.match(components, /\.request-row\{display:flex;flex-wrap:wrap;align-items:center;/);
   assert.match(components, /\.request-summary\{flex:1 1 18rem;min-width:0\}/);
@@ -53,7 +56,8 @@ test("UI-D5 list rows keep actions on the right, View details first, at most one
   assert.equal((organiserRow.match(/button-primary/g) || []).length, 1);
   const start = html.indexOf('x-for="event in group.events"', html.indexOf("currentPath === '/coordinator/events'"));
   const coordinatorRow = html.slice(start, html.indexOf("</li></template>", start));
-  assert.match(coordinatorRow, /<div class="request-actions button-group">\s*<button type="button" class="button button-secondary" @click="openEventDetail\(event\.id\)">View details/);
+  assert.match(coordinatorRow, /<h3><a class="row-link" :href="`#request-\$\{event\.id\}`" @click\.prevent="openEventDetail\(event\.id\)" x-text="event\.title"><\/a><\/h3>/);
+  assert.doesNotMatch(coordinatorRow, /View details/, "no separate open button");
   assert.equal((coordinatorRow.match(/button-primary/g) || []).length, 1);
   assert.doesNotMatch(coordinatorRow, /status-badge/);
 });
@@ -95,4 +99,18 @@ test("UI-D6b on phones the row is a column, so nothing in it keeps a width-based
   assert.match(block, /\.request-row\{flex-direction:column;/);
   assert.match(block, /\.request-summary\{flex:none\}/);
   assert.match(block, /\.request-note\{flex-basis:auto\}/);
+});
+
+test("UI-D9 rows open through a link on the title; tables align cells with headers; people lists aren't number cards", () => {
+  const links = html.match(/<a class="row-link" :href="`#request-\$\{event\.id\}`" @click\.prevent="openEventDetail\(event\.id\)" x-text="event\.title"><\/a>/g) || [];
+  assert.equal(links.length, 3, "Coordinator assigned, Coordinator all events, Lead");
+  assert.match(components, /\.row-link:focus-visible \{ box-shadow: var\(--focus-ring\); \}/);
+  assert.match(components, /\.row-link:hover \{[^}]*text-decoration: underline;/);
+  // The Lead requests and workload are real tables, so cells line up with their headers
+  const lead = html.slice(html.indexOf("currentPath === '/lead/events'"), html.indexOf("currentPath === '/coordinator/all-events'"));
+  assert.equal((lead.match(/<table class="data-table/g) || []).length, 2);
+  assert.match(lead, /<thead><tr><th scope="col">Request<\/th><th scope="col">Proposed<\/th><th scope="col">Status<\/th><th scope="col">Coordinator<\/th><th scope="col" class="cell-end">Actions<\/th><\/tr><\/thead>/);
+  assert.doesNotMatch(lead, /summary-strip|operations-summary/, "the workload is a compact table, not number cards");
+  assert.match(lead, /<details class="disclosure lead-workload"/, "collapsed by default (no open attribute)");
+  assert.doesNotMatch(lead, /<details[^>]* open/);
 });

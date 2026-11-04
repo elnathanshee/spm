@@ -119,6 +119,7 @@ document.addEventListener("alpine:init", () => {
     allEventsView: { ...listView(), status: "all", sort: "submitted" },
     leadView: { query: "", filter: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" },
     assignmentState: {},
+    picker: { eventId: null, query: "", active: 0 },
     bookingView: { query: "", sort: "start" },
     technicalView: { query: "", sort: "event" },
     leadEvents: [],
@@ -1440,8 +1441,8 @@ document.addEventListener("alpine:init", () => {
         this.assignmentState = { ...this.assignmentState, [event.id]: { error: response.status === 401 ? "" : this.dialogErrorMessage(response) } };
       }
       // The button was disabled while saving (and stays so once saved), and the row may move when it re-sorts:
-      // keep keyboard focus on this row's Coordinator choice.
-      if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`coordinator-${event.id}`)?.focus());
+      // keep keyboard focus on this row's coordinator picker.
+      if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`picker-${event.id}`)?.focus());
     },
     // What needs the Lead first. "Proposed date passed" is shown only while the request still awaits a decision.
     leadNeedsAssignment(event) { return !event.assigned_coordinator_id && this.canAssignEvent(event); },
@@ -1450,6 +1451,65 @@ document.addEventListener("alpine:init", () => {
       return ["Submitted", "Under Review", "Returned"].includes(event.status) && !!start && start < new Date();
     },
     leadAttentionRank(event) { return this.leadNeedsAssignment(event) ? 0 : this.leadDatePassed(event) ? 1 : 2; },
+    // Coordinators by fewest open requests, then name: for the workload table and the picker.
+    coordinatorName(coordinator) { return coordinator?.display_name || coordinator?.username || ""; },
+    coordinatorsByWorkload() {
+      return this.coordinators
+        .map(coordinator => ({ ...coordinator, name: this.coordinatorName(coordinator), open: this.coordinatorOpenCount(coordinator.id) }))
+        .sort((a, b) => a.open - b.open || a.name.localeCompare(b.name));
+    },
+    openRequestsLabel(count) { return `${count} open ${count === 1 ? "request" : "requests"}`; },
+
+    // ---- Coordinator picker (UI_DECISIONS "Coordinator picker"): one open at a time. Choosing only sets
+    // the row's pending choice; nothing is saved until Assign / Reassign.
+    pickerOpen(event) { return this.picker.eventId === event.id; },
+    openPicker(event) {
+      this.picker = { eventId: event.id, query: "", active: 0 };
+      if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`picker-search-${event.id}`)?.focus());
+    },
+    closePicker(event, { returnFocus = true } = {}) {
+      if (!event || this.picker.eventId !== event.id) return;
+      this.picker = { eventId: null, query: "", active: 0 };
+      if (returnFocus && typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`picker-${event.id}`)?.focus());
+    },
+    pickerOptions() {
+      const text = this.picker.query.trim().toLowerCase();
+      return this.coordinatorsByWorkload().filter(coordinator => !text || coordinator.name.toLowerCase().includes(text));
+    },
+    pickerOptionLabel(coordinator) { return `${coordinator.name} (${this.openRequestsLabel(coordinator.open)})`; },
+    pickerChoiceLabel(event) {
+      const chosen = this.coordinators.find(coordinator => String(coordinator.id) === String(event.selectedCoordinatorId));
+      return chosen ? this.coordinatorName(chosen) : "Select coordinator";
+    },
+    choosePickerOption(event, coordinator) {
+      event.selectedCoordinatorId = coordinator.id;
+      this.assignmentState = { ...this.assignmentState, [event.id]: {} };
+      this.closePicker(event);
+    },
+    pickerKeydown(event, keyboardEvent) {
+      const options = this.pickerOptions();
+      const key = keyboardEvent.key;
+      if (key === "ArrowDown" || key === "ArrowUp") {
+        keyboardEvent.preventDefault();
+        if (!options.length) return;
+        const step = key === "ArrowDown" ? 1 : -1;
+        this.picker.active = (this.picker.active + step + options.length) % options.length;
+        if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`picker-option-${event.id}-${options[this.picker.active].id}`)?.scrollIntoView?.({ block: "nearest" }));
+      } else if (key === "Home" || key === "End") {
+        keyboardEvent.preventDefault();
+        this.picker.active = key === "Home" ? 0 : Math.max(0, options.length - 1);
+      } else if (key === "Enter") {
+        keyboardEvent.preventDefault();
+        if (options[this.picker.active]) this.choosePickerOption(event, options[this.picker.active]);
+      } else if (key === "Escape") {
+        keyboardEvent.preventDefault();
+        keyboardEvent.stopPropagation();
+        this.closePicker(event);
+      } else if (key === "Tab") {
+        this.closePicker(event, { returnFocus: false });
+      }
+    },
+
     // Open requests per Coordinator, counted from the list already loaded (the Lead sees every non-Draft event).
     coordinatorOpenCount(coordinatorId) {
       return this.leadEvents.filter(event => String(event.assigned_coordinator_id) === String(coordinatorId) && this.coordinatorGroupOf(event).active).length;

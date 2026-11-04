@@ -16,11 +16,11 @@ Files: `tokens.css` = `frontend/src/tokens.css`, `components.css` = `frontend/sr
 | # | Rule | Where it applies | Controlled by | Commit |
 |---|---|---|---|---|
 | D1 | A status badge directly above a details grid has 16px (`--space-4`) of space below it. | Event request details panel (every role that opens it). The same rule covers any `.status-badge` placed right before a `.booking-detail-grid`. | `components.css` "Detail grid" (`.status-badge + .booking-detail-grid`) | `46b239c` |
-| D2 | Related buttons sit together in one `.button-group`, in their original order. Separate controls form their own group on the right. All button rows use one 12px gap (`--gap-actions`). | Lead assignment table: "Open request" and "Venue bookings" grouped in one cell; the Coordinator choice and "Assign"/"Reassign" in the cell to its right, shown only for Submitted, Under Review and Returned (`canAssignEvent`). Below 1280px they form the row's second line, buttons on the left and assignment on the right. Every button row uses the gap. | Gap: `tokens.css` `--gap-actions`; group: `components.css` `.button-group`; placement: `styles.css` `.lead-row-actions` (its two groups become table cells from 1280px) | `46b239c`, Lead redesign |
+| D2 | Related buttons sit together in one `.button-group`, in their original order. Separate controls form their own group. All button rows use one 12px gap (`--gap-actions`). | Lead table (changed on purpose in the Lead refinement): the request opens from its title, so there's no "Open request" button. The assign or reassign controls sit in the Coordinator column, shown only for Submitted, Under Review and Returned (`canAssignEvent`); otherwise the Coordinator's name shows as text. "Venue bookings" is alone in the right-aligned Actions column. Every button row uses the gap. | Gap: `tokens.css` `--gap-actions`; group: `components.css` `.button-group`; placement: the Lead table in `index.html` | `46b239c`, Lead redesigns |
 | D3 | Summary card labels start 12px (`--space-3`) after the coloured line. Numbers stay right-aligned. Long labels wrap between words. Cards wrap to fewer columns rather than squeeze. | Summary cards on Assignment oversight (Lead), Venue operations (Venue Staff) and Equipment worklist (Technical Support). The Coordinator's summary strip uses the same component without the line. | `components.css` "Summary cards" (`.summary-strip`, `.operations-summary`) | `46b239c`, `8bf1e3c` |
 | D4 | Request lists have one section per status, headed by the status in plain words. Rows have no status badge. Empty sections are hidden. An unknown status goes to "Other statuses" and shows on its row. The section that needs the user first is marked `.request-group-attention`. | Organiser "Your event requests"; Coordinator "Assigned requests". Not "All events", whose single list mixes statuses, so its rows keep the badge. | `app.js` `ORGANISER_GROUPS`, `COORDINATOR_GROUPS`; style: `components.css` "Request list" | `bc6a7cf`, Coordinator redesign |
 | D5 | The status badge stays in the request details panel. | Event request details panel. | `index.html` event detail template; badge style: `components.css` `.status-badge` | `bc6a7cf` |
-| D6 | List rows: title and details on the left, buttons only on the right, all ending at the same edge. When the buttons don't fit beside the details they move below them, still right-aligned. "View details" comes first, then the row's main action. At most one filled button per row: "Submit for review" (Organiser), "Start review" or "Record decision" (Coordinator). On phones: details, then any note, then the buttons. | Organiser and Coordinator request rows, and Coordinator "All events". | `components.css` "Request list" (`.request-row`, `.request-actions`) | `bc6a7cf`, Coordinator redesign |
+| D6 | List rows: title and details on the left, buttons only on the right, all ending at the same edge. When the buttons don't fit beside the details they move below them, still right-aligned. The row opens through a link on its title (see "Row links"); the Organiser still has a "View details" button, not changed yet. At most one filled button per row: "Submit for review" (Organiser), "Start review" or "Record decision" (Coordinator). On phones: details, then any note, then the buttons. | Organiser and Coordinator request rows, and Coordinator "All events". | `components.css` "Request list" (`.request-row`, `.request-actions`), "Row link" | `bc6a7cf`, Coordinator redesign, Lead refinement |
 | D7 | The sidebar control is a quiet 40×40px icon button beside the breadcrumb, labelled "Collapse sidebar" or "Expand sidebar".<br>**768px and up:** a panel icon collapses the sidebar to a 72px rail, and the choice is kept in `localStorage`.<br>**Below 768px:** a menu icon opens it over the page; focus moves to the first visible item, and Escape returns focus to the control. | Every signed-in screen. | Button: `components.css` `.icon-control`; widths: `tokens.css` `--sidebar-width-*`; breakpoint: `app.js` `COMPACT_NAV_QUERY` and the 767/768px media queries in `styles.css`; behavior: `app.js` `toggleSidebar()`, `sidebarExpanded()` | `8bf1e3c` |
 | D8 | All dates and times use one formatter, shown in Singapore time ("4 Nov 2026, 11:55 am"), whatever the browser's time zone. A same-day range shows the date once. | Every role. | `app.js` `DISPLAY_TIME_ZONE`, `parseServerTime`, `formatDateTime`, `formatRange`, and the wrappers `formatDate`, `formatUtc`, `formatSchedule`, `formatHoldExpiry`, `formatNotificationTime` | `6a0f79b` |
 | D9 | The time zone is shown once, as a "Times in SGT" pill in the top bar.<br>**⚠ Not done:** per-value "SGT" labels and a "Singapore Time (GMT+8)" tooltip and input help text. Blocked by `BACKEND_ISSUES.md` #12: the backend doesn't return reliable Singapore times. | Top bar, every role. | `index.html` `.timezone-note`; style: `styles.css` `.timezone-note` | `8bf1e3c` (logged) |
@@ -67,11 +67,11 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 
 | Rule | Where | Controlled by |
 |---|---|---|
-| A compact table: request (title, #ID, organiser, guests), proposed date, status, the "Open request" and "Venue bookings" group, then the assignment. From 1280px it has five columns; below that each row has two lines; on phones it stacks. | Assignment oversight | `index.html` Lead template; `styles.css` "Lead: compact assignment table" |
-| "Needs attention" is the default order: requests that need a Coordinator (unassigned and assignable), then requests past their proposed date that still await a decision (Submitted, Under Review, Returned), then the rest. Each group keeps the backend's order (earliest submitted). Those rows have a left accent and a flag ("Needs assignment", "Proposed date passed"). | Assignment oversight | `app.js` `leadAttentionRank()`, `leadNeedsAssignment()`, `leadDatePassed()`; test TC-9954 |
+| A real table with the columns Request, Proposed, Status, Coordinator, Actions, so every cell sits under its header. Request: the title is a link that opens the request, with the ID, organiser and guests below it. Coordinator: the coordinator picker and Assign or Reassign when the backend allows assignment, otherwise the name as text. Actions: "Venue bookings" only, right-aligned. On phones each row is a card with a label on every cell. | Assignment oversight | `index.html` Lead template; `components.css` "Data table", "Row link"; `styles.css` "Lead: assignment oversight" |
+| "Needs attention" is the default order: requests that need a Coordinator (unassigned and assignable), then requests past their proposed date that still await a decision (Submitted, Under Review, Returned), then the rest. Each group keeps the backend's order (earliest submitted). Those rows have a left accent. Past-date rows have a "Proposed date passed" flag; there's no "Needs assignment" tag, because the filter and the order already show it. | Assignment oversight | `app.js` `leadAttentionRank()`, `leadNeedsAssignment()`, `leadDatePassed()`; test TC-9954 |
 | "Assign" or "Reassign" is enabled, and filled, only when the chosen Coordinator differs from the current one; the backend refuses a same-Coordinator reassignment. While saving it reads "Saving…". Success shows on the row ("Assigned to coord1.") and as a toast. A refusal shows the backend's message on the row only. | Assignment oversight | `app.js` `assignmentChanged()`, `saveAssignment()`, `assignmentState`; tests TC-9951, TC-9952 |
 | A choice not saved yet survives the 15-second refresh, unless the request's assignment changed meanwhile. | Assignment oversight | `app.js` `fetchLeadData()`; test TC-9953 |
-| Coordinator workload: one summary card per active Coordinator with their open requests (every status except Rejected, Completed and Cancelled). It's counted from `GET /lead/events`, which holds every non-Draft event. `GET /lead/coordinators` returns no workload field. The same count shows in each option of the Coordinator choice. | Assignment oversight | `app.js` `coordinatorOpenCount()`; `components.css` "Summary cards" (D3); test TC-9955 |
+| Coordinator workload: a collapsible section, collapsed by default, holding a table of Coordinator and Open requests, fewest first and then by name. Its height is capped, with internal scrolling and a sticky header. Open requests are every status except Rejected, Completed and Cancelled, counted from `GET /lead/events`, which holds every non-Draft event (a Draft has no Coordinator). `GET /lead/coordinators` returns no workload field. | Assignment oversight | `app.js` `coordinatorsByWorkload()`, `coordinatorOpenCount()`; `components.css` "Disclosure", "Data table"; test TC-9955 |
 | Loading, load-error (keeping the list shown), permission-denied and empty states. If the Coordinator list fails to load, a message says assignment is unavailable. | Assignment oversight | `app.js` `fetchLeadData()`, `recordListResult()`; test TC-9956 |
 
 ## 3. ⚠ To confirm
@@ -107,8 +107,8 @@ decision-making information not visible in the list.**
   - Lead: the "Needs assignment" and "Assigned events" cards, the "N need assignment" header pill,
     and the list's "N requests" total.
   - Venue Staff: the "Pending requests" card.
-- **Kept:** the Lead's workload cards (open requests per Coordinator) add information that isn't in the list.
-  They replaced the single "Active coordinators" card.
+- **Kept:** the Lead's coordinator workload (open requests per Coordinator), now a collapsed table rather than cards,
+  adds information that isn't in the list.
 - **⚠ Pages that still break it, not changed yet:**
 
   | Page | Metric | Repeats |
@@ -203,3 +203,38 @@ for the same sort across all roles. Examples: "Earliest proposed date", "Recentl
   `GET /coordinator/events/data` doesn't return `submitted_at`, so sections other than "Awaiting first review" can't be
   sorted by waiting time; in those sections this option orders the same way as "Earliest proposed date".
 - **Every name is 1-3 words with no tie-breaker.** Guarded by TC-9946.
+
+### Row links, row actions, tables and lists that grow
+
+- **List rows open through a link on the title. Don't add a separate open or view button.**
+  - **Applies to:** Coordinator assigned requests and all events, and the Lead table. Controlled by `components.css`
+    "Row link" (`.row-link`: hover underline, focus ring) and guarded by UI-D9. The link is an `<a>` with a
+    `#request-<id>` fragment that opens the request details panel. There is no separate page for a request.
+  - **⚠ Still using a separate button, not changed yet:** the Organiser's request rows ("View details") and the Venue
+    Staff booking rows ("Review request" and "View details", which open the booking review).
+- **Keep frequent row actions visible. Don't use an overflow menu for two or fewer actions.** No list has an
+  overflow menu.
+- **Table cells must align with their column headers.** Tables are real `<table>` elements (`components.css`
+  "Data table"). On phones a table's rows become cards, and each cell shows its column name from `data-label`.
+  Guarded by UI-D9.
+- **Don't use large number cards for people or other lists that can grow. Use a compact list or table.** The
+  Lead's coordinator workload is a table. The summary cards that remain (Venue Staff, Technical Support) count fixed
+  things, not a growing list of people.
+
+### Coordinator picker
+
+A button labelled "Select coordinator" (or the chosen name) opens a panel with a search field, then a list showing
+about six coordinators at a time and scrolling for the rest.
+
+- **Options:** each reads "coord1 (1 open request)", with "requests" for any other number. They are ordered by fewest
+  open requests, then by name. Names and counts come from `GET /lead/coordinators` and `GET /lead/events`. A
+  `display_name` is used if the backend ever returns one; it returns only `username` today.
+- **Search** filters by name as the user types. When nothing matches, the panel says
+  "No coordinators match “x”".
+- **Current Coordinator:** marked "Current".
+- **Choosing** only sets the row's pending choice. Nothing is saved until Assign or Reassign.
+- **Keyboard and screen readers:** the search is a combobox over a listbox, with the active option as
+  `aria-activedescendant`. Arrow keys, Home and End move; Enter chooses; Escape closes and returns focus to the
+  button; Tab closes; a click outside closes.
+- **Controlled by:** `app.js` `openPicker`, `closePicker`, `pickerOptions`, `pickerKeydown`, `choosePickerOption`;
+  `components.css` "Picker". It needs no library. Guarded by TC-9957 and TC-9958.

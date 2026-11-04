@@ -31,7 +31,7 @@ test("TC-9951 Save is enabled only when the choice differs from the current assi
   assert.equal(state.assignmentChanged({ assigned_coordinator_id: 2, selectedCoordinatorId: "2" }), false, "same Coordinator: the backend would refuse it");
   assert.equal(state.assignmentChanged({ assigned_coordinator_id: 2, selectedCoordinatorId: 3 }), true);
   const start = html.indexOf('x-for="event in filteredLeadEvents()"');
-  const rowHtml = html.slice(start, html.indexOf("</li></template>", start));
+  const rowHtml = html.slice(start, html.indexOf("</tr></template>", start));
   assert.match(rowHtml, /:disabled="!assignmentChanged\(event\) \|\| !!rowAssignment\(event\)\.busy"/);
   assert.match(rowHtml, /:class="assignmentChanged\(event\) \? 'button-primary' : 'button-secondary'"/, "filled only when there is something to save");
 });
@@ -97,8 +97,9 @@ test("TC-9955 workload counts each Coordinator's open requests from the loaded l
   state.leadEvents = [row(1, "Submitted", { assigned_coordinator_id: 2 }), row(2, "Approved", { assigned_coordinator_id: 2 }), row(3, "Rejected", { assigned_coordinator_id: 2 }), row(4, "Under Review", { assigned_coordinator_id: 3 })];
   assert.equal(state.coordinatorOpenCount(2), 2, "Rejected isn't open");
   assert.equal(state.coordinatorOpenCount(3), 1);
-  assert.match(html, /x-text="`\$\{coordinator\.username\} · \$\{coordinatorOpenCount\(coordinator\.id\)\} open`"/, "shown in the Coordinator choice");
-  assert.match(html, /<section class="lead-workload"[^>]*><h2 id="lead-workload-title">Coordinator workload<\/h2>/);
+  assert.match(html, /x-text="pickerOptionLabel\(coordinator\)"/, "shown in the coordinator picker");
+  assert.match(html, /<details class="disclosure lead-workload"[^>]*><summary><span class="disclosure-title">Coordinator workload<\/span>/);
+  assert.match(html, /x-for="coordinator in coordinatorsByWorkload\(\)"/);
 });
 
 test("TC-9956 the Lead screen has loading, error, permission-denied and empty states", async () => {
@@ -114,4 +115,50 @@ test("TC-9956 the Lead screen has loading, error, permission-denied and empty st
   resetSignedOutState(state);
   assert.equal(state.leadView.loaded, false);
   for (const label of ["Loading requests…", "You can't view assignments", "Couldn't load the requests", "No submitted requests", "assignment is unavailable"]) assert.ok(html.includes(label), label);
+});
+
+test("TC-9957 the coordinator picker orders by fewest open requests then name, searches by name, and words counts correctly", () => {
+  const state = app();
+  state.coordinators = [{ id: 2, username: "zara" }, { id: 3, username: "amir" }, { id: 4, username: "ben", display_name: "Ben Tan" }, { id: 5, username: "cleo" }];
+  state.leadEvents = [row(1, "Submitted", { assigned_coordinator_id: 2 }), row(2, "Approved", { assigned_coordinator_id: 2 }), row(3, "Under Review", { assigned_coordinator_id: 5 }), row(4, "Rejected", { assigned_coordinator_id: 3 })];
+  const labels = () => plain(state.pickerOptions()).map(option => state.pickerOptionLabel(option));
+  assert.deepEqual(labels(), ["amir (0 open requests)", "Ben Tan (0 open requests)", "cleo (1 open request)", "zara (2 open requests)"], "display name used when the backend gives one");
+  state.picker.query = "BE";
+  assert.deepEqual(labels(), ["Ben Tan (0 open requests)"]);
+  state.picker.query = "zz";
+  assert.deepEqual(labels(), [], "the no-results state shows");
+  assert.match(html, /x-text="`No coordinators match “\$\{picker\.query\.trim\(\)\}”`"/);
+  assert.deepEqual(plain(state.coordinatorsByWorkload()).map(coordinator => `${coordinator.name} ${coordinator.open}`), ["amir 0", "Ben Tan 0", "cleo 1", "zara 2"], "the workload table uses the same order");
+});
+
+test("TC-9958 choosing in the picker only sets the pending choice; keyboard moves, chooses and closes", () => {
+  const state = app();
+  const event = row(8, "Under Review", { assigned_coordinator_id: 2, assigned_coordinator: "coord1", selectedCoordinatorId: 2 });
+  state.leadEvents = [event];
+  state.apiRequest = async () => assert.fail("nothing is saved until Assign or Reassign");
+  state.openPicker(event);
+  assert.equal(state.pickerOpen(event), true);
+  const key = name => { const keyboard = { key: name, preventDefault() {}, stopPropagation() {} }; state.pickerKeydown(event, keyboard); };
+  assert.equal(plain(state.pickerOptions())[0].username, "coord2", "coord1 has 1 open request, coord2 none: coord2 first");
+  key("ArrowDown");
+  assert.equal(state.picker.active, 1);
+  key("ArrowDown");
+  assert.equal(state.picker.active, 0, "wraps around");
+  key("End");
+  key("Enter");
+  assert.equal(state.pickerOpen(event), false, "choosing closes the picker");
+  assert.equal(String(event.selectedCoordinatorId), "2");
+  state.openPicker(event);
+  key("Home");
+  key("Enter");
+  assert.equal(String(event.selectedCoordinatorId), "3");
+  assert.equal(state.pickerChoiceLabel(event), "coord2");
+  assert.equal(state.assignmentChanged(event), true, "Reassign is now enabled");
+  state.openPicker(event);
+  key("Escape");
+  assert.equal(state.pickerOpen(event), false);
+  // The current Coordinator is marked in the list
+  assert.match(html, /<template x-if="String\(coordinator\.id\) === String\(event\.assigned_coordinator_id\)"><span class="picker-current">Current<\/span><\/template>/);
+  assert.match(html, /role="combobox" aria-autocomplete="list"/);
+  assert.match(html, /role="listbox" :id="`picker-list-\$\{event\.id\}`" :aria-label="`Coordinators for request #\$\{event\.id\}`"/);
 });

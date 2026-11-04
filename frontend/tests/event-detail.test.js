@@ -16,7 +16,7 @@ function app(role = 'Coordinator') {
 const detail = { id: 7, title: '<script>Safe</script>', purpose: 'Purpose', description: 'Long\n  text '.repeat(500), proposed_start: '2099-01-01T10:00:00', expected_attendance: 0, venue_requirements: 'Hall', accessibility_needs: 'Ramp', equipment_requirements: 'Mic', registration_needs: 'Tickets', status: 'Submitted', organiser_id: 1, organiser: 'org', assigned_coordinator_id: 2, assigned_coordinator: 'coord', clarification_note: 'Latest' };
 test('TC-8801 three entry points and one safe complete detail renderer preserve content', async () => {
  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
- assert.equal((html.match(/@click="openEventDetail\(event.id\)"/g) || []).length, 4); // [SCRUM-94] + the Organiser's My event requests
+ assert.equal((html.match(/@click(?:\.prevent)?="openEventDetail\(event.id\)"/g) || []).length, 4); // title links (Coordinator x2, Lead) + the Organiser's View details
  assert.match(html, /x-for="\[key, value\] in eventDetailEntries\(eventDetail.detail\)"/); // UI_AUDIT F5: id, status and raw user ids are shown elsewhere assert.match(html, /x-text="eventFieldValue\(key, value\)"/);
  const s = app(); s.apiRequest = async path => { assert.equal(path, '/events/7'); return { ok: true, data: detail }; };
  await s.openEventDetail(7); assert.equal(s.eventDetail.detail, detail);
