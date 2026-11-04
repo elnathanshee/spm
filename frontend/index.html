@@ -6,7 +6,7 @@
   <style>.skip-link{position:fixed;top:-100px}.skip-link:focus{top:1rem}</style>
 </head>
 <body>
-<div x-data="appState()" x-init="init()" class="min-h-screen">
+<div x-data="appState()" class="min-h-screen">
   <a href="#main-content" class="skip-link">Skip to main content</a>
   <template x-if="!user">
     <main class="login-shell">
@@ -107,6 +107,20 @@
           </div>
         </section></template>
         <template x-if="unbuiltRole"><section><div class="page-header"><div><p class="eyebrow" x-text="`${user.role} workspace`"></p><h1 x-text="rolePageHeading()"></h1><p x-text="rolePageDescription()"></p></div></div><div class="state-card role-state"><div class="state-icon" x-html="iconFor(roleIcon())"></div><h2>Your focused workspace is ready</h2><p x-text="roleEmptyMessage()"></p><div class="permission-note"><b>✓</b><span><strong>Role-based access is active.</strong><br>Internal planning tools are kept separate from this workspace.</span></div></div></section></template>
+
+        <!-- Technical Support: the read-only equipment worklist (GET /equipment-requests, SCRUM-39 AC2). -->
+        <template x-if="currentPath === '/technical' && user.role === 'Technical Support' && technicalWorklist"><section class="operations-page">
+          <div class="page-header"><div><p class="eyebrow">Technical Support workspace</p><h1>Equipment worklist</h1><p>Equipment recorded by Coordinators and Leads, soonest event first.</p></div></div>
+          <div class="summary-strip operations-summary" aria-label="Equipment worklist summary"><div><span>Events<small>With equipment recorded</small></span><strong x-text="technicalEventGroups().length"></strong></div><div><span>Equipment lines<small>One per equipment type</small></span><strong x-text="technicalWorklist.items.length"></strong></div></div>
+          <section class="queue-panel" aria-labelledby="equipment-worklist-title"><div class="queue-heading"><div><h2 id="equipment-worklist-title">Requirements by event</h2><p>Read only. Coordinators record and change requirements.</p></div><button type="button" class="button button-secondary button-compact" :disabled="technicalWorklist.busy" @click="fetchTechnicalWorklist()">Refresh</button></div>
+            <div class="inline-state" x-show="technicalWorklist.busy && !technicalWorklist.loaded" role="status"><span class="spinner dark"></span> Loading the worklist…</div>
+            <div class="inline-state error" x-show="technicalWorklist.error" role="alert"><span x-text="technicalWorklist.error"></span> <button type="button" class="button button-secondary button-compact" :disabled="technicalWorklist.busy" @click="fetchTechnicalWorklist()">Retry</button></div>
+            <div class="empty-panel" x-show="technicalWorklist.loaded && !technicalWorklist.items.length"><span x-html="iconFor('equipment')"></span><strong>No equipment recorded yet</strong><p>Requirements appear here once a Coordinator records them for an event.</p></div>
+            <template x-for="group in technicalEventGroups()" :key="group.event_id"><article class="queue-row"><div class="event-card-top"><div><p class="card-kicker" x-text="`Event request #${group.event_id}`"></p><h3 x-text="group.event_title || 'Untitled event'"></h3></div></div><dl class="inline-meta"><div><dt>Proposed</dt><dd x-text="formatDate(group.event_proposed_start)"></dd></div><div><dt>Equipment lines</dt><dd x-text="group.items.length"></dd></div></dl>
+              <ul class="booking-list"><template x-for="item in group.items" :key="item.id"><li><div><strong x-text="`${item.quantity} × ${item.equipment_type}`"></strong><p x-text="item.technical_requirements || 'No technical requirements recorded'"></p><p class="form-help" x-text="`Recorded by ${item.requested_by || 'unknown'} · ${formatUtc(item.created_at)}`"></p></div></li></template></ul>
+            </article></template>
+          </section>
+        </section></template>
 
         <template x-if="currentPath === '/events' && user.role === 'Organiser'"><section>
           <div class="page-header"><div><p class="eyebrow">Organiser workspace</p><h1>Your event requests</h1><p>Track progress, respond to clarifications, and start a new request.</p></div><button @click="navigate('/events/new')" class="button button-primary"><span>＋</span> New request</button></div>

@@ -29,7 +29,7 @@ const ROLE_PATHS = {
   Attendee: "/attendee",
 };
 
-const PLACEHOLDER_PATHS = new Set(["/technical", "/attendee"]);
+const PLACEHOLDER_PATHS = new Set(["/attendee"]);
 
 export function normalizeRole(role) {
   return NORMALIZED_ROLES[String(role || "").trim().toLowerCase()] || role;

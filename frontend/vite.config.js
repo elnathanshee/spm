@@ -27,6 +27,7 @@ export default defineConfig({
       "/coordinator": backendProxy,
       "/lead": backendProxy,
       "/notifications": backendProxy,
+      "/equipment-requests": backendProxy,
     },
   },
   build: {

@@ -35,6 +35,7 @@ document.addEventListener("alpine:init", () => {
     bookingDialog: null,
     venueWorkspace: null,
     staffBooking: null,
+    technicalWorklist: null,
     eventDetail: null,
     decisionBusy: false,
     alert: { message: "", kind: "error" },
@@ -233,7 +234,8 @@ document.addEventListener("alpine:init", () => {
     },
     formatNotificationTime(value) {
       if (!value) return "Recently";
-      const date = new Date(value);
+      // created_at is the backend's naive UTC (datetime.utcnow), like booking times.
+      const date = new Date(this.utcTimestamp(value));
       if (Number.isNaN(date.getTime())) return "Recently";
       return new Intl.DateTimeFormat("en-SG", { dateStyle: "medium", timeStyle: "short" }).format(date);
     },
@@ -310,6 +312,7 @@ document.addEventListener("alpine:init", () => {
       if (!this.accessDenied && path === "/coordinator/all-events") this.fetchAllCoordinatorEvents();
       if (!this.accessDenied && path === "/lead/events") this.fetchLeadData();
       if (!this.accessDenied && path === "/venue") this.fetchVenueWorkspace();
+      if (!this.accessDenied && path === "/technical") this.fetchTechnicalWorklist();
     },
 
     async fetchEvents() {
@@ -460,6 +463,43 @@ document.addEventListener("alpine:init", () => {
       if (this.currentPath === "/coordinator/all-events") await this.fetchAllCoordinatorEvents();
       if (this.currentPath === "/lead/events") await this.fetchLeadData();
       if (this.currentPath === "/venue") await this.fetchVenueWorkspace();
+      if (this.currentPath === "/technical") await this.fetchTechnicalWorklist();
+    },
+
+    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the read-only
+    // worklist across every event, soonest event first. Technical Support records
+    // nothing, and no route amends a line (BACKEND_ISSUES.md #2), so there are no actions.
+    async fetchTechnicalWorklist() {
+      if (this.normalizeRole(this.user?.role) !== "Technical Support") return;
+      if (!this.technicalWorklist) this.technicalWorklist = { items: [], busy: false, loaded: false, error: "" };
+      const worklist = this.technicalWorklist;
+      if (worklist.busy) return;
+      worklist.busy = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest("/equipment-requests", { inlineErrors: true });
+        if (this.user !== recipient || this.technicalWorklist !== worklist) return;
+        if (response.ok && Array.isArray(response.data?.equipment_requests)) {
+          worklist.items = response.data.equipment_requests;
+          worklist.loaded = true;
+          worklist.error = "";
+        } else {
+          worklist.error = response.ok ? "The equipment worklist returned an unexpected response." : this.dialogErrorMessage(response);
+        }
+      } finally {
+        if (this.technicalWorklist === worklist) worklist.busy = false;
+      }
+    },
+
+    // The worklist's lines grouped by event, keeping the backend's order.
+    technicalEventGroups() {
+      const groups = [];
+      for (const item of this.technicalWorklist?.items || []) {
+        let group = groups.find(entry => entry.event_id === item.event_id);
+        if (!group) groups.push(group = { event_id: item.event_id, event_title: item.event_title, event_proposed_start: item.event_proposed_start, items: [] });
+        group.items.push(item);
+      }
+      return groups;
     },
 
     isVenueStaff() { return this.normalizeRole(this.user?.role) === "Venue Staff"; },
