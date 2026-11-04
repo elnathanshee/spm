@@ -12,13 +12,13 @@
     }
   },
   "rewrites": [
-    {
-      "source": "^/(auth|events|venues|coordinator|lead|notifications|equipment-requests)(/.*)?$",
-      "destination": { "service": "backend" }
-    },
-    {
-      "source": "/(.*)",
-      "destination": { "service": "frontend" }
-    }
+    { "source": "/auth/:path*", "destination": { "service": "backend" } },
+    { "source": "/events/:path*", "destination": { "service": "backend" } },
+    { "source": "/venues/:path*", "destination": { "service": "backend" } },
+    { "source": "/coordinator/:path*", "destination": { "service": "backend" } },
+    { "source": "/lead/:path*", "destination": { "service": "backend" } },
+    { "source": "/notifications/:path*", "destination": { "service": "backend" } },
+    { "source": "/equipment-requests/:path*", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "frontend" } }
   ]
 }
