@@ -397,3 +397,12 @@ test("TC-9617 | Cross-Cutting | AC1: a calendar opened from the booking dialog s
   pressEscape(state);
   assert.equal(closed, 1, "with no calendar open, Escape still closes the booking dialog");
 });
+
+test("TC-9618 | Cross-Cutting | AC4: signing out closes an open calendar, so the next person to sign in never sees it", async () => {
+  const state = app("Coordinator");
+  await openWith(state, { ok: true, status: 200, data: calendarPayload() });
+  assert.ok(state.venueCalendar, "the calendar is open");
+  // Logout and any 401 (for example from the 15-second refresh) both go through resetSignedOutState.
+  resetSignedOutState(state);
+  assert.equal(state.venueCalendar, null);
+});
