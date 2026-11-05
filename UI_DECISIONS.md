@@ -17,7 +17,7 @@ Files: `tokens.css` = `frontend/src/tokens.css`, `components.css` = `frontend/sr
 |---|---|---|---|---|
 | D1 | A status badge directly above a details grid has 16px (`--space-4`) of space below it. | Event request details panel (every role that opens it). The same rule covers any `.status-badge` placed right before a `.booking-detail-grid`. | `components.css` "Detail grid" (`.status-badge + .booking-detail-grid`) | `46b239c` |
 | D2 | Related buttons sit together in one `.button-group`, in their original order. Separate controls form their own group. All button rows use one 12px gap (`--gap-actions`). | Lead table (changed on purpose in the Lead refinement): the request opens from its title, so there's no "Open request" button. The assign or reassign controls sit in the Coordinator column, shown only for Submitted, Under Review and Returned (`canAssignEvent`); otherwise the Coordinator's name shows as text. "Venue bookings" is alone in the right-aligned Actions column. Every button row uses the gap. | Gap: `tokens.css` `--gap-actions`; group: `components.css` `.button-group`; placement: the Lead table in `index.html` | `46b239c`, Lead redesigns |
-| D3 | Summary card labels start 12px (`--space-3`) after the coloured line. Numbers stay right-aligned. Long labels wrap between words. Cards wrap to fewer columns rather than squeeze. | Summary cards on Assignment oversight (Lead) and Equipment worklist (Technical Support). Venue operations (Venue Staff) no longer has any; see "Summary metrics". The Coordinator's summary strip uses the same component without the line. | `components.css` "Summary cards" (`.summary-strip`, `.operations-summary`) | `46b239c`, `8bf1e3c` |
+| D3 | Summary card labels start 12px (`--space-3`) after the coloured line. Numbers stay right-aligned. Long labels wrap between words. Cards wrap to fewer columns rather than squeeze. | Summary cards, wherever they are used. No page uses them at present: Assignment oversight, Venue operations and Equipment worklist have none, because theirs repeated list counts (see "Summary metrics"). The style stays for future cards. The Coordinator's summary strip uses the same component without the line. | `components.css` "Summary cards" (`.summary-strip`, `.operations-summary`) | `46b239c`, `8bf1e3c` |
 | D4 | Request lists have one section per status, headed by the status in plain words. Rows have no status badge. Empty sections are hidden. An unknown status goes to "Other statuses" and shows on its row. The section that needs the user first is marked `.request-group-attention`. | Organiser "Your event requests"; Coordinator "Assigned requests". Not "All events", whose single list mixes statuses, so its rows keep the badge. | `app.js` `ORGANISER_GROUPS`, `COORDINATOR_GROUPS`; style: `components.css` "Request list" | `bc6a7cf`, Coordinator redesign |
 | D5 | The status badge stays in the request details panel. | Event request details panel. | `index.html` event detail template; badge style: `components.css` `.status-badge` | `bc6a7cf` |
 | D6 | List rows: title and details on the left, buttons only on the right, all ending at the same edge. When the buttons don't fit beside the details they move below them, still right-aligned. The row opens through a link on its title (see "Row links"); the Organiser still has a "View details" button, not changed yet. At most one filled button per row: "Submit for review" (Organiser), "Start review" or "Record decision" (Coordinator). On phones: details, then any note, then the buttons. | Organiser and Coordinator request rows, and Coordinator "All events". | `components.css` "Request list" (`.request-row`, `.request-actions`), "Row link" | `bc6a7cf`, Coordinator redesign, Lead refinement |
@@ -111,11 +111,9 @@ decision-making information not visible in the list.**
   (repeated the bell's badge). Venue operations has no summary cards now. Guarded by TC-9976.
 - **Kept:** the Lead's coordinator workload (open requests per Coordinator), now a collapsed table rather than cards,
   adds information that isn't in the list.
-- **⚠ Pages that still break it, not changed yet:**
-
-  | Page | Metric | Repeats |
-  |---|---|---|
-  | Technical Support, Equipment worklist | "Events" and "Equipment lines" | The number of event groups and lines in the worklist |
+- **Removed in the Technical Support redesign:** "Events" and "Equipment lines" (repeated the number of event groups
+  and lines). Each section heading now gives its event and line counts. Guarded by TC-9992.
+- **No page breaks it now.**
 
 ### Venue bookings by request status
 
@@ -166,7 +164,7 @@ workflow order. On phones the search and sort stack, and the chips scroll in one
 | Coordinator: All events | Title, organiser, coordinator, #ID | All, then each status present, in workflow order | "Earliest submitted" (the backend's order); "Earliest proposed date" | One list without sections, so rows keep their status badge. |
 | Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | "Needs attention" (default); "Earliest submitted" (the backend's order); "Earliest proposed date" | A table, not sections, so rows keep their status badge. |
 | Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | "Earliest booking date"; "Soonest hold expiry" | Placed inside the booking panel (`.list-controls-inset`). Then split into Needs a decision, Upcoming confirmed, Past and closed; sorting is within each. |
-| Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | "Earliest event date" (the backend's order); "Recently recorded" (sorts events and the lines within each) | Lines stay grouped by event. |
+| Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | "Earliest event date" (the backend's order); "Recently recorded" (sorts events and the lines within each) | Lines stay grouped by event, and events by date section; sorting is within each section. |
 | Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). |
 | Venue Staff: Venue catalogue | **None** | **None** | **None** | A short reference list of active venues on the same page; controls wouldn't help. |
 
@@ -218,8 +216,7 @@ for the same sort across all roles. Examples: "Earliest proposed date", "Recentl
   "Data table"). On phones a table's rows become cards, and each cell shows its column name from `data-label`.
   Guarded by UI-D9.
 - **Don't use large number cards for people or other lists that can grow. Use a compact list or table.** The
-  Lead's coordinator workload is a table. The summary cards that remain (Technical Support) count fixed
-  things, not a growing list of people.
+  Lead's coordinator workload is a table. No summary cards remain.
 
 ### Coordinator picker
 
@@ -324,3 +321,26 @@ From `backend/venues.py`: `booking_detail_dict`, `_decide_booking`, `retire_venu
   empty and no-match states in the booking panel. Guarded by TC-9976.
 - **Controlled by** `app.js` `VENUE_BOOKING_GROUPS`, `venueBookingGroups()`, `approveBookingRow()`,
   `rejectBookingRow()`, `retireImpact()`, `fetchVenueWorkspace()`; `styles.css` "Venue Staff booking requests".
+
+### Technical Support: equipment worklist
+
+From `backend/equipment.py` and `events.py`: Technical Support can read `GET /equipment-requests` (every event) and
+`GET /events/{id}/equipment-requests`, and nothing else. There's no status to update, no work assigned to a person,
+no event status, and `GET /events/{id}` is refused (`BACKEND_ISSUES.md` #14).
+
+- **Sections by event date, in Singapore days, the only urgency in the data:** "Today and the next 7 days" (marked
+  as needing attention), "Later", "Date not set", "Past events". Empty sections are hidden; sorting is within each
+  section. Each heading gives its event and line counts.
+- **Each event:** its title and #ID, the proposed date, and for the first section "Today", "Tomorrow" or
+  "In N days". Its lines are a table (Equipment, Quantity, Technical requirements, Recorded: who and when), with
+  fixed column widths so tables line up from one event to the next. Below 54rem the rows become cards.
+- **No row actions and no title link.** The role can't open an event or change a line, so there's nothing to link
+  to and no button to offer. The only control is Refresh.
+- **Page states:** "Loading the worklist…"; an error with "Try again" (a failed refresh keeps the worklist and says
+  "Couldn't refresh…"); a permission-denied card on 403; "No equipment recorded yet"; the shared no-match state.
+- **⚠ Confirm:** the 7-day window is a frontend choice. The backend only orders by date.
+- **⚠ Conflicts with the request, kept as is:** "one clear primary action per item" and "status updates" can't be
+  met. The backend has no action for this role (`BACKEND_ISSUES.md` #14), and the rule against inventing UI for
+  unsupported actions wins.
+- **Controlled by** `app.js` `TECHNICAL_GROUPS`, `technicalSections()`, `technicalWhen()`, `technicalDaysAway()`,
+  `fetchTechnicalWorklist()`; `styles.css` "Technical Support: equipment worklist". Guarded by TC-9991 to TC-9993.

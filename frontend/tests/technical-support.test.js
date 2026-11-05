@@ -108,3 +108,59 @@ test("TC-9606 (F6) other roles never request the worklist, and signing out clear
   resetSignedOutState(state);
   assert.equal(state.technicalWorklist, null);
 });
+
+// ---- Redesign: sections by event date, aligned tables, page states (UI_DECISIONS "Technical Support")
+// Singapore wall time, as proposed_start is stored
+const sgt = days => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })
+  .format(new Date(Date.now() + days * 86400e3)).replace(" ", "T");
+const line = (id, eventId, days, extra = {}) => ({ id, event_id: eventId, event_title: `Event ${eventId}`, event_proposed_start: days === null ? null : sgt(days), equipment_type: `Item ${id}`, quantity: id, technical_requirements: null, requested_by: "coord1", created_at: `2026-11-0${id}T03:00:00`, ...extra });
+
+test("TC-9991 events are split by date: the next 7 days first, then later, undated, and past", () => {
+  const state = app();
+  state.technicalWorklist = { loaded: true, items: [line(1, 10, 2), line(2, 10, 2), line(3, 11, 30), line(4, 12, null), line(5, 13, -3), line(6, 14, 0)] };
+  const shape = () => plain(state.technicalSections().map(section => [section.key, section.events.map(event => event.event_id)]));
+  assert.deepEqual(shape(), [["soon", [10, 14]], ["later", [11]], ["undated", [12]], ["past", [13]]]);
+  assert.deepEqual(plain(state.technicalSections().map(section => section.label)), ["Today and the next 7 days", "Later", "Date not set", "Past events"]);
+  assert.equal(state.technicalSections()[0].attention, true);
+  assert.equal(state.technicalLineCount(state.technicalSections()[0].events), 3);
+  assert.equal(state.technicalDaysAway({ event_proposed_start: sgt(0) }), "Today");
+  assert.equal(state.technicalDaysAway({ event_proposed_start: sgt(1) }), "Tomorrow");
+  assert.equal(state.technicalDaysAway({ event_proposed_start: sgt(5) }), "In 5 days");
+  // Search and sort apply first; a section never moves
+  state.technicalView.query = "item 5";
+  assert.deepEqual(shape(), [["past", [13]]]);
+  state.technicalView.query = "";
+  state.technicalView.sort = "recorded";
+  assert.deepEqual(shape()[0], ["soon", [14, 10]], "most recently recorded first, within the section");
+});
+
+test("TC-9992 each event's lines are an aligned table, with no actions and no summary cards", () => {
+  const page = html.slice(html.indexOf("currentPath === '/technical'"), html.indexOf("currentPath === '/events' && user.role === 'Organiser'"));
+  assert.match(page, /<table class="data-table equipment-table"><thead><tr><th scope="col">Equipment<\/th><th scope="col" class="cell-number">Quantity<\/th><th scope="col">Technical requirements<\/th><th scope="col">Recorded<\/th><\/tr><\/thead>/);
+  for (const label of ["Equipment", "Quantity", "Technical requirements", "Recorded"]) assert.match(page, new RegExp(`<td data-label="${label}"`));
+  assert.match(page, /class="equipment-event table-container"/);
+  assert.doesNotMatch(page, /summary-strip|operations-summary/, "no card repeats the section counts");
+  assert.doesNotMatch(page, /row-link|<button[^>]*@click="(?!fetchTechnicalWorklist|clearListSearch|listControls)/, "the role can't open or change anything (BACKEND_ISSUES #14)");
+  assert.match(page, /item\.technical_requirements \|\| 'None recorded'/);
+});
+
+test("TC-9993 loading, error, refresh failure and permission-denied states", async () => {
+  const state = app();
+  state.apiRequest = async () => ({ ok: false, status: 500, data: { detail: "Database unavailable" } });
+  await state.fetchTechnicalWorklist();
+  assert.deepEqual([state.technicalWorklist.loaded, state.technicalWorklist.error, state.technicalWorklist.denied], [false, "Database unavailable", false]);
+  state.apiRequest = async () => ({ ok: true, status: 200, data: { equipment_requests: lines } });
+  await state.fetchTechnicalWorklist();
+  assert.deepEqual([state.technicalWorklist.loaded, state.technicalWorklist.error], [true, ""]);
+  state.apiRequest = async () => ({ ok: false, status: 503, data: { detail: "Try later" } });
+  await state.fetchTechnicalWorklist();
+  assert.equal(state.technicalWorklist.items.length, 3, "a failed refresh keeps the worklist");
+  assert.equal(state.technicalWorklist.error, "Try later");
+  state.apiRequest = async () => ({ ok: false, status: 403, data: { detail: "Only Coordinators, Leads and Technical Support Staff can view equipment requirements" } });
+  await state.fetchTechnicalWorklist();
+  assert.equal(state.technicalWorklist.denied, true);
+  assert.match(html, /x-show="technicalWorklist.denied" role="alert"><div class="state-icon danger">!<\/div><h2>You can't view the equipment worklist<\/h2>/);
+  assert.match(html, /Couldn't load the worklist: \$\{technicalWorklist.error\}/);
+  assert.match(html, /x-show="!technicalWorklist.loaded && !technicalWorklist.error" role="status"><span class="spinner dark" aria-hidden="true"><\/span> Loading the worklist…/);
+  assert.match(html, /<h2>No equipment recorded yet<\/h2>/);
+});

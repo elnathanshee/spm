@@ -167,3 +167,27 @@ around these; each entry has the evidence.
 - **Frontend:** "Available only" now requires a start and end time before the search is sent.
 - **Needed:** reject `available_only` without a period (400), like a half-entered period, or document
   that it needs one.
+
+## 14. Technical Support can only read: no assigned work, status updates, event status or venue
+
+- **Screen:** Technical Support, Equipment worklist (`/technical`).
+- **Evidence:**
+  - `equipment.py` has three routes. Technical Support may only call the two `GET` routes
+    (`require_equipment_viewer`). Recording is limited to Coordinators and Leads (`require_equipment_recorder`), and
+    no route amends a line (#2).
+  - `EquipmentRequest` (`models.py`) has no status, assignee or acknowledgement field, so Technical Support can't mark
+    a line as seen, prepared or delivered, and no work is assigned to a particular person. Every Technical Support
+    user sees every line (`list_all_equipment_requirements`).
+  - `equipment_request_to_dict` returns the event's title and `proposed_start` only, with no event status. The
+    worklist joins every event whatever its status, so lines for Draft, Returned or Rejected events appear beside
+    approved ones.
+  - `GET /events/{id}` refuses Technical Support (403, `events.py` `get_event`), and no booking route admits the role,
+    so the worklist can't show the venue or the booked times where the equipment is needed.
+- **Frontend:** the worklist is read only, with no buttons. It's grouped by event date ("Today and the next 7
+  days", "Later", "Date not set", "Past events"), the only sign of urgency in the data. Rows have no title link,
+  because there's nothing the role can open.
+- **Needed (decision for the team):**
+  - a status on each line (for example Requested, Prepared, Delivered), with a route Technical Support can call;
+  - the event status (and ideally the confirmed venue and booking times) in `equipment_request_to_dict`, or a filter
+    that leaves out events that won't go ahead;
+  - optionally, assigning a line or an event to a Technical Support user.

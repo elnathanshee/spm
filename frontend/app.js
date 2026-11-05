@@ -88,6 +88,15 @@ const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 const byAsc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(a[field] || "").localeCompare(String(b[field] || ""));
 const byDesc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(b[field] || "").localeCompare(String(a[field] || ""));
 const keepOrder = () => 0;
+// Technical Support worklist sections, by when the event happens (Singapore days). The worklist has no
+// status and no action for this role (equipment.py), so the event date is the only sign of urgency.
+const TECHNICAL_WINDOW_DAYS = 7;
+const TECHNICAL_GROUPS = [
+  { key: "soon", label: "Today and the next 7 days", description: "Prepare these first.", attention: true },
+  { key: "later", label: "Later", description: "Events more than 7 days away." },
+  { key: "undated", label: "Date not set", description: "The event has no proposed date yet, so it can't be scheduled." },
+  { key: "past", label: "Past events", description: "Events before today, kept for reference." },
+];
 // Event statuses in workflow order, for status filter chips
 const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"];
 const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
@@ -867,7 +876,7 @@ document.addEventListener("alpine:init", () => {
     // nothing, and no route amends a line (BACKEND_ISSUES.md #2), so there are no actions.
     async fetchTechnicalWorklist() {
       if (this.normalizeRole(this.user?.role) !== "Technical Support") return;
-      if (!this.technicalWorklist) this.technicalWorklist = { items: [], busy: false, loaded: false, error: "" };
+      if (!this.technicalWorklist) this.technicalWorklist = { items: [], busy: false, loaded: false, error: "", denied: false };
       const worklist = this.technicalWorklist;
       if (worklist.busy) return;
       worklist.busy = true;
@@ -877,15 +886,40 @@ document.addEventListener("alpine:init", () => {
         if (this.user !== recipient || this.technicalWorklist !== worklist) return;
         if (response.ok && Array.isArray(response.data?.equipment_requests)) {
           worklist.items = response.data.equipment_requests;
-          worklist.loaded = true;
-          worklist.error = "";
+          this.recordListResult(worklist, response);
         } else {
-          worklist.error = response.ok ? "The equipment worklist returned an unexpected response." : this.dialogErrorMessage(response);
+          // A failed refresh keeps the worklist shown and says so; a 403 shows the permission state.
+          this.recordListResult(worklist, response.ok ? { ok: false, status: 200, data: { detail: "The equipment worklist returned an unexpected response." } } : response);
         }
       } finally {
         if (this.technicalWorklist === worklist) worklist.busy = false;
       }
     },
+
+    // Which section an event belongs to, by its Singapore day compared with today's.
+    technicalWhen(start) {
+      const date = this.parseServerTime(start, "local");
+      if (!date) return "undated";
+      const day = DAY_KEY_FORMAT.format(date);
+      const today = DAY_KEY_FORMAT.format(new Date());
+      if (day < today) return "past";
+      return day <= DAY_KEY_FORMAT.format(new Date(Date.now() + TECHNICAL_WINDOW_DAYS * 86400e3)) ? "soon" : "later";
+    },
+    // "Today", "Tomorrow" or "In 5 days", for events in the first section.
+    technicalDaysAway(event) {
+      const date = this.parseServerTime(event?.event_proposed_start, "local");
+      if (!date) return "";
+      const days = Math.round((Date.parse(DAY_KEY_FORMAT.format(date)) - Date.parse(DAY_KEY_FORMAT.format(new Date()))) / 86400e3);
+      return days <= 0 ? "Today" : days === 1 ? "Tomorrow" : `In ${days} days`;
+    },
+    // Sections in a fixed order; the sort orders the events (and their lines) within each.
+    technicalSections() {
+      const events = this.technicalEventGroups();
+      return TECHNICAL_GROUPS
+        .map(group => ({ ...group, events: events.filter(event => this.technicalWhen(event.event_proposed_start) === group.key) }))
+        .filter(group => group.events.length);
+    },
+    technicalLineCount(events) { return events.reduce((total, event) => total + event.items.length, 0); },
 
     // The worklist's lines grouped by event, keeping the backend's order.
     technicalEventGroups() {
