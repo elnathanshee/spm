@@ -419,6 +419,14 @@
 .lead-assign-form{display:flex;align-items:center;gap:var(--gap-actions)}
 .lead-assign-form .picker{flex:1;min-width:0}
 .lead-assign-message{margin:var(--space-1) 0 0;font-size:var(--text-xs)}
+/* The save actions and the saved message share one slot as wide as "Reassign" + "Cancel", so nothing moves
+   when they appear. Hidden actions keep their space but leave the tab order (visibility: hidden). */
+.lead-assign-slot{display:grid;flex:none;align-items:center;min-width:10.5rem}
+.lead-assign-slot>*{grid-area:1/1}
+.lead-assign-actions{flex-wrap:nowrap;justify-content:flex-start}
+.lead-assign-actions.is-hidden{visibility:hidden}
+.lead-assign-saved{margin:0;color:var(--tone-success-fg);font-weight:var(--weight-semibold);overflow-wrap:anywhere}
+.lead-assign-saved:empty{display:none}
 @container data-table (max-width: 54rem){.lead-cell-coordinator{min-width:0}
 }
 @media(max-width:640px){.dialog-form-actions .venue-search-btns,.dialog-form-actions-end{width:100%}

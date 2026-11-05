@@ -1570,16 +1570,30 @@ document.addEventListener("alpine:init", () => {
       this.assignmentState = { ...this.assignmentState, [event.id]: { busy: true } };
       const response = await this.apiRequest(`/events/${event.id}/${action}`, { method: "POST", body: { coordinator_id: Number(event.selectedCoordinatorId) }, inlineErrors: true });
       if (response.ok) {
+        // The backend accepted it: the choice is now the saved value, so the save actions hide even if the refresh fails.
+        event.assigned_coordinator_id = Number(event.selectedCoordinatorId);
+        event.assigned_coordinator = name;
         this.assignmentState = { ...this.assignmentState, [event.id]: { message: `${action === "assign" ? "Assigned" : "Reassigned"} to ${name}.` } };
         await this.fetchLeadData();
         this.showAlert(`Event request #${event.id} ${action === "assign" ? "assigned" : "reassigned"} to ${name}.`, "success");
       } else {
         this.assignmentState = { ...this.assignmentState, [event.id]: { error: response.status === 401 ? "" : this.dialogErrorMessage(response) } };
       }
-      // The button was disabled while saving (and stays so once saved), and the row may move when it re-sorts:
-      // keep keyboard focus on this row's coordinator picker.
+      // Saved: the buttons hide and the row may re-sort, so focus goes back to this row's picker.
+      // Failed: the change is still unsaved, so focus stays on the save button to try again.
+      const target = response.ok ? `picker-${event.id}` : `assign-save-${event.id}`;
+      if (typeof this.$nextTick === "function") this.$nextTick(() => (document.getElementById?.(target) || document.getElementById?.(`picker-${event.id}`))?.focus());
+    },
+    // Cancel puts back the saved Coordinator (or none). Nothing is sent.
+    cancelAssignment(event) {
+      if (!event || this.rowAssignment(event).busy) return;
+      event.selectedCoordinatorId = event.assigned_coordinator_id || "";
+      this.assignmentState = { ...this.assignmentState, [event.id]: {} };
+      this.closePicker(event, { returnFocus: false });
       if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.(`picker-${event.id}`)?.focus());
     },
+    // The save actions show only while there's something to save (or it's being saved).
+    assignmentActionsShown(event) { return this.assignmentChanged(event) || !!this.rowAssignment(event).busy; },
     // What needs the Lead first. "Proposed date passed" is shown only while the request still awaits a decision.
     leadNeedsAssignment(event) { return !event.assigned_coordinator_id && this.canAssignEvent(event); },
     leadDatePassed(event) {

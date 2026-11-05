@@ -9,11 +9,11 @@ const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function app() {
+function app(document = { addEventListener: (_, fn) => fn() }) {
   let factory;
   const context = {
     NAVIGATION: [], normalizeRoleName: normalizeRole, resolveRolePath, requestedFrontendPath: () => null,
-    document: { addEventListener: (_, fn) => fn() }, Alpine: { data: (_, fn) => { factory = fn; } }, window: { location: {} },
+    document, Alpine: { data: (_, fn) => { factory = fn; } }, window: { location: {} },
   };
   vm.runInNewContext(source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""), context);
   const state = factory();
@@ -32,8 +32,9 @@ test("TC-9951 Save is enabled only when the choice differs from the current assi
   assert.equal(state.assignmentChanged({ assigned_coordinator_id: 2, selectedCoordinatorId: 3 }), true);
   const start = html.indexOf('x-for="event in filteredLeadEvents()"');
   const rowHtml = html.slice(start, html.indexOf("</tr></template>", start));
-  assert.match(rowHtml, /:disabled="!assignmentChanged\(event\) \|\| !!rowAssignment\(event\)\.busy"/);
-  assert.match(rowHtml, /:class="assignmentChanged\(event\) \? 'button-primary' : 'button-secondary'"/, "filled only when there is something to save");
+  // Changed on purpose: the save button no longer shows disabled; it's hidden until there's something to save.
+  assert.match(rowHtml, /<div class="button-group lead-assign-actions" :class="assignmentActionsShown\(event\) \? '' : 'is-hidden'" :aria-hidden="!assignmentActionsShown\(event\)">/);
+  assert.match(rowHtml, /:id="`assign-save-\$\{event\.id\}`" :disabled="!!rowAssignment\(event\)\.busy"/);
 });
 
 test("TC-9952 saving shows success on the row and as a toast; a refusal shows on the row only", async () => {
@@ -161,4 +162,77 @@ test("TC-9958 choosing in the picker only sets the pending choice; keyboard move
   assert.match(html, /<template x-if="String\(coordinator\.id\) === String\(event\.assigned_coordinator_id\)"><span class="picker-current">Current<\/span><\/template>/);
   assert.match(html, /role="combobox" aria-autocomplete="list"/);
   assert.match(html, /role="listbox" :id="`picker-list-\$\{event\.id\}`" :aria-label="`Coordinators for request #\$\{event\.id\}`"/);
+});
+
+// ---- Save actions only after a change, with Cancel (UI_DECISIONS "Inline changes")
+function leadPage() {
+  const focused = [];
+  const state = app({ addEventListener: (_, fn) => fn(), getElementById: id => ({ focus: () => focused.push(id) }), querySelector: () => null });
+  state.$nextTick = fn => fn();
+  return { state, focused };
+}
+
+test("TC-9981 the save actions appear only when the choice differs; Cancel restores the saved value without a call", () => {
+  const { state, focused } = leadPage();
+  const event = row(4, "Under Review", { assigned_coordinator_id: 2, assigned_coordinator: "coord1", selectedCoordinatorId: 2 });
+  state.apiRequest = async () => assert.fail("Cancel sends nothing");
+  assert.equal(state.assignmentActionsShown(event), false, "hidden while the saved Coordinator is selected");
+  state.openPicker(event);
+  state.choosePickerOption(event, { id: 3, username: "coord2" });
+  assert.equal(state.assignmentActionsShown(event), true);
+  assert.equal(focused.at(-1), "picker-4", "focus returns to the picker; Tab reaches Reassign next");
+  state.choosePickerOption(event, { id: 2, username: "coord1" });
+  assert.equal(state.assignmentActionsShown(event), false, "choosing the saved Coordinator again hides them");
+  state.choosePickerOption(event, { id: 3, username: "coord2" });
+  state.cancelAssignment(event);
+  assert.equal(event.selectedCoordinatorId, 2);
+  assert.equal(state.assignmentActionsShown(event), false);
+  assert.equal(focused.at(-1), "picker-4", "Cancel hands focus back to the picker");
+  // Unassigned: Cancel goes back to no Coordinator
+  const open = row(5, "Submitted", { selectedCoordinatorId: "" });
+  state.choosePickerOption(open, { id: 2, username: "coord1" });
+  state.cancelAssignment(open);
+  assert.equal(open.selectedCoordinatorId, "");
+  assert.equal(state.pickerChoiceLabel(open), "Select coordinator");
+});
+
+test("TC-9982 assigning and reassigning hide the actions and show the confirmation; nothing is sent before the click", async () => {
+  for (const [saved, action, message] of [[null, "assign", "Assigned to coord2."], [2, "reassign", "Reassigned to coord2."]]) {
+    const { state, focused } = leadPage();
+    const event = row(6, "Submitted", { assigned_coordinator_id: saved, assigned_coordinator: saved ? "coord1" : null, selectedCoordinatorId: saved || "" });
+    state.leadEvents = [event];
+    const sent = [];
+    state.apiRequest = async (path, options = {}) => { if (options.method === "POST") sent.push([path, options.body.coordinator_id]); return { ok: false, status: 503, data: { detail: "refresh failed" } }; };
+    state.apiRequest = (inner => async (path, options = {}) => options.method === "POST" ? (await inner(path, options), { ok: true, status: 200, data: {} }) : inner(path, options))(state.apiRequest);
+    state.choosePickerOption(event, { id: 3, username: "coord2" });
+    assert.deepEqual(sent, [], "choosing doesn't save");
+    await state.saveAssignment(event);
+    assert.deepEqual(sent, [[`/events/6/${action}`, 3]]);
+    assert.equal(state.assignmentActionsShown(event), false, "hidden after saving, even though the refresh failed");
+    assert.equal(state.rowAssignment(event).message, message);
+    assert.equal(focused.at(-1), "picker-6");
+  }
+  assert.match(html, /<p class="form-help lead-assign-message lead-assign-saved" role="status" x-text="assignmentActionsShown\(event\) \? '' : \(rowAssignment\(event\)\.message \|\| ''\)"><\/p>/);
+});
+
+test("TC-9983 a failed save keeps the change and the actions, shows the error and keeps focus on the save button", async () => {
+  const { state, focused } = leadPage();
+  const event = row(7, "Under Review", { assigned_coordinator_id: 2, assigned_coordinator: "coord1", selectedCoordinatorId: 2 });
+  state.choosePickerOption(event, { id: 3, username: "coord2" });
+  state.apiRequest = async () => ({ ok: false, status: 400, data: { detail: "Coordinator is already assigned to this event request" } });
+  await state.saveAssignment(event);
+  assert.equal(state.rowAssignment(event).error, "Coordinator is already assigned to this event request");
+  assert.equal(state.assignmentActionsShown(event), true, "still unsaved: Reassign and Cancel stay");
+  assert.equal(event.assigned_coordinator_id, 2, "the saved value is unchanged");
+  assert.equal(focused.at(-1), "assign-save-7");
+  state.cancelAssignment(event);
+  assert.deepEqual(plain(state.rowAssignment(event)), {}, "Cancel clears the error too");
+});
+
+test("TC-9984 the actions keep their space while hidden, so the row doesn't move", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.lead-assign-slot\{display:grid;flex:none;align-items:center;min-width:10\.5rem\}/);
+  assert.match(css, /\.lead-assign-slot>\*\{grid-area:1\/1\}/);
+  assert.match(css, /\.lead-assign-actions\.is-hidden\{visibility:hidden\}/, "visibility keeps the space and removes them from the tab order");
+  assert.match(html, /@keydown\.escape\.stop="assignmentActionsShown\(event\) && cancelAssignment\(event\)"/);
 });

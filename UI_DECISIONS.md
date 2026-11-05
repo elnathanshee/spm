@@ -69,7 +69,7 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 |---|---|---|
 | A real table with the columns Request, Proposed, Status, Coordinator, Actions, so every cell sits under its header. Request: the title is a link that opens the request, with the ID, organiser and guests below it. Coordinator: the coordinator picker and Assign or Reassign when the backend allows assignment, otherwise the name as text. Actions: "Venue bookings" only, right-aligned. On phones each row is a card with a label on every cell. | Assignment oversight | `index.html` Lead template; `components.css` "Data table", "Row link"; `styles.css` "Lead: assignment oversight" |
 | "Needs attention" is the default order: requests that need a Coordinator (unassigned and assignable), then requests past their proposed date that still await a decision (Submitted, Under Review, Returned), then the rest. Each group keeps the backend's order (earliest submitted). Those rows have a left accent. Past-date rows have a "Proposed date passed" flag; there's no "Needs assignment" tag, because the filter and the order already show it. | Assignment oversight | `app.js` `leadAttentionRank()`, `leadNeedsAssignment()`, `leadDatePassed()`; test TC-9954 |
-| "Assign" or "Reassign" is enabled, and filled, only when the chosen Coordinator differs from the current one; the backend refuses a same-Coordinator reassignment. While saving it reads "Saving…". Success shows on the row ("Assigned to coord1.") and as a toast. A refusal shows the backend's message on the row only. | Assignment oversight | `app.js` `assignmentChanged()`, `saveAssignment()`, `assignmentState`; tests TC-9951, TC-9952 |
+| "Assign" or "Reassign", with "Cancel", appear only when the chosen Coordinator differs from the saved one (changed on purpose: the button used to show disabled). The backend refuses a same-Coordinator reassignment. While saving it reads "Saving…". Success hides both buttons and shows the confirmation in their place ("Assigned to coord1.") and as a toast. A refusal shows the backend's message on the row only and keeps both buttons. See "Inline changes". | Assignment oversight | `app.js` `assignmentChanged()`, `assignmentActionsShown()`, `saveAssignment()`, `cancelAssignment()`, `assignmentState`; tests TC-9951, TC-9952, TC-9981 to TC-9984 |
 | A choice not saved yet survives the 15-second refresh, unless the request's assignment changed meanwhile. | Assignment oversight | `app.js` `fetchLeadData()`; test TC-9953 |
 | Coordinator workload: a collapsible section, collapsed by default, holding a table of Coordinator and Open requests, fewest first and then by name. Its height is capped, with internal scrolling and a sticky header. Open requests are every status except Rejected, Completed and Cancelled, counted from `GET /lead/events`, which holds every non-Draft event (a Draft has no Coordinator). `GET /lead/coordinators` returns no workload field. | Assignment oversight | `app.js` `coordinatorsByWorkload()`, `coordinatorOpenCount()`; `components.css` "Disclosure", "Data table"; test TC-9955 |
 | Loading, load-error (keeping the list shown), permission-denied and empty states. If the Coordinator list fails to load, a message says assignment is unavailable. | Assignment oversight | `app.js` `fetchLeadData()`, `recordListResult()`; test TC-9956 |
@@ -238,6 +238,24 @@ about six coordinators at a time and scrolling for the rest.
   button; Tab closes; a click outside closes.
 - **Controlled by:** `app.js` `openPicker`, `closePicker`, `pickerOptions`, `pickerKeydown`, `choosePickerOption`;
   `components.css` "Picker". It needs no library. Guarded by TC-9957 and TC-9958.
+
+### Inline changes
+
+**Show save actions for inline changes only after a value changes, with a way to cancel.**
+
+- **Applies to:** the Lead's Coordinator column on Assignment oversight.
+- **Before a change:** no buttons. The value shown is the saved one.
+- **After a change:** "Assign" (no Coordinator saved yet) or "Reassign", filled, and "Cancel". Choosing the saved
+  Coordinator again hides them. Nothing is sent until Assign or Reassign.
+- **Cancel** (or Escape on either button) puts back the saved value, clears any error, and sends nothing.
+- **Saved:** both buttons hide, and the existing confirmation shows in their place. **Failed:** the change stays
+  unsaved, both buttons stay, and the backend's message shows below.
+- **No movement:** the buttons and the confirmation share one slot as wide as "Reassign" and "Cancel". Hidden
+  buttons use `visibility: hidden`, so they keep their space and leave the tab order.
+- **Focus:** choosing a Coordinator returns focus to the picker button, and Tab reaches the save button next.
+  Cancel and a successful save return focus to the picker button. A failed save keeps focus on the save button.
+- **Controlled by** `app.js` `assignmentActionsShown()`, `cancelAssignment()`, `saveAssignment()`; `styles.css`
+  `.lead-assign-slot`, `.lead-assign-actions`. Guarded by TC-9981 to TC-9984.
 
 ### Forms, connected tasks and form actions
 
