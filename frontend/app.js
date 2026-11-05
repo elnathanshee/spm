@@ -158,6 +158,8 @@ document.addEventListener("alpine:init", () => {
     notificationOpen: false,
     bookingDialog: null,
     venueWorkspace: null,
+    venueCalendar: null, // [SCRUM-96] the venue availability calendar dialog
+    equipmentWorkspace: null, // [SCRUM-93] the Technical Support equipment worklist
     staffBooking: null,
     technicalWorklist: null,
     eventDetail: null,
@@ -1547,6 +1549,212 @@ document.addEventListener("alpine:init", () => {
       });
     },
 
+    // ---------------------------------------------------------------------
+    // [SCRUM-93] Equipment requirements (SCRUM-39 endpoints)
+    // ---------------------------------------------------------------------
+
+    isTechnicalSupport() { return this.normalizeRole(this.user?.role) === "Technical Support"; },
+
+    canViewEventEquipment() {
+      // AC2 names the Coordinator and the Lead for the event view.
+      return ["Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role));
+    },
+
+    canRecordEquipment(event) {
+      // AC1: the assigned Coordinator, or a Lead for any event. Mirrors the
+      // backend's own rule (Week 7 Change #5).
+      const role = this.normalizeRole(this.user?.role);
+      if (role === "Event Coordinator Lead") return true;
+      return role === "Coordinator" && !!event && event.assigned_coordinator_id === this.user?.user_id;
+    },
+
+    emptyEquipmentForm() { return { equipment_type: "", quantity: "", technical_requirements: "" }; },
+
+    async fetchEventEquipment(eventId) {
+      const dialog = this.eventDetail;
+      if (!dialog || !this.canViewEventEquipment()) return;
+      if (!dialog.equipment) dialog.equipment = { items: [], loading: false, loaded: false, error: "", formError: "", saving: false, form: this.emptyEquipmentForm() };
+      const equipment = dialog.equipment;
+      equipment.loading = true;
+      equipment.error = "";
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${eventId}/equipment-requests`, { inlineErrors: true });
+        if (this.user !== recipient || this.eventDetail !== dialog) return;
+        if (!response.ok) {
+          equipment.loaded = false;
+          equipment.error = this.dialogErrorMessage(response);
+          return;
+        }
+        equipment.items = Array.isArray(response.data?.equipment_requests) ? response.data.equipment_requests : [];
+        equipment.loaded = true;
+      } finally {
+        if (this.eventDetail === dialog) equipment.loading = false;
+      }
+    },
+
+    equipmentFormErrors(form) {
+      // D1: immediate feedback for the two rules the Coordinator can see.
+      const errors = {};
+      if (!String(form?.equipment_type ?? "").trim()) errors.equipment_type = "Enter the equipment type";
+      const quantity = Number(form?.quantity);
+      if (form?.quantity === "" || form?.quantity === null || form?.quantity === undefined || !Number.isFinite(quantity) || quantity <= 0) {
+        errors.quantity = "Enter a quantity above zero";
+      } else if (!Number.isInteger(quantity)) {
+        errors.quantity = "Enter a whole number";
+      }
+      return errors;
+    },
+
+    async recordEquipment() {
+      const dialog = this.eventDetail;
+      const equipment = dialog?.equipment;
+      if (!dialog || !equipment || equipment.saving) return;
+      if (!this.canRecordEquipment(dialog.detail)) return;
+
+      this.fieldErrors = this.equipmentFormErrors(equipment.form);
+      equipment.formError = "";
+      if (Object.keys(this.fieldErrors).length) return;
+
+      const body = {
+        equipment_type: String(equipment.form.equipment_type).trim(),
+        quantity: Number(equipment.form.quantity),
+      };
+      const notes = String(equipment.form.technical_requirements ?? "").trim();
+      if (notes) body.technical_requirements = notes;
+
+      equipment.saving = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${dialog.id}/equipment-requests`, { method: "POST", body, inlineErrors: true });
+        if (this.user !== recipient || this.eventDetail !== dialog) return;
+        if (!response.ok) {
+          // D1: the server's own field errors land on the same fields.
+          const fields = this.parseValidationErrors(response.data?.detail);
+          if (Object.keys(fields).length) this.fieldErrors = fields;
+          // D2: a duplicate is about the whole line, so it sits above the form.
+          else equipment.formError = this.dialogErrorMessage(response);
+          return;
+        }
+        equipment.form = this.emptyEquipmentForm();
+        this.fieldErrors = {};
+        await this.fetchEventEquipment(dialog.id);
+      } finally {
+        if (this.eventDetail === dialog) equipment.saving = false;
+      }
+    },
+
+    async fetchEquipmentWorkspace() {
+      // AC3, AC4: the Technical Support worklist only.
+      if (!this.isTechnicalSupport()) return;
+      if (!this.equipmentWorkspace) this.equipmentWorkspace = { items: [], busy: false, loaded: false, error: "" };
+      const workspace = this.equipmentWorkspace;
+      if (workspace.busy) return;
+      workspace.busy = true;
+      workspace.error = "";
+      const recipient = this.user;
+      try {
+        // D3: the backend decides what this role may see; nothing is filtered here.
+        const response = await this.apiRequest("/equipment-requests", { inlineErrors: true });
+        if (this.user !== recipient || this.equipmentWorkspace !== workspace) return;
+        if (!response.ok) {
+          workspace.loaded = false;
+          workspace.error = this.dialogErrorMessage(response);
+          return;
+        }
+        workspace.items = Array.isArray(response.data?.equipment_requests) ? response.data.equipment_requests : [];
+        workspace.loaded = true;
+      } finally {
+        if (this.equipmentWorkspace === workspace) workspace.busy = false;
+      }
+    },
+
+    equipmentNotes(item) { return item?.technical_requirements || "No special requirements"; },
+
+    // ---------------------------------------------------------------------
+    // [SCRUM-96] Venue availability calendar (GET /venues/{id}/calendar)
+    // ---------------------------------------------------------------------
+
+    canViewVenueCalendar() {
+      // Matches the backend's require_venue_searcher: an internal planning
+      // function, so Organisers and Attendees never reach it (AC4).
+      return ["Coordinator", "Event Coordinator Lead", "Venue Staff"].includes(this.normalizeRole(this.user?.role));
+    },
+
+    calendarDateValue(date) {
+      const pad = number => String(number).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    },
+
+    async openVenueCalendar(venue) {
+      if (!this.canViewVenueCalendar() || !venue) return;
+      // AC1: a week from today, which is the span a planner usually wants.
+      const first = new Date();
+      const last = new Date(first);
+      last.setDate(last.getDate() + 6);
+      this.venueCalendar = {
+        venue,
+        from: this.calendarDateValue(first),
+        to: this.calendarDateValue(last),
+        busy: false,
+        error: "",
+        data: null,
+        days: [],
+      };
+      await this.fetchVenueCalendar();
+    },
+
+    async fetchVenueCalendar() {
+      const calendar = this.venueCalendar;
+      if (!calendar || calendar.busy) return;
+      calendar.busy = true;
+      calendar.error = "";
+      const recipient = this.user;
+      try {
+        // D1: the range is not checked here. AC3 asks for the server's own
+        // message, so an impossible range is sent and its 422 is shown.
+        const query = `from=${encodeURIComponent(calendar.from)}&to=${encodeURIComponent(calendar.to)}`;
+        const response = await this.apiRequest(`/venues/${calendar.venue.id}/calendar?${query}`, { inlineErrors: true });
+        if (this.user !== recipient || this.venueCalendar !== calendar) return;
+        if (!response.ok) {
+          // D2: shown in the dialog, and stale days are cleared so nothing
+          // on screen contradicts the error.
+          calendar.error = this.dialogErrorMessage(response);
+          calendar.data = null;
+          calendar.days = [];
+          return;
+        }
+        calendar.data = response.data;
+        calendar.days = Array.isArray(response.data?.days) ? response.data.days : [];
+      } finally {
+        if (this.venueCalendar === calendar) calendar.busy = false;
+      }
+    },
+
+    closeVenueCalendar() { this.venueCalendar = null; },
+
+    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length); },
+
+    calendarHours(day) {
+      // AC2: the venue's recorded hours, or an honest "not recorded".
+      return day?.operating_hours || this.venueCalendar?.data?.operating_hours || "Not recorded";
+    },
+
+    calendarDayLabel(date) {
+      if (!date) return "Not set";
+      const parsed = new Date(`${date}T00:00:00`);
+      return Number.isNaN(parsed.getTime())
+        ? date
+        : new Intl.DateTimeFormat("en", { weekday: "short", day: "numeric", month: "short" }).format(parsed);
+    },
+
+    calendarBufferNote() {
+      // D3: explains why the occupied window is wider than the booked one.
+      const data = this.venueCalendar?.data;
+      if (!data) return "";
+      return `Occupied times include ${data.setup_time_mins ?? 0} min setup before and ${data.turnaround_time_mins ?? 0} min turnaround after each booking.`;
+    },
+
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
 
     async submitBooking() {
@@ -1790,7 +1998,7 @@ document.addEventListener("alpine:init", () => {
       // [SCRUM-94] Organisers open their own requests too (GET /events/{id} only shows them their own).
       if (!["Coordinator", "Event Coordinator Lead", "Organiser"].includes(this.normalizeRole(this.user?.role))) return;
       this.closeEventDetail();
-      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "", routine: null, notice: "", equipment: null };
+      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "", routine: null, notice: "", equipment: null }; // [SCRUM-93] equipment stays null until a role entitled to it loads it
       // Read back Alpine's reactive proxy for identity checks and reactive updates.
       const dialog = this.eventDetail;
       const recipient = this.user;
@@ -1799,6 +2007,9 @@ document.addEventListener("alpine:init", () => {
         if (this.user !== recipient || this.eventDetail !== dialog) return;
         if (response.ok) dialog.detail = response.data;
         else dialog.error = response.status === 403 ? "You don't have permission to view this request." : response.status === 404 ? "Event request not found." : "Request details could not be loaded. Please try again.";
+        // [SCRUM-93] AC2: the equipment panel belongs to the Coordinator and
+        // the Lead. D4: an Organiser opens this same view and must not make a
+        // call their role is not entitled to.
         if (response.ok && this.canViewEquipment()) this.loadEventEquipment();
       } finally { if (this.user === recipient && this.eventDetail === dialog) dialog.loading = false; }
     },

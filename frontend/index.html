@@ -120,7 +120,7 @@
                     <div><dt>Hours</dt><dd x-text="venue.operating_hours || 'Not recorded'"></dd></div>
                     <div><dt>Buffers</dt><dd x-text="venueBufferSummary(venue)"></dd></div>
                   </dl>
-                  <div class="venue-actions"><button type="button" class="button button-secondary button-compact" @click="openVenueEdit(venue)" :disabled="venueWriteBusy()" :aria-label="`Edit ${venue.name}`">Edit</button><button type="button" class="button button-danger-quiet button-compact" @click="askRetireVenue(venue)" :disabled="venueWriteBusy()" :aria-label="`Retire ${venue.name}`">Retire</button></div>
+                  <div class="venue-actions"><button type="button" class="button button-secondary button-compact" @click="openVenueCalendar(venue)" :aria-label="`View the availability calendar for ${venue.name}`">Calendar</button><button type="button" class="button button-secondary button-compact" @click="openVenueEdit(venue)" :disabled="venueWriteBusy()" :aria-label="`Edit ${venue.name}`">Edit</button><button type="button" class="button button-danger-quiet button-compact" @click="askRetireVenue(venue)" :disabled="venueWriteBusy()" :aria-label="`Retire ${venue.name}`">Retire</button></div>
                 </div>
               </li></template></ul></section>
           </div>
@@ -306,6 +306,37 @@
       <template x-if="staffBooking.detail.status === 'Pending'"><form class="hold-form" @submit.prevent="setStaffHold()" novalidate><div class="field-group"><label for="staff-hold-expiry">Set or extend the hold <em>Before the booking starts</em></label><input id="staff-hold-expiry" type="datetime-local" x-model="staffBooking.holdExpiry" :disabled="staffBooking.busy" :aria-invalid="!!fieldErrors.holdExpiry"><small class="field-error" x-text="fieldErrors.holdExpiry"></small></div><button type="submit" class="button button-secondary" :disabled="staffBooking.busy">Update hold</button></form></template>
       <template x-if="staffBooking.detail.status === 'Pending'"><form class="decision-form" @submit.prevent="decideStaffBooking('reject')" novalidate><fieldset :disabled="staffBooking.busy"><div class="decision-heading"><h4>Record a decision</h4><p>Approve the requested schedule, or provide a clear reason for rejection.</p></div><div class="field-group"><label for="staff-rejection-reason">Rejection reason <em>Required only when rejecting</em></label><textarea id="staff-rejection-reason" x-init="staffBooking.focusReason && $nextTick(() => $el.focus())" x-model="staffBooking.reason" rows="4" :aria-invalid="!!fieldErrors.reason" placeholder="Explain why this venue or schedule cannot be approved."></textarea><small class="field-error" x-text="fieldErrors.reason"></small></div><div class="modal-actions"><button type="submit" class="button button-danger-quiet">Reject request</button><button type="button" class="button button-success" @click="decideStaffBooking('approve')"><span x-html="iconFor('check')"></span> Approve booking</button></div></fieldset></form></template></div></template>
     </div></section></div></template>
+    <!-- [SCRUM-96 | Melvin] Venue availability calendar, day by day (SCRUM-32 AC1-AC4). -->
+    <template x-if="venueCalendar"><div class="modal-backdrop" @click.self="closeVenueCalendar()" @keydown.escape.window="closeVenueCalendar()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="venue-calendar-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
+      <div class="modal-header"><div><p class="eyebrow" x-text="venueCalendar.venue.name"></p><h2 id="venue-calendar-title">Availability calendar</h2></div><button class="icon-button" @click="closeVenueCalendar()" aria-label="Close the availability calendar">&times;</button></div>
+      <div class="modal-body">
+        <div class="dialog-error" role="alert" x-show="venueCalendar.error"><span x-html="iconFor('alert')"></span><span x-text="venueCalendar.error"></span></div>
+        <form class="venue-search-form venue-search-box" @submit.prevent="fetchVenueCalendar()" novalidate>
+          <div class="date-time-grid">
+            <div class="field-group"><label for="calendar-from">From</label><input id="calendar-from" type="date" x-model="venueCalendar.from" required></div>
+            <div class="field-group"><label for="calendar-to">To</label><input id="calendar-to" type="date" x-model="venueCalendar.to" required></div>
+          </div>
+          <p class="form-help">Up to 31 days at a time.</p>
+          <button type="submit" class="button button-primary button-compact" :disabled="venueCalendar.busy" x-text="venueCalendar.busy ? 'Loading...' : 'Show calendar'"></button>
+        </form>
+        <div class="inline-state" x-show="venueCalendar.busy" role="status"><span class="spinner dark"></span> Loading the calendar&hellip;</div>
+        <template x-if="venueCalendar.data && !venueCalendar.busy"><div>
+          <dl class="booking-detail-grid"><div><dt>Operating hours</dt><dd x-text="venueCalendar.data.operating_hours || 'Not recorded'"></dd></div><div><dt>Showing</dt><dd x-text="`${calendarDayLabel(venueCalendar.data.from)} to ${calendarDayLabel(venueCalendar.data.to)}`"></dd></div></dl>
+          <p class="form-help" x-text="calendarBufferNote()"></p>
+          <ul class="booking-list"><template x-for="day in venueCalendar.days" :key="day.date"><li class="calendar-day">
+            <div><strong x-text="calendarDayLabel(day.date)"></strong><p x-text="`Operating hours: ${calendarHours(day)}`"></p></div>
+            <p x-show="calendarDayIsFree(day)" class="subtle">No bookings. The venue can be requested on this day.</p>
+            <ul class="calendar-blocks" x-show="!calendarDayIsFree(day)"><template x-for="block in day.busy" :key="`${day.date}-${block.event_id}-${block.booked_start}`"><li>
+              <span class="status-badge" :class="bookingStatusClass(block.status)"><i></i><span x-text="block.status"></span></span>
+              <p>Booked: <span x-text="formatSchedule(block.booked_start, block.booked_end)"></span></p>
+              <p>Occupied: <span x-text="formatSchedule(block.occupied_start, block.occupied_end)"></span></p>
+            </li></template></ul>
+          </li></template></ul>
+          <p x-show="!venueCalendar.days.length" role="status">No days to show for this range.</p>
+        </div></template>
+      </div>
+    </section></div></template>
+
     <template x-if="bookingDialog"><div class="modal-backdrop" @keydown.escape.window="closeBookings()" @click.self="closeBookings()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
       <div class="modal-header"><div><p class="eyebrow" x-text="bookingDialog.event.title"></p><h2 id="booking-title">Venue bookings</h2></div><button class="icon-button" @click="closeBookings()" aria-label="Close venue bookings">×</button></div>
       <div class="modal-body">
@@ -355,6 +386,7 @@
                     </div>
                     <div class="search-result-side">
                       <span class="status-badge" :class="availabilityClass(venue.is_available)"><i></i><span x-text="venue.is_available ? 'Available' : 'Unavailable'"></span></span>
+                      <button type="button" class="button button-secondary button-compact" @click="openVenueCalendar(venue)" :aria-label="`View the availability calendar for ${venue.name}`">Calendar</button>
                       <template x-if="canRequestFromSearch(venue)"><button type="button" class="button button-secondary button-compact" @click="selectVenueFromSearch(venue)" :aria-label="`Request ${venue.name}`">Request this venue</button></template>
                     </div>
                   </li>
