@@ -374,7 +374,11 @@ test("TC-9617 | Cross-Cutting | AC1: a calendar opened from the booking dialog s
   // Both views are modal backdrops, and the booking dialog comes later in the page, so without its own
   // layer the calendar opens hidden behind the dialog that opened it.
   const css = readFileSync(new URL("../src/components.css", import.meta.url), "utf8");
-  const layer = selector => Number(css.match(new RegExp(`\${selector} \{[^}]*z-index: (\d+)`))?.[1]);
+  const layer = selector => {
+    const start = css.indexOf(`${selector} {`);
+    assert.ok(start > -1, `${selector} has a rule`);
+    return Number(css.slice(start, css.indexOf("}", start)).match(/z-index: (\d+)/)?.[1]);
+  };
   assert.match(HTML, /x-if="venueCalendar"><div class="modal-backdrop modal-backdrop-stacked"/, "the calendar's backdrop has the stacked layer");
   assert.ok(layer(".modal-backdrop-stacked") > layer(".modal-backdrop"), "the stacked layer is above the dialog's");
 
