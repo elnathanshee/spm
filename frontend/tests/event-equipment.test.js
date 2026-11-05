@@ -109,3 +109,51 @@ test("TC-10014 refusals show beside the field or above the form; load failures a
   assert.match(html, /No equipment added yet, so nothing for this event is on the Technical Support worklist\./);
   assert.match(html, /<strong>Organiser's equipment notes<\/strong>/);
 });
+
+test("TC-10015 two overlapping equipment loads: the older reply can't overwrite the newer list", async () => {
+  const state = app("coordinator");
+  backend(state);
+  await state.openEventDetail(7); await settle();
+  const replies = [];
+  state.apiRequest = () => new Promise(resolve => replies.push(resolve));
+  const older = state.loadEventEquipment();
+  const newer = state.loadEventEquipment();
+  replies[1]({ ok: true, status: 200, data: { equipment_requests: [{ ...line, id: 2, equipment_type: "Microphone" }] } });
+  await newer;
+  replies[0]({ ok: true, status: 200, data: { equipment_requests: [line] } });
+  await older;
+  assert.deepEqual(plain(state.eventDetail.equipment.items.map(item => item.equipment_type)), ["Microphone"], "the newer list stays");
+  assert.equal(state.eventDetail.equipment.loading, false);
+});
+
+test("TC-10016 Try again after a failed load clears the old error while it loads", async () => {
+  const state = app("coordinator");
+  state.apiRequest = async path => path === "/events/7"
+    ? { ok: true, status: 200, data: event }
+    : { ok: false, status: 500, data: { detail: "The equipment list is unavailable." } };
+  await state.openEventDetail(7); await settle();
+  assert.ok(state.eventDetail.equipment.error, "the first load failed");
+  let release;
+  state.apiRequest = () => new Promise(resolve => { release = resolve; });
+  const retry = state.loadEventEquipment();
+  assert.equal(state.eventDetail.equipment.loading, true);
+  assert.equal(state.eventDetail.equipment.error, "", "no stale error beside the loading state");
+  release({ ok: true, status: 200, data: { equipment_requests: [line] } });
+  await retry;
+  assert.equal(state.eventDetail.equipment.loaded, true);
+  assert.equal(state.eventDetail.equipment.error, "");
+});
+
+test("TC-10017 the request details can't be closed while a line is being added", async () => {
+  const state = app("coordinator");
+  backend(state);
+  await state.openEventDetail(7); await settle();
+  state.eventDetail.equipment.busy = true;
+  state.requestCloseEventDetail();
+  assert.ok(state.eventDetail, "the details stay open while the line is being added");
+  state.eventDetail.equipment.busy = false;
+  state.requestCloseEventDetail();
+  assert.equal(state.eventDetail, null, "once it finishes, closing works");
+  // The close button is disabled meanwhile too, as it is while a routine update saves.
+  assert.match(html, /<button class="icon-button" @click="requestCloseEventDetail\(\)" :disabled="[^"]*eventDetail\.equipment\?\.busy[^"]*" aria-label="Close event request">/);
+});
