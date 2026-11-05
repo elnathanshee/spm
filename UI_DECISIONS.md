@@ -215,6 +215,24 @@ for the same sort across all roles. Examples: "Earliest proposed date", "Recentl
 - **Table cells must align with their column headers.** Tables are real `<table>` elements (`components.css`
   "Data table"). On phones a table's rows become cards, and each cell shows its column name from `data-label`.
   Guarded by UI-D9.
+- **Row-level indicators, such as attention bars, belong on the row or card, not on a single cell, and must never
+  overlap content.**
+  - **Attention bar:** `.needs-attention` on the `<tr>`. In the table, the shared style draws it on the first cell's
+    left edge, which is padded 20px. In cards, it moves to the card and runs its full height, with the content 13px
+    clear (16px padding less the 3px bar). Pages don't keep their own copies. Before this fix, the Lead and Venue
+    Staff tables each had one; the Lead's had no card version until the partial fix that went into `58b5f77`.
+  - **Cards** (`components.css` "Data table"): every field on one left edge 16px in, 16px between fields, labels 4px
+    above their values, a divider and 16px padding between cards. `.cell-inline` fields sit side by side when both
+    fit (at least 9rem each) and stack when they don't: Proposed and Status (Lead), Date and time and Status (Venue
+    Staff).
+  - **Breakpoints:** tables become cards below 54rem of their container (`.table-container`). Tables with five or
+    more columns use `.table-container-wide`, which switches at 64rem so the first column keeps at least 14rem: the
+    Lead table. With the sidebar expanded, that's about 1380px of viewport; with it collapsed, about 1210px.
+  - **Lead coordinator controls:** in the table the Coordinator column is 18.5rem, and the picker shortens its label
+    with an ellipsis rather than squeeze the Request column. In cards the picker and the Assign, Reassign or Cancel
+    slot sit side by side when they fit and wrap to two left-aligned lines when they don't. The hidden slot keeps its
+    space (see "Inline changes").
+  - Guarded by TC-10021 and TC-10022.
 - **Don't use large number cards for people or other lists that can grow. Use a compact list or table.** The
   Lead's coordinator workload is a table. No summary cards remain.
 

@@ -60,7 +60,7 @@ test("TC-9703 (F7) the Attendee page is its own screen with a plain empty state 
 
 test("TC-9704 (F8) Venue Staff booking rows show when a hold expires or expired", () => {
   // The "Date and time" cell of the Venue Staff booking table; only Pending and Expired holds are shown.
-  const row = html.slice(html.indexOf('<td data-label="Date and time" class="booking-cell-when">'), html.indexOf('<td data-label="Status"', html.indexOf('booking-cell-when')));
+  const row = html.slice(html.indexOf('<td data-label="Date and time" class="booking-cell-when cell-inline">'), html.indexOf('<td data-label="Status"', html.indexOf('booking-cell-when')));
   assert.match(row, /booking.hold_expires_at && \['Pending', 'Expired'\].includes\(booking.status\)/);
   assert.match(row, /booking.status === 'Expired' \? 'expired' : 'expires'/);
   assert.match(row, /formatHoldExpiry\(booking.hold_expires_at\)/);

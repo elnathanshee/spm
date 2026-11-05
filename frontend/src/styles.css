@@ -99,7 +99,6 @@
 .queue-heading>span{color:var(--text-muted);font-size:var(--text-xs)}
 .queue-row{border-bottom:1px solid var(--border);padding:1.35rem 1.4rem}
 .queue-row:last-child{border:0}
-.waiting-row{box-shadow:inset 3px 0 var(--warning-accent)}
 .inline-meta{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-8);margin:1rem 0 0}
 .inline-meta div{display:flex;gap:.4rem;font-size:var(--text-xs)}
 .inline-meta dt{color:var(--text-muted)}
@@ -276,7 +275,6 @@
 .venue-booking-table th:nth-child(2){width:15.5rem}
 .venue-booking-table th:nth-child(3){width:8.5rem}
 .venue-booking-table th:nth-child(4){width:12.5rem}
-.venue-booking-table tr.needs-attention>td:first-child{box-shadow:inset 3px 0 var(--warning-accent)}
 .booking-cell-main small,.booking-cell-when small{display:block;margin-top:var(--space-1);color:var(--text-muted);font-size:var(--text-xs);overflow-wrap:anywhere}
 .booking-cell-main .row-flag{margin-right:var(--space-2)}
 .booking-row-note{margin:var(--space-2) 0 0;color:var(--text-secondary);font-size:var(--text-xs);line-height:1.45}
@@ -286,8 +284,6 @@
 .cell-empty{color:var(--text-muted);font-size:var(--text-xs);white-space:nowrap}
 @container data-table (max-width: 54rem){
 .venue-booking-table th{width:auto}
-.venue-booking-table tr.needs-attention>td:first-child{box-shadow:none}
-.venue-booking-table tr.needs-attention{box-shadow:inset 3px 0 var(--warning-accent)}
 .booking-row-actions{justify-content:flex-start;flex-wrap:wrap;margin-top:var(--space-1)}
 .booking-row-error{max-width:none;margin-left:0;text-align:left}
 }
@@ -410,11 +406,11 @@
 .lead-table.queue-panel{overflow:visible}
 .lead-cell-request small{display:block;margin-top:var(--space-1);color:var(--text-muted);font-size:var(--text-xs)}
 .row-flag{display:inline-block;margin-top:var(--space-1);border:1px solid var(--tone-attention-border);border-radius:var(--radius-pill);background:var(--tone-attention-bg);color:var(--tone-attention-fg);padding:0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold)}
-.lead-table tr.needs-attention>td:first-child{box-shadow:inset 3px 0 var(--warning-accent)}
-.lead-cell-coordinator{min-width:17rem}
+/* The Coordinator column keeps the picker (7rem or more) and its Assign/Reassign/Cancel slot (18.5rem in all) and gives any spare width to the Request column */
+.lead-cell-coordinator{width:18.5rem;min-width:18.5rem}
 .lead-table .assignment-controls{display:block}
 .lead-assign-form{display:flex;align-items:center;gap:var(--gap-actions)}
-.lead-assign-form .picker{flex:1;min-width:0}
+.lead-assign-form .picker{flex:1 1 7rem;width:7rem;min-width:7rem}
 .lead-assign-message{margin:var(--space-1) 0 0;font-size:var(--text-xs)}
 /* The save actions and the saved message share one slot as wide as "Reassign" + "Cancel", so nothing moves
    when they appear. Hidden actions keep their space but leave the tab order (visibility: hidden). */
@@ -424,9 +420,10 @@
 .lead-assign-actions.is-hidden{visibility:hidden}
 .lead-assign-saved{margin:0;color:var(--tone-success-fg);font-weight:var(--weight-semibold);overflow-wrap:anywhere}
 .lead-assign-saved:empty{display:none}
-@container data-table (max-width: 54rem){.lead-cell-coordinator{min-width:0}
-.lead-table tr.needs-attention>td:first-child{box-shadow:none}
-.lead-table tr.needs-attention{box-shadow:inset 3px 0 var(--warning-accent)}
+@container data-table-wide (max-width: 64rem){.lead-cell-coordinator{width:auto;min-width:0}
+/* Cards: the picker and its Assign/Reassign/Cancel slot wrap onto two lines when they don't fit side by side */
+.lead-assign-form{flex-wrap:wrap;row-gap:var(--space-2)}
+.lead-assign-form .picker{flex:1 1 12rem}
 }
 @media(max-width:640px){.dialog-form-actions .venue-search-btns,.dialog-form-actions-end{width:100%}
 .dialog-form-actions .venue-search-btns .button,.dialog-form-actions-end .button{flex:1 1 10rem}

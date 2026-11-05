@@ -230,6 +230,9 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
    Put it in a .table-container: when the container is narrower than the table needs (54rem),
    each row becomes a card and each cell shows its column name (from data-label). */
 .table-container { container: data-table / inline-size; }
+/* .table-container-wide: for tables with five or more columns (the Lead table), whose first column would be squeezed
+   below about 14rem before 54rem. Same cards, from 64rem. */
+.table-container-wide { container: data-table-wide / inline-size; }
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
 .data-table th {
   border-bottom: 1px solid var(--border); background: var(--surface-subtle); padding: var(--space-2) var(--space-4);
@@ -244,19 +247,54 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 .data-table .cell-number { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table .cell-nowrap { white-space: nowrap; }
 .data-table-compact td { padding-block: var(--space-2); }
+/* Row attention (.needs-attention on the <tr>): a 3px bar on the row's left edge. In the table it sits on the first
+   cell's edge, which is padded 20px, so it never touches text; in cards it moves to the card (below). */
+.data-table tr.needs-attention > td:first-child { box-shadow: inset 3px 0 var(--warning-accent); }
 .table-scroll { max-height: 17rem; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
 .table-scroll .data-table th { position: sticky; top: 0; z-index: 1; }
 @container data-table (max-width: 54rem) {
   .data-table:not(.data-table-compact) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .data-table:not(.data-table-compact), .data-table:not(.data-table-compact) tbody,
   .data-table:not(.data-table-compact) tr, .data-table:not(.data-table-compact) td { display: block; }
-  .data-table:not(.data-table-compact) tr { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-4); }
+  /* A card per row: fields 16px apart, labels 4px above their values, every field on one left edge 16px in.
+     .cell-inline fields (short values such as a date and a status) sit side by side when both fit. */
+  .data-table:not(.data-table-compact) tr {
+    display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--border); padding: var(--space-4);
+  }
   .data-table:not(.data-table-compact) tbody tr:first-child { border-top: 0; }
-  .data-table:not(.data-table-compact) td { border: 0; padding: var(--space-1) 0; text-align: left; }
+  .data-table:not(.data-table-compact) td { flex: 1 1 100%; min-width: 0; border: 0; padding: 0; text-align: left; }
+  .data-table:not(.data-table-compact) td.cell-inline { flex: 1 1 9rem; }
   .data-table:not(.data-table-compact) td::before {
-    content: attr(data-label); display: block; color: var(--text-muted); font-size: var(--text-xs);
+    content: attr(data-label); display: block; margin-bottom: var(--space-1); color: var(--text-muted); font-size: var(--text-xs);
     font-weight: var(--weight-bold); letter-spacing: var(--tracking-caps); text-transform: uppercase;
   }
+  /* The attention bar runs the card's full height, 13px clear of the content (16px padding less the 3px bar) */
+  .data-table:not(.data-table-compact) tr.needs-attention { box-shadow: inset 3px 0 var(--warning-accent); }
+  .data-table:not(.data-table-compact) tr.needs-attention > td:first-child { box-shadow: none; }
+  .data-table:not(.data-table-compact) td:first-child::before { display: none; }
+  .data-table:not(.data-table-compact) .cell-end { text-align: left; }
+}
+@container data-table-wide (max-width: 64rem) {
+  .data-table:not(.data-table-compact) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .data-table:not(.data-table-compact), .data-table:not(.data-table-compact) tbody,
+  .data-table:not(.data-table-compact) tr, .data-table:not(.data-table-compact) td { display: block; }
+  /* A card per row: fields 16px apart, labels 4px above their values, every field on one left edge 16px in.
+     .cell-inline fields (short values such as a date and a status) sit side by side when both fit. */
+  .data-table:not(.data-table-compact) tr {
+    display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--border); padding: var(--space-4);
+  }
+  .data-table:not(.data-table-compact) tbody tr:first-child { border-top: 0; }
+  .data-table:not(.data-table-compact) td { flex: 1 1 100%; min-width: 0; border: 0; padding: 0; text-align: left; }
+  .data-table:not(.data-table-compact) td.cell-inline { flex: 1 1 9rem; }
+  .data-table:not(.data-table-compact) td::before {
+    content: attr(data-label); display: block; margin-bottom: var(--space-1); color: var(--text-muted); font-size: var(--text-xs);
+    font-weight: var(--weight-bold); letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  }
+  /* The attention bar runs the card's full height, 13px clear of the content (16px padding less the 3px bar) */
+  .data-table:not(.data-table-compact) tr.needs-attention { box-shadow: inset 3px 0 var(--warning-accent); }
+  .data-table:not(.data-table-compact) tr.needs-attention > td:first-child { box-shadow: none; }
   .data-table:not(.data-table-compact) td:first-child::before { display: none; }
   .data-table:not(.data-table-compact) .cell-end { text-align: left; }
 }
@@ -282,7 +320,7 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
   gap: var(--space-2); border: 1px solid var(--border-control); border-radius: var(--radius-md); background: var(--surface);
   color: var(--text); padding: 0 var(--space-3); font-size: var(--text-sm); text-align: left;
 }
-.picker-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-trigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-trigger svg { width: 1rem; height: 1rem; flex: none; color: var(--text-muted); }
 .picker-trigger:hover:not(:disabled) { border-color: var(--neutral-700); }
 .picker-trigger[aria-expanded="true"] { border-color: var(--brand-600); }
