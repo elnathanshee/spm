@@ -159,7 +159,6 @@ document.addEventListener("alpine:init", () => {
     bookingDialog: null,
     venueWorkspace: null,
     venueCalendar: null, // [SCRUM-96] the venue availability calendar dialog
-    equipmentWorkspace: null, // [SCRUM-93] the Technical Support equipment worklist
     staffBooking: null,
     technicalWorklist: null,
     eventDetail: null,
@@ -1548,128 +1547,6 @@ document.addEventListener("alpine:init", () => {
         form?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
       });
     },
-
-    // ---------------------------------------------------------------------
-    // [SCRUM-93] Equipment requirements (SCRUM-39 endpoints)
-    // ---------------------------------------------------------------------
-
-    isTechnicalSupport() { return this.normalizeRole(this.user?.role) === "Technical Support"; },
-
-    canViewEventEquipment() {
-      // AC2 names the Coordinator and the Lead for the event view.
-      return ["Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role));
-    },
-
-    canRecordEquipment(event) {
-      // AC1: the assigned Coordinator, or a Lead for any event. Mirrors the
-      // backend's own rule (Week 7 Change #5).
-      const role = this.normalizeRole(this.user?.role);
-      if (role === "Event Coordinator Lead") return true;
-      return role === "Coordinator" && !!event && event.assigned_coordinator_id === this.user?.user_id;
-    },
-
-    emptyEquipmentForm() { return { equipment_type: "", quantity: "", technical_requirements: "" }; },
-
-    async fetchEventEquipment(eventId) {
-      const dialog = this.eventDetail;
-      if (!dialog || !this.canViewEventEquipment()) return;
-      if (!dialog.equipment) dialog.equipment = { items: [], loading: false, loaded: false, error: "", formError: "", saving: false, form: this.emptyEquipmentForm() };
-      const equipment = dialog.equipment;
-      equipment.loading = true;
-      equipment.error = "";
-      const recipient = this.user;
-      try {
-        const response = await this.apiRequest(`/events/${eventId}/equipment-requests`, { inlineErrors: true });
-        if (this.user !== recipient || this.eventDetail !== dialog) return;
-        if (!response.ok) {
-          equipment.loaded = false;
-          equipment.error = this.dialogErrorMessage(response);
-          return;
-        }
-        equipment.items = Array.isArray(response.data?.equipment_requests) ? response.data.equipment_requests : [];
-        equipment.loaded = true;
-      } finally {
-        if (this.eventDetail === dialog) equipment.loading = false;
-      }
-    },
-
-    equipmentFormErrors(form) {
-      // D1: immediate feedback for the two rules the Coordinator can see.
-      const errors = {};
-      if (!String(form?.equipment_type ?? "").trim()) errors.equipment_type = "Enter the equipment type";
-      const quantity = Number(form?.quantity);
-      if (form?.quantity === "" || form?.quantity === null || form?.quantity === undefined || !Number.isFinite(quantity) || quantity <= 0) {
-        errors.quantity = "Enter a quantity above zero";
-      } else if (!Number.isInteger(quantity)) {
-        errors.quantity = "Enter a whole number";
-      }
-      return errors;
-    },
-
-    async recordEquipment() {
-      const dialog = this.eventDetail;
-      const equipment = dialog?.equipment;
-      if (!dialog || !equipment || equipment.saving) return;
-      if (!this.canRecordEquipment(dialog.detail)) return;
-
-      this.fieldErrors = this.equipmentFormErrors(equipment.form);
-      equipment.formError = "";
-      if (Object.keys(this.fieldErrors).length) return;
-
-      const body = {
-        equipment_type: String(equipment.form.equipment_type).trim(),
-        quantity: Number(equipment.form.quantity),
-      };
-      const notes = String(equipment.form.technical_requirements ?? "").trim();
-      if (notes) body.technical_requirements = notes;
-
-      equipment.saving = true;
-      const recipient = this.user;
-      try {
-        const response = await this.apiRequest(`/events/${dialog.id}/equipment-requests`, { method: "POST", body, inlineErrors: true });
-        if (this.user !== recipient || this.eventDetail !== dialog) return;
-        if (!response.ok) {
-          // D1: the server's own field errors land on the same fields.
-          const fields = this.parseValidationErrors(response.data?.detail);
-          if (Object.keys(fields).length) this.fieldErrors = fields;
-          // D2: a duplicate is about the whole line, so it sits above the form.
-          else equipment.formError = this.dialogErrorMessage(response);
-          return;
-        }
-        equipment.form = this.emptyEquipmentForm();
-        this.fieldErrors = {};
-        await this.fetchEventEquipment(dialog.id);
-      } finally {
-        if (this.eventDetail === dialog) equipment.saving = false;
-      }
-    },
-
-    async fetchEquipmentWorkspace() {
-      // AC3, AC4: the Technical Support worklist only.
-      if (!this.isTechnicalSupport()) return;
-      if (!this.equipmentWorkspace) this.equipmentWorkspace = { items: [], busy: false, loaded: false, error: "" };
-      const workspace = this.equipmentWorkspace;
-      if (workspace.busy) return;
-      workspace.busy = true;
-      workspace.error = "";
-      const recipient = this.user;
-      try {
-        // D3: the backend decides what this role may see; nothing is filtered here.
-        const response = await this.apiRequest("/equipment-requests", { inlineErrors: true });
-        if (this.user !== recipient || this.equipmentWorkspace !== workspace) return;
-        if (!response.ok) {
-          workspace.loaded = false;
-          workspace.error = this.dialogErrorMessage(response);
-          return;
-        }
-        workspace.items = Array.isArray(response.data?.equipment_requests) ? response.data.equipment_requests : [];
-        workspace.loaded = true;
-      } finally {
-        if (this.equipmentWorkspace === workspace) workspace.busy = false;
-      }
-    },
-
-    equipmentNotes(item) { return item?.technical_requirements || "No special requirements"; },
 
     // ---------------------------------------------------------------------
     // [SCRUM-96] Venue availability calendar (GET /venues/{id}/calendar)
