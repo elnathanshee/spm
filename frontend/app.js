@@ -350,10 +350,6 @@ document.addEventListener("alpine:init", () => {
     rolePath(role) { return defaultPathForRole(role); },
     canAccess(targetRole, userRole) { return roleCanAccess(targetRole, userRole); },
     pageTitle() { if (this.accessDenied) return "Access denied"; return this.navigation.find(entry => entry.path === this.currentPath)?.label || "Workspace"; },
-    rolePageHeading() { return { "Venue Staff": "Venue operations", "Technical Support": "Technical support", Attendee: "Event directory" }[this.user?.role] || "Your workspace"; },
-    rolePageDescription() { return { "Venue Staff": "Review venue-related work assigned to your role.", "Technical Support": "Keep track of technical and equipment arrangements assigned to you.", Attendee: "Find attendee-facing event information available to your role." }[this.user?.role] || "Your role-specific view of ConnectSphere."; },
-    roleEmptyMessage() { return { "Venue Staff": "There are no venue requests available right now. Relevant venue work will appear here when supported by the event workflow.", "Technical Support": "There are no technical requirements available right now. Assigned equipment and support work will appear here.", Attendee: "The event directory isn't available yet. Events open to attendees will be listed here once it is." }[this.user?.role] || "There is no work requiring your attention right now."; },
-    roleIcon() { return { "Venue Staff": "building", "Technical Support": "equipment", Attendee: "ticket" }[this.user?.role] || "calendar"; },
     // One initials rule for avatars and monograms: the first letters of the first two
     // words, or the first two letters of a single word ("organiser1" -> "OR").
     initials(name) {

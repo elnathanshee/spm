@@ -165,7 +165,7 @@ workflow order. On phones the search and sort stack, and the chips scroll in one
 | Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | "Needs attention" (default); "Earliest submitted" (the backend's order); "Earliest proposed date" | A table, not sections, so rows keep their status badge. |
 | Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | "Earliest booking date"; "Soonest hold expiry" | Placed inside the booking panel (`.list-controls-inset`). Then split into Needs a decision, Upcoming confirmed, Past and closed; sorting is within each. |
 | Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: every line is the same kind of read-only record, so there is only one meaningful option | "Earliest event date" (the backend's order); "Recently recorded" (sorts events and the lines within each) | Lines stay grouped by event, and events by date section; sorting is within each section. |
-| Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). |
+| Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). The page is an empty state only (see "Attendee: event directory"). |
 | Venue Staff: Venue catalogue | **None** | **None** | **None** | A short reference list of active venues on the same page; controls wouldn't help. |
 
 **⚠ Confirm:** Coordinator "All" as the default (it was "Active") and counts before search (they followed the search)
@@ -315,6 +315,25 @@ opens from a request's title (backend `equipment.py`).
 - **No status check:** the backend lets equipment be added in any status, so the section doesn't restrict it.
 - **Controlled by** `app.js` `loadEventEquipment()`, `validateEquipment()`, `addEquipment()`, `canRecordEquipment()`;
   `styles.css` "Equipment section". Guarded by TC-10011 to TC-10014.
+
+### Attendee: event directory
+
+From `backend/events.py` and `status_rules.py`: an Attendee can't list events (`GET /events` → 403), and can read
+one event (`GET /events/{id}`: name, description, date, time, venue) only if it's Confirmed. Nothing moves an event
+to Confirmed yet, so no Attendee can see any event (`BACKEND_ISSUES.md` #1, `UI_BACKEND_MAP.md` §4.5).
+
+- **The page:** the "Attendee workspace" eyebrow, "Event directory" heading, and one empty state: "No events are
+  available yet. Please check back later." The role-based access note and "Your focused workspace is ready" are
+  gone, and so is the generic placeholder page (`rbac.js` has no placeholder paths left).
+- **No list, details, search, filters, sorting or actions:** there's no data to show or act on.
+- **No loading or error state:** the page makes no request, so neither can happen. Permission denied is the shared
+  "Access denied" page, which an Attendee sees on any other role's route.
+- **⚠ Confirm:** this wording states there are no events, which audit finding F7 (`UI_AUDIT.md`) warned against
+  because the page doesn't ask the backend. It's true today (no list route, no Confirmed events), and it's the wording
+  asked for. Change it when a list route arrives.
+- **Not built:** opening an event by its number. The backend allows it for a Confirmed event, but none can exist and
+  Attendees have no way to learn an id.
+- Guarded by TC-9703.
 
 ### Inline changes
 

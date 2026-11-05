@@ -126,7 +126,12 @@
           </div>
           </div></template>
         </section></template>
-        <template x-if="unbuiltRole"><section><div class="page-header"><div><p class="eyebrow" x-text="`${user.role} workspace`"></p><h1 x-text="rolePageHeading()"></h1><p x-text="rolePageDescription()"></p></div></div><div class="state-card role-state"><div class="state-icon" x-html="iconFor(roleIcon())"></div><h2>Your focused workspace is ready</h2><p x-text="roleEmptyMessage()"></p><div class="permission-note"><b>✓</b><span><strong>Role-based access is active.</strong><br>Internal planning tools are kept separate from this workspace.</span></div></div></section></template>
+        <!-- Attendee: no route lists events for this role and none can be confirmed yet (BACKEND_ISSUES.md #1),
+             so the page shows only its empty state. -->
+        <template x-if="currentPath === '/attendee' && user.role === 'Attendee'"><section class="attendee-page">
+          <div class="page-header"><div><p class="eyebrow">Attendee workspace</p><h1>Event directory</h1><p>Events you can attend.</p></div></div>
+          <section class="state-card compact" role="status"><div class="state-icon" x-html="iconFor('ticket')"></div><h2>No events are available yet</h2><p>Please check back later.</p></section>
+        </section></template>
 
         <!-- Technical Support: the read-only equipment worklist (GET /equipment-requests, SCRUM-39 AC2). -->
         <template x-if="currentPath === '/technical' && user.role === 'Technical Support' && technicalWorklist"><section class="operations-page">

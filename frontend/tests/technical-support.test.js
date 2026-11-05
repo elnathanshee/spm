@@ -62,7 +62,7 @@ test("TC-9603 (F6) /technical is a real screen for Technical Support and /equipm
   for (const role of ["technical support", "technical_support"]) {
     assert.deepEqual(plain(resolveRolePath("/technical", normalizeRole(role))), { accessDenied: false, currentPath: "/technical", unbuiltRole: false });
   }
-  assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, true);
+  assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, false, "no placeholder pages are left");
   assert.match(readFileSync(new URL("../vite.config.js", import.meta.url), "utf8"), /"\/equipment-requests": backendProxy/);
   assert.match(html, /x-if="currentPath === '\/technical' && user.role === 'Technical Support' && technicalWorklist"/);
 });

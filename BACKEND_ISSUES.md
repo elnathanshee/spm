@@ -14,7 +14,9 @@ around these; each entry has the evidence.
   - No other route returns events to an Attendee.
 - **Needed:** a list route for Attendees (for example, Confirmed events with the same
   fields `GET /events/{id}` returns them: name, description, date, time, venue_name).
-- **Frontend until then:** keep the placeholder page.
+- **Frontend until then:** the Attendee page shows only "No events are available yet. Please check back later." It
+  makes no request: there's nothing to list, and the only Attendee route (`GET /events/{id}`) needs an id the page
+  can't know and a Confirmed event, which nothing can produce yet (`status_rules.TRANSITIONS`).
 
 ## 2. Equipment requests cannot be amended
 

@@ -302,7 +302,7 @@ Every one of these writes an `EventStatusHistory` row.
 
 | Screen | Data | Actions in the UI | Backend allows, not in the UI |
 |---|---|---|---|
-| Placeholder ("Event directory") | none | none | `GET /events/{id}` for a Confirmed event, but there is no list route and no event can reach Confirmed (§4.5). `BACKEND_ISSUES.md` #1. |
+| Event directory: an empty state ("No events are available yet") | none | none | `GET /events/{id}` for a Confirmed event, but there is no list route and no event can reach Confirmed (§4.5). `BACKEND_ISSUES.md` #1. |
 
 ---
 

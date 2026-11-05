@@ -48,11 +48,14 @@ test("TC-9702 (F5) event detail leaves out the id, the status and the raw user i
   assert.match(html, /x-for="\[key, value\] in eventDetailEntries\(eventDetail.detail\)"/);
 });
 
-test("TC-9703 (F7) the Attendee placeholder no longer claims there are no events", () => {
-  const state = app("attendee");
-  assert.doesNotMatch(state.roleEmptyMessage(), /no attendee events/);
-  assert.match(state.roleEmptyMessage(), /isn't available yet/);
-  assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, true);
+// Changed on purpose (Attendee redesign): the page is its own screen with a plain empty state, as asked.
+// F7's point stands in the docs: the page makes no request, because no route lists events for Attendees.
+test("TC-9703 (F7) the Attendee page is its own screen with a plain empty state and no role note", () => {
+  assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, false);
+  const page = html.slice(html.indexOf("currentPath === '/attendee' && user.role === 'Attendee'"), html.indexOf("</section></template>", html.indexOf("currentPath === '/attendee'")));
+  assert.match(page, /<h2>No events are available yet<\/h2><p>Please check back later\.<\/p>/);
+  assert.doesNotMatch(html, /Role-based access is active|Your focused workspace is ready|no attendee events/);
+  assert.doesNotMatch(page, /list-controls|<button/, "nothing to search, sort or act on");
 });
 
 test("TC-9704 (F8) Venue Staff booking rows show when a hold expires or expired", () => {
