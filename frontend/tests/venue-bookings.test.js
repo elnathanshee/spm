@@ -180,7 +180,8 @@ test("TC-3526 date/time fieldset depends only on submission, with independent em
   assert.doesNotMatch(html, /<fieldset :disabled="bookingDialog.busy/);
   assert.match(html, /No venues available. Please contact Venue Staff to add a venue./);
   assert.match(html, /Booking history could not be loaded/);
-  assert.match(html, /!bookingDialog.form.venue_id/);
+  // Submit stays enabled without a venue so the user can see what's missing (UI_DECISIONS "Validate before calling the API")
+  assert.doesNotMatch(html, /!bookingDialog.form.venue_id/);
 });
 
 
@@ -669,15 +670,17 @@ test("TC-9104 (AC4): half-entered period (400) and empty search results show cle
   state.apiRequest = async () => ({ ok: true, data: [] });
   await state.openBookings(event);
 
-  // 1. Half-entered period (start without end)
+  // 1. Half-entered period (start without end): caught before any request, beside the field
   state.bookingDialog.search.start_time = "2026-11-20T10:00";
   state.bookingDialog.search.end_time = "";
-  state.apiRequest = async () => ({
-    ok: false,
-    status: 400,
-    data: { detail: "Provide both start_time and end_time, or neither" }
-  });
+  let calls = 0;
+  state.apiRequest = async () => { calls += 1; return { ok: false, status: 400, data: { detail: "Provide both start_time and end_time, or neither" } }; };
 
+  await state.searchVenues();
+  assert.equal(calls, 0, "no request is sent");
+  assert.equal(state.bookingDialog.searchErrors.end_time, "Add an end time, or clear the start time");
+  // The server's own message still shows if it refuses a search
+  state.bookingDialog.search.end_time = "2026-11-20T12:00";
   await state.searchVenues();
   assert.equal(state.bookingDialog.searchError, "Provide both start_time and end_time, or neither");
 

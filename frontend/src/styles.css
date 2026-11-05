@@ -162,9 +162,9 @@
 .amend-dialog{max-width:44rem}
 .amend-dialog .modal-body>fieldset{display:grid;gap:var(--space-4)}
 .amend-dialog .date-time-grid{align-items:start}
-.booking-dialog legend{font-weight:700;margin-bottom:1rem}
 
-.booking-dialog fieldset{min-width:0;border:0;margin:var(--space-4) 0 0;padding:0}
+.booking-dialog fieldset{min-width:0;border:0;margin:0;padding:0}
+.request-booking-form fieldset{display:grid;gap:var(--space-4)}
 
 /* Operational dashboards and notification centre */
 .topbar-actions{display:flex;align-items:center;gap:1rem}
@@ -241,14 +241,14 @@
 .decision-heading h4{margin:0;font-size:var(--text-base)}
 .decision-heading p{margin:.3rem 0 1rem;color:var(--text-muted);font-size:var(--text-xs)}
 .decision-form .modal-actions{margin:1rem -1.5rem -1.25rem}
-.dialog-section-heading{display:flex;align-items:flex-start;justify-content:space-between}
-.dialog-section-heading h3{margin:0;font-size:var(--text-base)}
-.dialog-section-heading p{margin:.2rem 0 0;color:var(--text-muted);font-size:var(--text-xs)}
+.dialog-section{display:grid;gap:var(--space-4)}
+.dialog-section+.dialog-section{margin-top:var(--space-4);border-top:1px solid var(--border);padding-top:var(--space-6)}
+.dialog-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3)}
+.dialog-section-heading h3{margin:0;font-size:var(--text-md);font-weight:var(--weight-bold)}
+.dialog-section-heading p{margin:var(--space-1) 0 0;color:var(--text-muted);font-size:var(--text-sm)}
 .booking-list{display:grid;gap:.6rem;margin:0;padding:0;list-style:none}
 .booking-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem;margin:0;border:1px solid var(--border);border-radius:var(--radius-md);padding:.85rem}
 .booking-list li>div p{margin:.3rem 0 0;color:var(--text-muted);font-size:var(--text-xs);line-height:1.45}
-.request-booking-form{margin-top:.5rem;border-top:1px solid var(--border);padding-top:1.25rem}
-.request-booking-form legend{font-size:var(--text-base)}
 .date-time-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
 
 @media(max-width:900px){.operations-grid{grid-template-columns:1fr}
@@ -348,11 +348,17 @@
 .venue-tag{border-radius:var(--radius-pill);background:var(--brand-50);color:var(--text-secondary);padding:.18rem .55rem;font-size:var(--text-xs);font-weight:700}
 
 /* [SCRUM-91 | Sarah] Venue search and suitability assessment in booking dialog */
-.venue-search-box{display:grid;gap:.75rem;border:1px solid var(--border);border-radius:var(--radius-md);padding:1rem;background:var(--surface-subtle)}
+.venue-search-box{display:grid;gap:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4) var(--space-4) var(--space-5);background:var(--surface-subtle)}
 
-.venue-search-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
+/* Form actions: at least 16px above, together, never touching the end of the section */
+.dialog-form-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-4);border-top:1px solid var(--border);padding-top:var(--space-4)}
+.dialog-form-actions .form-help{flex:1 1 16rem;margin:0}
+.dialog-form-actions-end{justify-content:flex-end;margin-bottom:var(--space-2)}
+.dialog-results{display:grid;gap:var(--space-3)}
+.dialog-results:empty{display:none}
+.venue-search-form .venue-search-check{margin-top:var(--space-2)}
 
-.venue-search-heading{font-size:var(--text-base);margin:.75rem 0 .35rem;font-weight:700}
+.venue-search-heading{margin:0 0 var(--space-2);font-size:var(--text-base);font-weight:var(--weight-bold)}
 
 .suitability-check-list{margin:.25rem 0 0;padding-left:1.1rem;font-size:var(--text-xs);color:var(--text-muted)}
 
@@ -412,4 +418,7 @@
 .lead-assign-form .picker{flex:1;min-width:0}
 .lead-assign-message{margin:var(--space-1) 0 0;font-size:var(--text-xs)}
 @container data-table (max-width: 54rem){.lead-cell-coordinator{min-width:0}
+}
+@media(max-width:640px){.dialog-form-actions .venue-search-btns,.dialog-form-actions-end{width:100%}
+.dialog-form-actions .venue-search-btns .button,.dialog-form-actions-end .button{flex:1 1 10rem}
 }

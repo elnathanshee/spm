@@ -259,7 +259,7 @@ document.addEventListener("alpine:init", () => {
     dialogErrorMessage(response) {
       const detail = response?.data?.detail;
       if (typeof detail === "string" && detail.trim()) return detail;
-      if (Array.isArray(detail) && detail.length) return detail.map(error => error.msg).filter(Boolean).join(" ") || "The request was not valid.";
+      if (Array.isArray(detail) && detail.length) return detail.map(error => String(error.msg ?? "").replace(/^Value error, /, "")).filter(Boolean).join(" ") || "The request was not valid.";
       if (response?.status === 403) return "You don't have permission to perform this action.";
       return `The request failed${response?.status ? ` (status ${response.status})` : ""}. Please try again.`;
     },
@@ -515,8 +515,8 @@ document.addEventListener("alpine:init", () => {
       return at >= 0 ? message.slice(at + marker.length).trim() : "";
     },
     // Focus the first field the backend flagged, once Alpine has drawn the error.
-    focusFirstError(container) {
-      const focus = () => document.querySelector?.(`${container} [aria-invalid="true"]`)?.focus();
+    focusFirstError(container, fallback = null) {
+      const focus = () => (document.querySelector?.(`${container} [aria-invalid="true"]`) || (fallback && document.querySelector?.(`${container} ${fallback}`)))?.focus();
       if (typeof this.$nextTick === "function") this.$nextTick(focus);
     },
 
@@ -1267,9 +1267,15 @@ document.addEventListener("alpine:init", () => {
         searchResults: [],
         searchError: "",
         searchMessage: "",
+        searchErrors: {},
         checkingSuitability: false,
         suitabilityResults: [],
         suitabilityError: "",
+        suitabilityMessage: "",
+        noFacilitiesRequired: false,
+        // Which results show below the search form: the last search or the last suitability check
+        resultsKind: "",
+        requestMessage: "",
       };
       const dialog = this.bookingDialog;
       const recipient = this.user;
@@ -1292,11 +1298,35 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // GET /venues/search accepts any mix of filters, but a search with none lists every venue, so one is
+    // required here. The backend wants both times or neither, the end after the start, and an integer
+    // capacity; "Available only" means nothing without a period (every venue counts as available).
+    validateVenueSearch(search) {
+      const errors = {};
+      const fields = ["start_time", "end_time", "location", "accessibility", "layout", "facilities"];
+      const hasCapacity = search.min_capacity !== undefined && search.min_capacity !== null && String(search.min_capacity).trim() !== "";
+      if (!hasCapacity && !fields.some(field => String(search[field] || "").trim())) errors.form = "Enter at least one search field.";
+      if (hasCapacity && !(Number.isInteger(Number(search.min_capacity)) && Number(search.min_capacity) > 0)) errors.min_capacity = "Enter a whole number of guests, 1 or more";
+      const start = search.start_time ? this.inputToDate(search.start_time) : null;
+      const end = search.end_time ? this.inputToDate(search.end_time) : null;
+      if (search.start_time && !start) errors.start_time = "Enter a valid start date and time";
+      if (search.end_time && !end) errors.end_time = "Enter a valid end date and time";
+      if (search.start_time && !search.end_time) errors.end_time = "Add an end time, or clear the start time";
+      if (search.end_time && !search.start_time) errors.start_time = "Add a start time, or clear the end time";
+      if (start && end && end <= start) errors.end_time = "End must be after start";
+      if (search.available_only && !(search.start_time && search.end_time)) errors.available_only = "Add a start and end time to show only available venues";
+      return errors;
+    },
     async searchVenues() {
       const dialog = this.bookingDialog;
       if (!dialog || dialog.searching) return;
       dialog.searchError = "";
       dialog.searchMessage = "";
+      dialog.searchErrors = this.validateVenueSearch(dialog.search || {});
+      if (Object.keys(dialog.searchErrors).length) {
+        this.focusFirstError(".venue-search-form", dialog.searchErrors.form ? "#search-start" : null);
+        return;
+      }
       dialog.searching = true;
       const recipient = this.user;
       try {
@@ -1320,10 +1350,14 @@ document.addEventListener("alpine:init", () => {
         const path = query ? `/venues/search?${query}` : "/venues/search";
         const response = await this.apiRequest(path, { inlineErrors: true });
         if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        dialog.resultsKind = "search";
+        dialog.suitabilityResults = [];
+        dialog.suitabilityError = "";
+        dialog.suitabilityMessage = "";
         if (response.ok) {
           dialog.searchResults = Array.isArray(response.data) ? response.data : [];
           if (!dialog.searchResults.length) {
-            dialog.searchMessage = "No venues found matching your criteria.";
+            dialog.searchMessage = "No venues found matching your criteria. Try fewer filters.";
           }
         } else {
           dialog.searchError = this.dialogErrorMessage(response);
@@ -1334,23 +1368,42 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // GET /events/{id}/venue-suitability checks capacity against the event and the facilities given. Left
+    // out, facilities are "not stated" and no venue can come out suitable, so they're required here, or
+    // "No facilities required", which sends an empty list (backend suitability.parse_required_facilities).
     async checkSuitability(facilities) {
       const dialog = this.bookingDialog;
       if (!dialog || dialog.checkingSuitability) return;
       dialog.suitabilityError = "";
+      dialog.suitabilityMessage = "";
+      const wanted = String(facilities ?? "").trim();
+      const noneRequired = !!dialog.noFacilitiesRequired;
+      dialog.searchErrors = { ...(dialog.searchErrors || {}), facilities: "" };
+      if (!wanted && !noneRequired) {
+        dialog.searchErrors = { facilities: "Enter the facilities to check, or tick “No facilities required”" };
+        this.focusFirstError(".venue-search-form");
+        return;
+      }
+      dialog.searchErrors = {};
       dialog.suitabilityResults = [];
       dialog.checkingSuitability = true;
       const recipient = this.user;
       try {
-        const query = facilities ? `?facilities=${encodeURIComponent(facilities)}` : "";
+        const query = `?facilities=${encodeURIComponent(noneRequired ? "" : wanted)}`;
         const response = await this.apiRequest(`/events/${dialog.event.id}/venue-suitability${query}`, { inlineErrors: true });
         if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        dialog.resultsKind = "suitability";
+        dialog.searchResults = [];
+        dialog.searchError = "";
+        dialog.searchMessage = "";
         if (response.ok) {
           dialog.suitabilityResults = Array.isArray(response.data?.venues)
             ? response.data.venues
             : Array.isArray(response.data)
               ? response.data
               : [];
+          if (!dialog.suitabilityResults.length) dialog.suitabilityMessage = "There are no active venues to check.";
+          else if (response.data && response.data.expected_attendance == null) dialog.suitabilityMessage = "This event has no expected attendance, so capacity can't be checked.";
         } else {
           dialog.suitabilityError = this.dialogErrorMessage(response);
         }
@@ -1359,15 +1412,26 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // Only a venue the search found available can be requested from the results.
+    canRequestFromSearch(venue) { return !!venue && venue.is_available !== false; },
     selectVenueFromSearch(venue) {
       const dialog = this.bookingDialog;
-      if (!dialog || !venue) return;
+      if (!dialog || !this.canRequestFromSearch(venue)) return;
       dialog.form.venue_id = String(venue.id);
       if (dialog.search?.start_time) dialog.form.booking_start = dialog.search.start_time;
       if (dialog.search?.end_time) dialog.form.booking_end = dialog.search.end_time;
       if (Array.isArray(dialog.venues) && !dialog.venues.some(v => v.id === venue.id)) {
         dialog.venues.push(venue);
       }
+      this.fieldErrors = {};
+      dialog.requestMessage = "";
+      // Review before submitting: focus the first field still empty, or the submit button.
+      if (typeof this.$nextTick === "function") this.$nextTick(() => {
+        const form = document.querySelector?.(".request-booking-form");
+        const target = ["#booking-venue", "#booking-start", "#booking-end"].map(id => form?.querySelector(id)).find(field => field && !field.value) || form?.querySelector('button[type="submit"]');
+        target?.focus();
+        form?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      });
     },
 
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
@@ -1383,10 +1447,13 @@ document.addEventListener("alpine:init", () => {
       // The inputs are Singapore time, like every time the app shows.
       const start = this.inputToDate(booking_start);
       const end = this.inputToDate(booking_end);
-      if (!start) this.fieldErrors.booking_start = "Enter a valid start date and time";
+      if (!booking_start) this.fieldErrors.booking_start = "Enter a start date and time";
+      else if (!start) this.fieldErrors.booking_start = "Enter a valid start date and time";
       else if (start <= new Date()) this.fieldErrors.booking_start = "Start must be in the future";
-      if (!end || !start || end <= start) this.fieldErrors.booking_end = "End must be after start";
-      if (Object.keys(this.fieldErrors).length) return;
+      if (!booking_end) this.fieldErrors.booking_end = "Enter an end date and time";
+      else if (!end || !start || end <= start) this.fieldErrors.booking_end = "End must be after start";
+      if (Object.keys(this.fieldErrors).length) { this.focusFirstError(".request-booking-form"); return; }
+      dialog.requestMessage = "";
       dialog.busy = true;
       dialog.submitting = true;
       const recipient = this.user;
@@ -1400,7 +1467,9 @@ document.addEventListener("alpine:init", () => {
           dialog.error = this.dialogErrorMessage(response);
           return;
         }
+        const venueName = dialog.venues.find(venue => venue.id === Number(venue_id))?.name || "the venue";
         dialog.form = { venue_id: "", booking_start: "", booking_end: "" };
+        dialog.requestMessage = `Request sent for ${venueName}. It's in Booking history as Pending until Venue Staff decide.`;
         this.showAlert("Venue booking request submitted.", "success");
         const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
         if (this.user === recipient && this.bookingDialog === dialog) {

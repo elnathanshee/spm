@@ -238,3 +238,34 @@ about six coordinators at a time and scrolling for the rest.
   button; Tab closes; a click outside closes.
 - **Controlled by:** `app.js` `openPicker`, `closePicker`, `pickerOptions`, `pickerKeydown`, `choosePickerOption`;
   `components.css` "Picker". It needs no library. Guarded by TC-9957 and TC-9958.
+
+### Forms, connected tasks and form actions
+
+- **Validate required inputs before making an API call, and show errors beside the relevant fields.**
+  - Buttons stay enabled so people can see what's missing. Only a running request disables its button, which
+    then shows "Searching…", "Checking…" or "Submitting…" and can't be sent twice.
+  - Focus moves to the first field with an error. A form-level error (nothing entered) focuses the first field.
+  - **Venue bookings dialog**, from the backend's rules (`venues.search_venues`, `suitability.venue_suitability`,
+    `VenueBookingRequest`):
+
+    | Button | Calls | Requires before calling |
+    |---|---|---|
+    | Search venues | `GET /venues/search` | At least one of start, end, min capacity, location, layout, accessibility, facilities. Start and end together or neither, end after start. Min capacity a whole number of 1 or more. "Available only" needs a start and end. |
+    | Check suitability | `GET /events/{id}/venue-suitability` | Facilities to check, or "No facilities required" (sends an empty list). Left out, the backend reports every venue as at best "unknown". |
+    | Submit booking request | `POST /venues/{id}/bookings` | A venue, a start and an end, with the end after the start and the start in the future. |
+
+  - **⚠ Confirm:** requiring at least one search field is a frontend rule. The backend accepts an empty search
+    and lists every venue.
+  - Controlled by `app.js` `validateVenueSearch()`, `checkSuitability()`, `submitBooking()`, `focusFirstError()`.
+    Guarded by TC-9961 to TC-9964.
+- **Connected tasks should carry information forward instead of asking users to re-enter it.**
+  - "Request this venue" on an available search result selects that venue and copies the searched start and end
+    into the request form. It then focuses the first empty field, or "Submit booking request". Nothing is sent
+    until that button is pressed. Unavailable results don't offer it.
+  - Controlled by `app.js` `selectVenueFromSearch()`, `canRequestFromSearch()`. Guarded by TC-9965.
+- **Form actions need clear space from surrounding sections.**
+  - The dialog's sections (Booking history; Find and assess venues; "Request a venue", or "Request another venue"
+    once there are bookings) share one heading style.
+  - Each section's actions sit together behind a divider, with at least 16px above them, and never touch the end
+    of the form or section.
+  - Controlled by `styles.css` `.dialog-section`, `.dialog-section-heading`, `.dialog-form-actions`.

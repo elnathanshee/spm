@@ -152,3 +152,13 @@ around these; each entry has the evidence.
 - **Needed:** decide the zone of `proposed_start` (store UTC like bookings, or validate it as
   Singapore time), apply the SCRUM-95 migration (#3), and ideally return times with an explicit
   offset (`...Z` or `+08:00`).
+
+## 13. Venue search: "Available only" is silently ignored without a period
+
+- **Screen:** Venue bookings dialog, "Find and assess venues" (Coordinator, Lead).
+- **Evidence:** `venues.search_venues` marks every venue `is_available = True` when no
+  `start_time`/`end_time` is sent, so `available_only=true` on its own filters nothing and returns
+  every venue as available. Neither the parameter nor an error says so.
+- **Frontend:** "Available only" now requires a start and end time before the search is sent.
+- **Needed:** reject `available_only` without a period (400), like a half-entered period, or document
+  that it needs one.
