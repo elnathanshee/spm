@@ -374,7 +374,7 @@ test("TC-9318 | Cross-Cutting | AC2, AC3: both screens are rendered, with their 
   assert.match(HTML, /addEquipment\(\)/, "the panel can record a new item");
   assert.match(HTML, /eventDetail\.equipment\.errors\.equipment_type/, "the type field shows its error");
   assert.match(HTML, /eventDetail\.equipment\.errors\.quantity/, "the quantity field shows its error");
-  assert.match(HTML, /eventDetail\.equipment\.errors\.form/, "a duplicate message has somewhere to appear");
+  assert.match(HTML, /eventDetail\.equipment\.errors\.form/, "a refusal such as a 403 has somewhere to appear (a duplicate goes beside the type)");
 
   // The Technical Support workspace (PR 47's worklist, grouped by event).
   assert.match(HTML, /currentPath === '\/technical'/, "the /technical screen exists");

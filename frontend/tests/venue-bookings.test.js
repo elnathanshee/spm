@@ -719,7 +719,7 @@ test("TC-9105 (AC5): Lead can search/check for any event; Coordinator only for a
   assert.equal(coordState.bookingDialog.suitabilityError, "You can only check venue suitability for events assigned to you");
 });
 
-test("TC-3530 booking history renders once and Lead assignment shows only for assignable statuses", () => {
+test("TC-10151 booking history renders once and Lead assignment shows only for assignable statuses", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const dialog = html.slice(html.indexOf('<template x-if="bookingDialog">'), html.indexOf('<template x-if="modal.open">'));
   assert.equal((dialog.match(/x-for="booking in bookingDialog.bookings"/g) || []).length, 1);
@@ -730,7 +730,7 @@ test("TC-3530 booking history renders once and Lead assignment shows only for as
   for (const status of ["Draft", "Approved", "Rejected", "Planning", "Confirmed"]) assert.equal(state.canAssignEvent({ status }), false, status);
 });
 
-test("TC-3531 the event detail close button is not disabled when nothing is saving", () => {
+test("TC-10152 the event detail close button is not disabled when nothing is saving", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   // Alpine 3.17 leaves a :disabled bound to undefined disabled, so an optional
   // chain that can return undefined must be coerced to a boolean.

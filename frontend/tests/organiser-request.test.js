@@ -260,7 +260,7 @@ test("TC-9005 (Reset): resetSignedOutState clears all 9 fields on draft and amen
   assert.equal(state.amendForm.registration_needs, "");
 });
 
-test("TC-9005 amend from a list row loads the full request so no field opens blank", async () => {
+test("TC-10141 amend from a list row loads the full request so no field opens blank", async () => {
   const state = app("organiser");
   // GET /events rows have no venue, accessibility, equipment or registration fields.
   const { venue_requirements, accessibility_needs, equipment_requirements, registration_needs, ...listRow } = sampleEvent;
@@ -282,7 +282,7 @@ test("TC-9005 amend from a list row loads the full request so no field opens bla
   assert.equal(state.amendOriginal.registration_needs, sampleEvent.registration_needs);
 });
 
-test("TC-9006 amend shows the load failure and cannot be saved", async () => {
+test("TC-10142 amend shows the load failure and cannot be saved", async () => {
   const state = app("organiser");
   const { venue_requirements, ...listRow } = sampleEvent;
   const paths = [];
@@ -295,7 +295,7 @@ test("TC-9006 amend shows the load failure and cannot be saved", async () => {
   assert.deepEqual(paths, ["/events/42"]);
 });
 
-test("TC-9007 a full event opens Amend without another request", () => {
+test("TC-10143 a full event opens Amend without another request", () => {
   const state = app("organiser");
   let called = false;
   state.apiRequest = async () => { called = true; return { ok: true, data: {} }; };
