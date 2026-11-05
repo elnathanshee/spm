@@ -212,16 +212,6 @@
 .section-icon svg{width:1rem}
 .create-venue-card fieldset{border:0;margin:0;padding:1.25rem}
 .venue-form-grid{display:grid;grid-template-columns:1.2fr 1.2fr .7fr;gap:1rem}
-.booking-table{display:grid}
-.booking-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1rem;border-bottom:1px solid var(--border);padding:1.15rem 1.3rem}
-.booking-row:last-child{border-bottom:0}
-.booking-row.needs-action{box-shadow:inset 3px 0 var(--warning-accent)}
-.booking-title{display:flex;min-width:0;align-items:center;gap:.7rem}
-.booking-title>div{display:flex;min-width:0;flex-direction:column}
-.booking-title strong{overflow:hidden;font-size:var(--text-base);text-overflow:ellipsis;white-space:nowrap}
-.booking-title small{margin-top:.18rem;color:var(--text-muted);font-size:var(--text-xs)}
-.booking-schedule{display:flex;align-items:flex-start;gap:.4rem;color:var(--text-muted);font-size:var(--text-xs);line-height:1.45}
-.booking-schedule svg{width:.9rem;height:.9rem;flex:none;margin-top:.05rem}
 .venue-list{margin:0;padding:0;list-style:none}
 .venue-list li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.65rem;border-bottom:1px solid var(--border);padding:1rem 1.2rem}
 .venue-list li:last-child{border:0}
@@ -261,7 +251,6 @@
 .notification-panel{right:.65rem;left:.65rem;width:auto}
 .venue-form-grid{grid-template-columns:1fr}
 .venue-form-grid>.field-group:last-child{grid-column:auto}
-.booking-row{grid-template-columns:1fr;padding:1rem}
 .assignment-controls{display:grid;grid-template-columns:1fr}
 .assignment-controls .button{width:100%}
 .date-time-grid{grid-template-columns:1fr}
@@ -276,17 +265,38 @@
 
 .operations-grid{grid-template-columns:minmax(0,1fr);gap:1.25rem}
 
-.booking-table-head,.booking-row{display:grid;grid-template-columns:minmax(15rem,1.45fr) minmax(14rem,1fr) 8rem 9rem;align-items:center;column-gap:1.25rem}
-.booking-row{padding:1.15rem 1.3rem}
-.booking-title{align-items:flex-start}
-.booking-title strong{overflow:visible;white-space:normal;line-height:1.4}
-.booking-title small{overflow-wrap:anywhere;line-height:1.4}
-.booking-schedule{align-items:flex-start;line-height:1.5}
-.booking-status{display:flex;align-items:center}
-.booking-action{display:flex;justify-content:flex-end}
-.booking-action .button{width:100%;white-space:nowrap}
-.mobile-field-label{display:none}
-.rejection-callout{grid-column:1/-1;margin-top:.15rem}
+/* Venue Staff booking requests: one table per section (needs a decision, upcoming confirmed, past and closed) */
+.venue-workspace{display:grid;gap:1.25rem}
+.venue-workspace>.venue-notice{margin-bottom:0}
+.booking-group{border-top:1px solid var(--border)}
+.booking-group-heading{border-bottom:1px solid var(--border);padding:var(--space-4) var(--space-5) var(--space-3)}
+.booking-group-heading h3{display:flex;align-items:center;gap:var(--space-2);margin:0;font-size:var(--text-md);font-weight:var(--weight-bold)}
+.booking-group-heading p{margin:var(--space-1) 0 0;color:var(--text-muted);font-size:var(--text-sm)}
+.booking-group-attention .booking-group-heading{background:var(--tone-attention-bg)}
+.booking-group-attention .group-count{background:var(--tone-attention-fg);color:var(--text-inverse)}
+/* Fixed widths, so the columns line up from one section to the next */
+.venue-booking-table{table-layout:fixed}
+.venue-booking-table th:nth-child(2){width:15.5rem}
+.venue-booking-table th:nth-child(3){width:8.5rem}
+.venue-booking-table th:nth-child(4){width:12.5rem}
+.venue-booking-table tr.needs-attention>td:first-child{box-shadow:inset 3px 0 var(--warning-accent)}
+.booking-cell-main small,.booking-cell-when small{display:block;margin-top:var(--space-1);color:var(--text-muted);font-size:var(--text-xs);overflow-wrap:anywhere}
+.booking-cell-main .row-flag{margin-right:var(--space-2)}
+.booking-row-note{margin:var(--space-2) 0 0;color:var(--text-secondary);font-size:var(--text-xs);line-height:1.45}
+.booking-row-note .row-flag{margin-top:0}
+.booking-row-actions{justify-content:flex-end;flex-wrap:nowrap}
+.booking-row-error{max-width:18rem;margin:var(--space-2) 0 0 auto;text-align:right}
+.cell-empty{color:var(--text-muted);font-size:var(--text-xs);white-space:nowrap}
+@container data-table (max-width: 54rem){
+.venue-booking-table th{width:auto}
+.venue-booking-table tr.needs-attention>td:first-child{box-shadow:none}
+.venue-booking-table tr.needs-attention{box-shadow:inset 3px 0 var(--warning-accent)}
+.booking-row-actions{justify-content:flex-start;flex-wrap:wrap;margin-top:var(--space-1)}
+.booking-row-error{max-width:none;margin-left:0;text-align:left}
+}
+@media(max-width:640px){.booking-group-heading{padding:var(--space-4)}
+.booking-row-actions .button{flex:1 1 8rem}
+}
 
 .total-count{border-radius:var(--radius-pill);background:var(--brand-50);color:var(--text-muted);padding:.35rem .65rem;font-size:var(--text-xs);font-weight:700}
 .venue-list-head,.venue-list li{display:grid;grid-template-columns:minmax(16rem,1.35fr) minmax(14rem,1fr) 9rem;align-items:center;gap:1.25rem}
@@ -299,20 +309,10 @@
 .capacity b{font-size:var(--text-sm)}
 
 @media(max-width:900px){
-.booking-table-head,.booking-row{grid-template-columns:minmax(12rem,1.3fr) minmax(12rem,1fr) 7rem}
-.booking-table-head span:last-child{display:none}
-.booking-action{grid-column:1/-1;justify-content:flex-end}
-.booking-action .button{width:auto}
 .venue-list-head,.venue-list li{grid-template-columns:minmax(12rem,1.2fr) minmax(10rem,1fr) 7rem}
 }
 
 @media(max-width:640px){
-.booking-row{grid-template-columns:1fr;gap:.8rem;padding:1rem}
-.booking-title{align-items:center}
-.mobile-field-label{display:inline;color:var(--text-muted);font-size:var(--text-xs);font-weight:700;text-transform:uppercase}
-.booking-status{gap:.35rem}
-.booking-action{grid-column:auto;justify-content:stretch}
-.booking-action .button{width:100%}
 .venue-list li{grid-template-columns:1fr;gap:.8rem;padding:1rem}
 .venue-list li>span.venue-location,.capacity{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}
 .venue-list li>span.venue-location{flex-direction:row}
@@ -336,6 +336,8 @@
 .venue-notice p{margin:.6rem 0;color:var(--text-secondary);font-size:var(--text-sm);line-height:1.55}
 .venue-notice .form-message{margin:.6rem 0}
 
+.venue-notice .panel-actions{margin-top:var(--space-4)}
+.venue-notice .booking-list{margin-top:var(--space-2)}
 .venue-notice-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}
 .venue-notice-detail{display:block;margin-top:.2rem;color:var(--text-muted);font-size:var(--text-xs);line-height:1.45}
 

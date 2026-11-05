@@ -91,6 +91,16 @@ const keepOrder = () => 0;
 // Event statuses in workflow order, for status filter chips
 const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"];
 const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
+// Venue Staff booking sections, in the order they need attention. Pending is the only status Venue Staff can
+// decide (venues._decide_booking), whatever its date; Confirmed bookings that haven't ended still hold the
+// venue; everything else is the record.
+const VENUE_BOOKING_GROUPS = [
+  { key: "decide", title: "Needs a decision", hint: "Pending requests. Approve one, or reject it with a reason. A hold that runs out turns the request Expired, and it can't be decided." },
+  { key: "upcoming", title: "Upcoming confirmed", hint: "Approved bookings that haven't ended. They hold the venue for their date and time." },
+  { key: "closed", title: "Past and closed", hint: "Rejected, expired and ended bookings, for reference. Nothing here needs action." },
+];
+// Statuses that hold a venue: what retiring a venue lists as affected (venues.retire_venue).
+const BLOCKING_BOOKING_STATUSES = ["Pending", "Confirmed"];
 
 // Requests without the date (e.g. a Draft has no submitted date) go after those with one.
 const ORGANISER_SORTS = {
@@ -422,6 +432,26 @@ document.addEventListener("alpine:init", () => {
         .filter(booking => !text || [`#${booking.id}`, booking.event_title, booking.venue_name].some(value => String(value || "").toLowerCase().includes(text)))
         .sort(view.sort === "hold" ? byAsc("hold_expires_at") : byAsc("booking_start"));
     },
+    bookingEnded(booking) { const end = this.parseUtc(booking?.booking_end); return !!end && end <= new Date(); },
+    venueBookingGroupOf(booking) {
+      if (booking.status === "Pending") return "decide";
+      return booking.status === "Confirmed" && !this.bookingEnded(booking) ? "upcoming" : "closed";
+    },
+    // Search, the status chip and the sort apply first; the sections then split what's left.
+    venueBookingGroups() {
+      const bookings = this.filteredVenueBookings();
+      return VENUE_BOOKING_GROUPS
+        .map(group => ({ ...group, bookings: bookings.filter(booking => this.venueBookingGroupOf(booking) === group.key) }))
+        .filter(group => group.bookings.length);
+    },
+    bookingRowState(booking) { return this.venueWorkspace?.rowDecisions?.[booking.id] || {}; },
+    // The venue's bookings that still hold it, from the list already loaded: what retiring it affects.
+    retireImpact(venue) {
+      return (this.venueWorkspace?.bookings || [])
+        .filter(booking => booking.venue_id === venue.id && BLOCKING_BOOKING_STATUSES.includes(booking.status) && !this.bookingEnded(booking))
+        .sort(byAsc("booking_start"));
+    },
+    retireImpactKnown(venue) { return !(this.venueWorkspace?.failedVenueIds || []).includes(venue.id); },
     bookingFilterCount(filter) {
       if (!this.venueWorkspace) return 0;
       return filter === "All"
@@ -883,6 +913,8 @@ document.addEventListener("alpine:init", () => {
       if (!this.isVenueStaff()) return;
       if (!this.venueWorkspace) this.venueWorkspace = {
         venues: [], bookings: [], busy: false, loaded: false, bookingError: false,
+        // The venue list's failure (error, denied) and the venues whose bookings didn't load
+        error: "", denied: false, failedVenueIds: [], rowDecisions: {},
         bookingFilter: "All", showCreate: false, saving: false, form: emptyVenueForm(),
         // [SCRUM-92] the venue being edited, the form's message, a pending retire, and the last save's result
         editing: null, formMessage: null, retire: null, outcome: null,
@@ -892,17 +924,24 @@ document.addEventListener("alpine:init", () => {
       workspace.busy = true;
       const recipient = this.user;
       try {
-        const venues = await this.apiRequest("/venues");
+        const venues = await this.apiRequest("/venues", { inlineErrors: true });
         if (this.user !== recipient || this.venueWorkspace !== workspace) return;
-        if (!venues.ok || !Array.isArray(venues.data)) { workspace.loaded = false; return; }
+        // A failed refresh keeps what's shown and says so; a first failure shows the error state.
+        if (!venues.ok || !Array.isArray(venues.data)) {
+          if (venues.ok) Object.assign(venues, { ok: false, data: { detail: "The venue list came back in an unexpected format." } });
+          this.recordListResult(workspace, venues);
+          return;
+        }
+        this.recordListResult(workspace, venues);
         workspace.venues = venues.data;
-        workspace.loaded = true;
         const results = await Promise.all(venues.data.map(async venue => {
-          const response = await this.apiRequest(`/venues/${venue.id}/bookings`);
+          const response = await this.apiRequest(`/venues/${venue.id}/bookings`, { inlineErrors: true });
           return { venue, response };
         }));
         if (this.user !== recipient || this.venueWorkspace !== workspace) return;
-        workspace.bookingError = results.some(({ response }) => !response.ok || !Array.isArray(response.data));
+        const failed = results.filter(({ response }) => !response.ok || !Array.isArray(response.data));
+        workspace.bookingError = failed.length > 0;
+        workspace.failedVenueIds = failed.map(({ venue }) => venue.id);
         workspace.bookings = results.flatMap(({ venue, response }) => response.ok && Array.isArray(response.data)
           ? response.data.map(booking => ({ ...booking, venue_name: venue.name })) : []);
       } finally {
@@ -1075,10 +1114,38 @@ document.addEventListener("alpine:init", () => {
       if (this.venueWorkspace) this.venueWorkspace.outcome = null;
     },
 
-    async openStaffBooking(bookingId) {
+    // The row's one filled button: approve as requested. The backend re-checks the hold and the venue's
+    // availability, so a refusal (409) shows on the row and the list reloads to show the current status.
+    async approveBookingRow(booking) {
+      const workspace = this.venueWorkspace;
+      if (!this.isVenueStaff() || !workspace || booking.status !== "Pending" || this.bookingRowState(booking).busy) return;
+      workspace.rowDecisions[booking.id] = { busy: true, error: "" };
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${booking.id}/approve`, { method: "POST", inlineErrors: true });
+        if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+        if (response.ok) {
+          delete workspace.rowDecisions[booking.id];
+          await this.fetchVenueWorkspace();
+          if (this.user !== recipient || this.venueWorkspace !== workspace) return;
+          this.showAlert(`${booking.event_title} confirmed at ${booking.venue_name}.`, "success");
+          return;
+        }
+        if (response.status === 401) return;
+        workspace.rowDecisions[booking.id] = { busy: false, error: this.dialogErrorMessage(response) };
+        if (response.status === 409) await this.fetchVenueWorkspace();
+      } finally {
+        const state = this.venueWorkspace === workspace && workspace.rowDecisions[booking.id];
+        if (state && state.busy) workspace.rowDecisions[booking.id] = { ...state, busy: false };
+      }
+    },
+    // Rejecting needs a reason, so it opens the review with the reason field focused.
+    rejectBookingRow(booking) { return this.openStaffBooking(booking.id, { focusReason: true }); },
+
+    async openStaffBooking(bookingId, { focusReason = false } = {}) {
       if (!this.isVenueStaff()) return;
       this.clearAlert(); this.fieldErrors = {};
-      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true, holdExpiry: "", error: "" };
+      this.staffBooking = { id: bookingId, detail: null, reason: "", busy: true, holdExpiry: "", error: "", focusReason };
       const review = this.staffBooking;
       const recipient = this.user;
       try {

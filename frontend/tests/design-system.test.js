@@ -105,7 +105,8 @@ test("TC-9805 one initials rule for avatars and monograms", () => {
   assert.equal(state.initials(""), "?");
   assert.equal(state.userInitials(), "CO");
   assert.doesNotMatch(html, /charAt\(0\)/);
-  assert.equal((html.match(/x-text="initials\(/g) || []).length, 3);
+  // Venue catalogue and booking review; booking rows are a data table now, without a monogram.
+  assert.equal((html.match(/x-text="initials\(/g) || []).length, 2);
 });
 
 test("TC-9806 every form control has a label, and every icon-only button a name", () => {

@@ -76,6 +76,11 @@ around these; each entry has the evidence.
   proposed date.
 - **Needed:** include `expected_attendance` and the event `status` (and possibly
   `proposed_start`) in the review response, so Venue Staff can check capacity.
+- **Also affects the Venue Staff booking list** (Venue Staff redesign): `GET /venues/{id}/bookings` returns the same
+  `booking_detail_dict`, so the list can't flag a booking whose event exceeds the venue's capacity. Venue Staff
+  can't use `GET /events/{id}/venue-suitability` either (`suitability.ALLOWED_ROLES` is Lead and Coordinator).
+  The list shows only the setup and turnaround clash flag (`conflict_flag`). Adding `expected_attendance` to
+  `booking_detail_dict` would let both screens flag it.
 
 ## 7. Event detail returns an old clarification note
 
