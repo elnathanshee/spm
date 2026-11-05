@@ -22,6 +22,7 @@ export function resetSignedOutState(state) {
   state.coordinators = [];
   state.notifications = [];
   state.bookingDialog = null;
+  state.venueCalendar = null; // [SCRUM-96] AC4: the next user on this computer must not see it
   state.venueWorkspace = null;
   state.staffBooking = null;
   state.technicalWorklist = null;
