@@ -307,7 +307,7 @@
       <template x-if="staffBooking.detail.status === 'Pending'"><form class="decision-form" @submit.prevent="decideStaffBooking('reject')" novalidate><fieldset :disabled="staffBooking.busy"><div class="decision-heading"><h4>Record a decision</h4><p>Approve the requested schedule, or provide a clear reason for rejection.</p></div><div class="field-group"><label for="staff-rejection-reason">Rejection reason <em>Required only when rejecting</em></label><textarea id="staff-rejection-reason" x-init="staffBooking.focusReason && $nextTick(() => $el.focus())" x-model="staffBooking.reason" rows="4" :aria-invalid="!!fieldErrors.reason" placeholder="Explain why this venue or schedule cannot be approved."></textarea><small class="field-error" x-text="fieldErrors.reason"></small></div><div class="modal-actions"><button type="submit" class="button button-danger-quiet">Reject request</button><button type="button" class="button button-success" @click="decideStaffBooking('approve')"><span x-html="iconFor('check')"></span> Approve booking</button></div></fieldset></form></template></div></template>
     </div></section></div></template>
     <!-- [SCRUM-96 | Melvin] Venue availability calendar, day by day (SCRUM-32 AC1-AC4). -->
-    <template x-if="venueCalendar"><div class="modal-backdrop" @click.self="closeVenueCalendar()" @keydown.escape.window="closeVenueCalendar()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="venue-calendar-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
+    <template x-if="venueCalendar"><div class="modal-backdrop modal-backdrop-stacked" @click.self="closeVenueCalendar()" @keydown.escape.window="closeVenueCalendar()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="venue-calendar-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
       <div class="modal-header"><div><p class="eyebrow" x-text="venueCalendar.venue.name"></p><h2 id="venue-calendar-title">Availability calendar</h2></div><button class="icon-button" @click="closeVenueCalendar()" aria-label="Close the availability calendar">&times;</button></div>
       <div class="modal-body">
         <div class="dialog-error" role="alert" x-show="venueCalendar.error"><span x-html="iconFor('alert')"></span><span x-text="venueCalendar.error"></span></div>
@@ -337,7 +337,7 @@
       </div>
     </section></div></template>
 
-    <template x-if="bookingDialog"><div class="modal-backdrop" @keydown.escape.window="closeBookings()" @click.self="closeBookings()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
+    <template x-if="bookingDialog"><div class="modal-backdrop" @keydown.escape.window="if (!venueCalendar) closeBookings()" @click.self="closeBookings()"><section class="modal-card booking-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-title" x-init="$nextTick(() => $el.querySelector('button').focus())">
       <div class="modal-header"><div><p class="eyebrow" x-text="bookingDialog.event.title"></p><h2 id="booking-title">Venue bookings</h2></div><button class="icon-button" @click="closeBookings()" aria-label="Close venue bookings">×</button></div>
       <div class="modal-body">
         <p x-show="alert?.message" role="status" x-text="alert?.message"></p>

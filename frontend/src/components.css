@@ -369,6 +369,8 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
   position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; overflow-y: auto;
   background: var(--overlay); padding: var(--space-4);
 }
+/* A view opened from inside another modal (the venue calendar from the booking dialog) sits above it. */
+.modal-backdrop-stacked { z-index: 61; }
 .modal-card {
   width: 100%; max-width: 34rem; overflow: hidden; border-radius: var(--radius-lg);
   background: var(--surface); box-shadow: var(--shadow-lg);
