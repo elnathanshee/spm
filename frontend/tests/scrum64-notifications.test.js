@@ -84,6 +84,8 @@ test("TC-9512 hold notifications retain payloads, distinct mappings and read beh
   const calls = [];
   state.apiRequest = async (path, options) => {
     calls.push(path);
+    // Opening the event also loads its equipment (Coordinator and Lead request details)
+    if (path.endsWith("/equipment-requests")) return { ok: true, data: { equipment_requests: [] } };
     if (!options) return { ok: true, data: messages };
     assert.equal(options.method, "POST");
     return { ok: true, data: { ...messages[0], read: true } };

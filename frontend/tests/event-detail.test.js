@@ -18,7 +18,8 @@ test('TC-8801 three entry points and one safe complete detail renderer preserve 
  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
  assert.equal((html.match(/@click(?:\.prevent)?="openEventDetail\(event.id\)"/g) || []).length, 4); // title links (Coordinator x2, Lead) + the Organiser's View details
  assert.match(html, /x-for="\[key, value\] in eventDetailEntries\(eventDetail.detail\)"/); // UI_AUDIT F5: id, status and raw user ids are shown elsewhere assert.match(html, /x-text="eventFieldValue\(key, value\)"/);
- const s = app(); s.apiRequest = async path => { assert.equal(path, '/events/7'); return { ok: true, data: detail }; };
+ // Coordinators and Leads also load the event's equipment once the details arrive
+ const s = app(); s.apiRequest = async path => { if (path === '/events/7/equipment-requests') return { ok: true, data: { equipment_requests: [] } }; assert.equal(path, '/events/7'); return { ok: true, data: detail }; };
  await s.openEventDetail(7); assert.equal(s.eventDetail.detail, detail);
  for (const [key, value] of Object.entries(detail)) assert.ok(s.eventFieldValue(key, value).length);
  assert.equal(s.eventFieldValue('description', detail.description), detail.description);
@@ -118,7 +119,7 @@ const alpineReactive = vm.runInNewContext(alpineSource.replace(/export \{[\s\S]*
 });
 for (const status of [200, 0, 403, 404]) test(`TC-8811 Alpine reactive detail clears loading and renders success/error (${status})`, async () => {
  const s = alpineReactive(app()); s.currentPath = '/coordinator/all-events'; let finish;
- s.apiRequest = path => { assert.equal(path, '/events/7'); return new Promise(resolve => finish = resolve); };
+ s.apiRequest = path => { if (path === '/events/7/equipment-requests') return Promise.resolve({ ok: true, data: { equipment_requests: [] } }); assert.equal(path, '/events/7'); return new Promise(resolve => finish = resolve); };
  const pending = s.openEventDetail(7);
  assert.equal(s.eventDetail.loading, true); assert.equal(s.eventDetail.detail, null);
  finish({ ok: status === 200, status, data: detail }); await pending;

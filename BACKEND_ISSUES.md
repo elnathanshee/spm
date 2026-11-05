@@ -181,8 +181,15 @@ around these; each entry has the evidence.
   - `equipment_request_to_dict` returns the event's title and `proposed_start` only, with no event status. The
     worklist joins every event whatever its status, so lines for Draft, Returned or Rejected events appear beside
     approved ones.
-  - `GET /events/{id}` refuses Technical Support (403, `events.py` `get_event`), and no booking route admits the role,
+  - `GET /events/{id}` refuses Technical Support (403, `events.get_visible_event`), and no booking route admits the role,
     so the worklist can't show the venue or the booked times where the equipment is needed.
+  - The Organiser's free-text "Equipment" field (`events.equipment_requirements`) is a separate record from the
+    worklist's `equipment_requests` table, by design (`models.py` comment on `EquipmentRequest`). Nothing copies one
+    into the other, so equipment entered on the request form never reaches Technical Support.
+  - **Frontend (since):** Coordinators and Leads add worklist lines in the request details ("Equipment" section,
+    `POST /events/{id}/equipment-requests`), with the Organiser's text shown beside it for reference.
+  - `EquipmentRequestCreate` doesn't limit `equipment_type`, but the column is `String(100)`, so a longer type would
+    fail in the database rather than with a 422. The frontend stops at 100 characters.
 - **Frontend:** the worklist is read only, with no buttons. It's grouped by event date ("Today and the next 7
   days", "Later", "Date not set", "Past events"), the only sign of urgency in the data. Rows have no title link,
   because there's nothing the role can open.
@@ -191,3 +198,36 @@ around these; each entry has the evidence.
   - the event status (and ideally the confirmed venue and booking times) in `equipment_request_to_dict`, or a filter
     that leaves out events that won't go ahead;
   - optionally, assigning a line or an event to a Technical Support user.
+
+## 15. HIGH PRIORITY: an Organiser's amendment replaces the Coordinator's clarification question
+
+- **Screens:** Organiser "Your event requests" (Returned row) and the edit dialog; request details for every role
+  (Organiser, Coordinator, Lead).
+- **Evidence:**
+  - Both routes that return `clarification_note` read the latest `EventStatusHistory` row whose `new_status` is
+    `Returned`: `events.latest_clarification_note` (used by `GET /events`, `list_my_events`) and the inline `next(...)`
+    in `events.get_visible_event` (`GET /events/{id}`).
+  - `events.amend_event` (`POST /events/{id}/amend`) adds a history row with `previous_status = new_status =` the
+    current status and `reason = "Request amended by organiser. Fields changed: …"` (or "No field values changed.").
+    While the request is Returned, that row has `new_status = Returned` and a higher id, so it becomes the
+    "clarification note" in both routes.
+  - The Coordinator's question (`events.return_event_for_clarification` → `status_rules.change_status`, `reason =`
+    the note) is still stored, but no route returns the history (`events.py`, `coordinator.py`, `lead.py` have no
+    history endpoint). Coordinators and Leads can't retrieve it at all.
+  - The only other copy is the Organiser's own notification text (`notifications.notify_organiser_of_status`:
+    `…returned for clarification. Coordinator's note: <note>`), for returns made since SCRUM-51. It's free text in a
+    message, so the frontend doesn't parse it.
+  - Reproduced with a stub that follows these rules: return with "Which hall do you need…", then amend Equipment;
+    both routes then return "Request amended by organiser. Fields changed: equipment_requirements".
+- **Frontend:** the question shows as "Coordinator's clarification request" while it's returned. After an
+  amendment, a neutral "Latest update" says "You updated Equipment" (Organiser) or "Organiser updated Equipment"
+  (Coordinator, Lead) and that the question can't be shown. The question is never guessed or rebuilt.
+- **Limitation (temporary measure):** the API doesn't say which kind of note it returns, so the frontend recognises
+  the amendment by the exact text `amend_event` writes (`app.js` `AMENDMENT_NOTE`). If that wording changes, an
+  amendment would be shown as the Coordinator's question again.
+- **Needed:**
+  - return the Coordinator's question separately from amendment notes, for example `clarification_request`
+    (the latest `Returned` row whose `previous_status` differs from `Returned`) and `latest_update` (with the
+    changed field names as a list);
+  - or have `amend_event` not count as a clarification note (filter rows where `previous_status == new_status`);
+  - and give notes a type (`kind: "clarification" | "amendment"`) so the frontend needn't match text.

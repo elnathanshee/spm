@@ -112,9 +112,9 @@ return 401/403 (§0) and 422 (bad body).
 
 | Method & path | Roles | Request | Response | Errors | Used by UI |
 |---|---|---|---|---|---|
-| `POST /events/{id}/equipment-requests` (`record_equipment_requirement`) | Coordinator (assigned only), Lead | `{equipment_type` (non-blank), `quantity` (>0), `technical_requirements?}` | 201 `{message, equipment_request}` | 403 role / not assigned; 404; 409 type already recorded (case-insensitive); 422 | **No UI** |
-| `GET /events/{id}/equipment-requests` (`list_event_equipment_requirements`) | Coordinator (**any** event), Lead, Tech Support | — | `{event_id, event_title, event_proposed_start, equipment_requests: [{id, event_id, event_title, event_proposed_start, equipment_type, quantity, technical_requirements, requested_by, created_at}]}` | 403; 404 | **No UI** |
-| `GET /equipment-requests` (`list_all_equipment_requirements`) | Coordinator (own events only), Lead, Tech Support | — | `{equipment_requests: [...]}`, soonest event first, undated last | 403 | **No UI** |
+| `POST /events/{id}/equipment-requests` (`record_equipment_requirement`) | Coordinator (assigned only), Lead | `{equipment_type` (non-blank), `quantity` (>0), `technical_requirements?}` | 201 `{message, equipment_request}` | 403 role / not assigned; 404; 409 type already recorded (case-insensitive); 422 | Request details, "Equipment" section ("Add equipment"), assigned Coordinator or Lead |
+| `GET /events/{id}/equipment-requests` (`list_event_equipment_requirements`) | Coordinator (**any** event), Lead, Tech Support | — | `{event_id, event_title, event_proposed_start, equipment_requests: [{id, event_id, event_title, event_proposed_start, equipment_type, quantity, technical_requirements, requested_by, created_at}]}` | 403; 404 | Request details, "Equipment" section (Coordinator, Lead) |
+| `GET /equipment-requests` (`list_all_equipment_requirements`) | Coordinator (own events only), Lead, Tech Support | — | `{equipment_requests: [...]}`, soonest event first, undated last | 403 | Technical Support "Equipment worklist" |
 
 No route amends or removes an equipment request (module docstring: SCRUM-40). Logged in `BACKEND_ISSUES.md` #2.
 
@@ -296,7 +296,7 @@ Every one of these writes an `EventStatusHistory` row.
 
 | Screen | Data | Actions in the UI | Backend allows, not in the UI |
 |---|---|---|---|
-| Placeholder ("Your focused workspace is ready") | none | none | **Equipment worklist** `GET /equipment-requests`; per-event list `GET /events/{id}/equipment-requests`. Both are read-only for this role. |
+| Equipment worklist | `GET /equipment-requests` | Search, sort, Refresh (read only) | Per-event list `GET /events/{id}/equipment-requests` (same data). No status or assignment exists (`BACKEND_ISSUES.md` #14). |
 
 ### Attendee — `/attendee`
 
@@ -312,8 +312,8 @@ Every one of these writes an `EventStatusHistory` row.
 
 | # | Feature | Endpoint | Roles | Notes |
 |---|---|---|---|---|
-| G1 | Equipment worklist | `GET /equipment-requests` | Tech Support, Lead, Coordinator | The Technical Support page is a placeholder. Needs `/equipment-requests` in the Vite proxy. |
-| G2 | Record and list an event's equipment | `POST`/`GET /events/{id}/equipment-requests` | Coordinator (assigned), Lead; reading also Tech Support | No amend or remove route (`BACKEND_ISSUES.md` #2). |
+| G1 | Equipment worklist | `GET /equipment-requests` | Tech Support, Lead, Coordinator | **Done** for Technical Support (Equipment worklist). Leads and Coordinators see per-event lines in the request details instead. |
+| G2 | Record and list an event's equipment | `POST`/`GET /events/{id}/equipment-requests` | Coordinator (assigned), Lead; reading also Tech Support | **Done:** request details, "Equipment" section. No amend or remove route (`BACKEND_ISSUES.md` #2). |
 | G3 | Venue availability calendar | `GET /venues/{id}/calendar` | Coordinator, Lead, Venue Staff | `unavailable_periods` is always `[]`. |
 | G4 | Booking decision audit | `decision` in `GET /venues/bookings/{id}` | Venue Staff | Who decided, and when. |
 | G5 | Conflict flag history | `conflict_flag_record` | Coordinator, Lead, Venue Staff | Only the live `conflict_flag` is shown. |

@@ -33,7 +33,18 @@ const STATUS_TONES = {
 };
 
 // The amend fields GET /events/{id} returns but the GET /events list does not.
-const EVENT_DETAIL_HIDDEN = ["id", "status", "organiser_id", "assigned_coordinator_id"];
+// clarification_note is shown on its own, after the details, by clarificationNote().
+const EVENT_DETAIL_HIDDEN = ["id", "status", "organiser_id", "assigned_coordinator_id", "clarification_note"];
+// The request form's labels for every field POST /events/{id}/amend accepts (events.EventAmend), so the
+// automatic amendment note can name them the way the Organiser saw them.
+const EVENT_FIELD_LABELS = {
+  title: "Event title", purpose: "Purpose", description: "Description", proposed_start: "Proposed start",
+  expected_attendance: "Expected attendance", venue_requirements: "Venue", accessibility_needs: "Accessibility",
+  equipment_requirements: "Equipment", registration_needs: "Registration and check-in",
+};
+// Temporary (BACKEND_ISSUES.md #15): the API returns the automatic amendment note in the same field as the
+// Coordinator's question, with no type, so it's recognised by the text events.amend_event writes.
+const AMENDMENT_NOTE = /^Request amended by organiser\.\s*(?:Fields changed:\s*(.*?)\.?|No field values changed\.?)\s*$/;
 const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equipment_requirements", "registration_needs"];
 
 // Organiser request sections: one per status (backend/status.py), the ones that need the
@@ -1704,12 +1715,86 @@ document.addEventListener("alpine:init", () => {
       return this.leadEvents.filter(event => String(event.assigned_coordinator_id) === String(coordinatorId) && this.coordinatorGroupOf(event).active).length;
     },
 
+    // ---- Equipment for one event (backend equipment.py, SCRUM-39): the lines Technical Support work from.
+    // Coordinators read any event's lines and Leads every event's; recording is for the assigned Coordinator or
+    // a Lead. A line can't be changed or removed once recorded (BACKEND_ISSUES.md #2).
+    canViewEquipment() { return ["Coordinator", "Event Coordinator Lead"].includes(this.normalizeRole(this.user?.role)); },
+    canRecordEquipment(detail) {
+      const role = this.normalizeRole(this.user?.role);
+      return role === "Event Coordinator Lead" || (role === "Coordinator" && detail?.assigned_coordinator_id != null && Number(detail.assigned_coordinator_id) === Number(this.user?.user_id));
+    },
+    emptyEquipmentForm() { return { equipment_type: "", quantity: "", technical_requirements: "" }; },
+    async loadEventEquipment() {
+      const view = this.eventDetail;
+      if (!view || !this.canViewEquipment()) return;
+      if (!view.equipment) view.equipment = { items: [], loading: false, loaded: false, error: "", denied: false, form: this.emptyEquipmentForm(), errors: {}, busy: false };
+      const equipment = view.equipment;
+      equipment.loading = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${view.id}/equipment-requests`, { inlineErrors: true });
+        if (this.user !== recipient || this.eventDetail !== view) return;
+        if (response.ok && Array.isArray(response.data?.equipment_requests)) {
+          equipment.items = response.data.equipment_requests;
+          this.recordListResult(equipment, response);
+        } else this.recordListResult(equipment, response.ok ? { ok: false, status: 200, data: { detail: "The equipment list came back in an unexpected format." } } : response);
+      } finally {
+        if (this.eventDetail === view) equipment.loading = false;
+      }
+    },
+    // Checked before calling, from the backend's rules (EquipmentRequestCreate, record_equipment_requirement, and
+    // the 100-character equipment_type column): a type, a whole quantity above 0, one line per type.
+    validateEquipment(form, items) {
+      const errors = {};
+      const type = String(form.equipment_type ?? "").trim();
+      if (!type) errors.equipment_type = "Enter the equipment type";
+      else if (type.length > 100) errors.equipment_type = "Keep the equipment type to 100 characters or fewer";
+      else {
+        const existing = (items || []).find(item => String(item.equipment_type).toLowerCase() === type.toLowerCase());
+        if (existing) errors.equipment_type = `${existing.equipment_type} is already recorded (quantity ${existing.quantity}). Lines can't be changed yet.`;
+      }
+      const quantity = String(form.quantity ?? "").trim();
+      if (!quantity) errors.quantity = "Enter how many are needed";
+      else if (!/^\d+$/.test(quantity) || Number(quantity) < 1) errors.quantity = "Enter a whole number, 1 or more";
+      return errors;
+    },
+    async addEquipment() {
+      const view = this.eventDetail;
+      const equipment = view?.equipment;
+      if (!equipment || equipment.busy || !this.canRecordEquipment(view.detail)) return;
+      equipment.errors = this.validateEquipment(equipment.form, equipment.items);
+      if (Object.keys(equipment.errors).length) { this.focusFirstError(".equipment-form"); return; }
+      const notes = String(equipment.form.technical_requirements ?? "").trim();
+      const body = { equipment_type: equipment.form.equipment_type.trim(), quantity: Number(equipment.form.quantity), ...(notes ? { technical_requirements: notes } : {}) };
+      equipment.busy = true;
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/events/${view.id}/equipment-requests`, { method: "POST", body, inlineErrors: true });
+        if (this.user !== recipient || this.eventDetail !== view) return;
+        if (response.ok) {
+          equipment.form = this.emptyEquipmentForm();
+          equipment.errors = {};
+          await this.loadEventEquipment();
+          if (this.user !== recipient || this.eventDetail !== view) return;
+          this.showAlert(`${body.quantity} × ${body.equipment_type} added. Technical Support can see it now.`, "success");
+          if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById?.("equipment-type")?.focus());
+        } else if (response.status !== 401) {
+          // A duplicate (409) belongs to the type; field errors (422) to their fields; anything else above the form.
+          const message = this.dialogErrorMessage(response);
+          const fields = response.status === 422 && Array.isArray(response.data?.detail) ? this.parseValidationErrors(response.data.detail) : {};
+          equipment.errors = response.status === 409 ? { equipment_type: message } : Object.keys(fields).length ? fields : { form: message };
+          this.focusFirstError(".equipment-form");
+        }
+      } finally {
+        if (this.eventDetail === view) equipment.busy = false;
+      }
+    },
     closeEventDetail() { this.eventDetail = null; if (this.modal.kind !== "amend") this.closeModal(); },
     async openEventDetail(eventId) {
       // [SCRUM-94] Organisers open their own requests too (GET /events/{id} only shows them their own).
       if (!["Coordinator", "Event Coordinator Lead", "Organiser"].includes(this.normalizeRole(this.user?.role))) return;
       this.closeEventDetail();
-      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "", routine: null, notice: "" };
+      this.eventDetail = { id: eventId, detail: null, loading: true, error: "", actionError: "", routine: null, notice: "", equipment: null };
       // Read back Alpine's reactive proxy for identity checks and reactive updates.
       const dialog = this.eventDetail;
       const recipient = this.user;
@@ -1718,6 +1803,7 @@ document.addEventListener("alpine:init", () => {
         if (this.user !== recipient || this.eventDetail !== dialog) return;
         if (response.ok) dialog.detail = response.data;
         else dialog.error = response.status === 403 ? "You don't have permission to view this request." : response.status === 404 ? "Event request not found." : "Request details could not be loaded. Please try again.";
+        if (response.ok && this.canViewEquipment()) this.loadEventEquipment();
       } finally { if (this.user === recipient && this.eventDetail === dialog) dialog.loading = false; }
     },
     // The id is in the dialog title and the status in its badge; the raw user ids
@@ -1725,7 +1811,39 @@ document.addEventListener("alpine:init", () => {
     eventDetailEntries(detail) {
       return Object.entries(detail || {}).filter(([key]) => !EVENT_DETAIL_HIDDEN.includes(key));
     },
-    eventFieldLabel(key) { return ({ organiser: "Organiser", assigned_coordinator: "Assigned Coordinator", proposed_start: "Proposed date and time", clarification_note: "Latest clarification note" })[key] || key.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase()); },
+    // A field name as the form labels it; an unknown one reads as words ("catering_needs" -> "Catering needs").
+    requestFieldLabel(key) {
+      const name = String(key || "").trim();
+      if (EVENT_FIELD_LABELS[name]) return EVENT_FIELD_LABELS[name];
+      const words = name.replace(/[_-]+/g, " ").trim().toLowerCase();
+      return words ? words[0].toUpperCase() + words.slice(1) : "Another field";
+    },
+    listWords(items) { return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`; },
+    // One reading of clarification_note for every role and screen (GET /events and GET /events/{id} both fill it
+    // from the latest "Returned" history row). Returns null when there's nothing to show.
+    //   question: the Coordinator's note from POST /return.
+    //   update:   the automatic note POST /amend writes while the request is Returned. It replaces the question
+    //             in the API, so the question can't be shown alongside it (BACKEND_ISSUES.md #15).
+    clarificationNote(event) {
+      if (!event) return null;
+      const raw = String(event.clarification_note ?? "").trim();
+      const returned = event.status === "Returned";
+      if (!raw) return returned ? { kind: "question", heading: "Coordinator's clarification request", text: "No note was included with this request.", detail: "" } : null;
+      const match = raw.match(AMENDMENT_NOTE);
+      if (!match) return { kind: "question", heading: "Coordinator's clarification request", text: raw, detail: returned ? "" : "Sent when the request was last returned for clarification." };
+      const organiser = this.normalizeRole(this.user?.role) === "Organiser";
+      const fields = (match[1] || "").split(",").map(field => field.trim()).filter(Boolean).map(field => this.requestFieldLabel(field));
+      const who = organiser ? "You" : "Organiser";
+      return {
+        kind: "update", heading: "Latest update",
+        text: fields.length ? `${who} updated ${this.listWords(fields)}` : `${who} saved the request without changing any fields`,
+        detail: organiser
+          ? "The Coordinator's question can't be shown here after an update. It may still be in your notifications."
+          : "The clarification request can't be shown here after the Organiser updates the request.",
+      };
+    },
+    // Request details use the form's labels too (EVENT_FIELD_LABELS), so a field reads the same everywhere.
+    eventFieldLabel(key) { return ({ organiser: "Organiser", assigned_coordinator: "Assigned Coordinator" })[key] || this.requestFieldLabel(key); },
     eventFieldValue(key, value) {
       if (value === null || value === undefined || value === "") return "Not provided";
       if (typeof value === "object") return JSON.stringify(value, null, 2);

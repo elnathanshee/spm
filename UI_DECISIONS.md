@@ -278,6 +278,44 @@ request back for review.**
 - **Controlled by** `index.html` Organiser rows and the edit dialog's `.modal-actions`; `app.js` `amendEvent()`
   (`modal.action`). Guarded by TC-9995 to TC-9997.
 
+### Clarification notes
+
+One reading of `clarification_note` for every role and screen: the Organiser's Returned row and edit dialog, and
+the request details for Organisers, Coordinators and Leads (`app.js` `clarificationNote()`, one markup block).
+
+- **Coordinator's question** (from `POST /return`): "Coordinator's clarification request", attention style, with the
+  Coordinator's text. Outside Returned it adds "Sent when the request was last returned for clarification."
+- **Automatic amendment note** (from `POST /amend`): "Latest update", neutral style (`.callout-neutral`), as "You
+  updated Equipment" for the Organiser and "Organiser updated Equipment" for Coordinators and Leads. It is never
+  labelled as the Coordinator's.
+- **The question can't be shown next to the update.** The API replaces it (`BACKEND_ISSUES.md` #15, high priority),
+  so the update says so instead of guessing it.
+- **Field names** use the request form's labels from one map (`EVENT_FIELD_LABELS`), also used by the request
+  details. Unknown fields read as words ("catering_needs" → "Catering needs").
+- **⚠ Temporary:** an amendment is recognised by the backend's exact wording, because the API gives no note type
+  (#15).
+- In the request details the note follows the details grid, so the badge keeps its spacing (D1).
+- Guarded by TC-9998 to TC-10002.
+
+### Equipment in the request details
+
+Coordinators and Leads add the equipment lines Technical Support work from in the request details, the panel that
+opens from a request's title (backend `equipment.py`).
+
+- **Who:** any Coordinator reads any event's lines and a Lead every event's; only the assigned Coordinator or a Lead
+  sees "Add equipment" (others see why). The Organiser doesn't see the section (the backend refuses them).
+- **Shown:** the Organiser's own "Equipment" text, neutral, "for reference only", because it never reaches the
+  worklist (`BACKEND_ISSUES.md` #14); then the lines as the worklist's table; then the form.
+- **Form:** Equipment type, Quantity, Technical requirements (optional), with "Add equipment" ("Adding…").
+  Checked before calling: a type of 1–100 characters, a whole quantity of 1 or more, and not a type already listed
+  (case-insensitive, as the backend refuses it). A 409 shows beside the type and a 403 above the form. A line can't be
+  changed or removed once added (#2), and the section says so.
+- **States:** loading, an error with "Try again", permission denied, and "No equipment added yet, so nothing for this
+  event is on the Technical Support worklist."
+- **No status check:** the backend lets equipment be added in any status, so the section doesn't restrict it.
+- **Controlled by** `app.js` `loadEventEquipment()`, `validateEquipment()`, `addEquipment()`, `canRecordEquipment()`;
+  `styles.css` "Equipment section". Guarded by TC-10011 to TC-10014.
+
 ### Inline changes
 
 **Show save actions for inline changes only after a value changes, with a way to cancel.**

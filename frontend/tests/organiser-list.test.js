@@ -121,7 +121,8 @@ test("TC-9905 rows have no status badge; View details comes first and Submit for
   assert.match(rowHtml, /event\.status === 'Draft'"><button type="button" class="button button-primary"/);
   assert.match(rowHtml, /event\.status === 'Returned'"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Edit request/); // renamed from "Update and resubmit"
   assert.match(rowHtml, /\['Submitted', 'Under Review'\]\.includes\(event\.status\)"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Edit request/); // renamed from "Amend"
-  assert.match(rowHtml, /event\.clarification_note \|\| 'No note was included/);
+  // The note now comes from the shared clarificationNote(), which keeps the "No note was included" fallback
+  assert.match(rowHtml, /<template x-if="event.status === 'Returned'"><div class="request-note"><template x-if="clarificationNote\(event\)">/);
 });
 
 test("TC-9906 a new request can be submitted straight away, or saved as a draft", async () => {

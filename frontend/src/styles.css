@@ -452,3 +452,12 @@
 .equipment-table .cell-number{text-align:left}
 }
 @media(max-width:640px){.equipment-event-heading{padding:var(--space-4)}}
+
+/* Equipment section in the request details (Coordinator, Lead) */
+.equipment-panel{margin-top:var(--space-6);border-top:1px solid var(--border);padding-top:var(--space-6)}
+.equipment-list{border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+.equipment-list .data-table th:first-child,.equipment-list .data-table td:first-child{padding-left:var(--space-4)}
+.equipment-form fieldset{display:grid;gap:var(--space-4);min-width:0;border:0;margin:0;padding:0}
+.equipment-form legend{padding:0}
+.equipment-form-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(7rem,1fr);gap:var(--space-4)}
+@media(max-width:640px){.equipment-form-grid{grid-template-columns:1fr}}

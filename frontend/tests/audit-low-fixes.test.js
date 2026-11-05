@@ -42,7 +42,8 @@ test("TC-9701 (F4) the Coordinator page counts only on its filters and section h
 test("TC-9702 (F5) event detail leaves out the id, the status and the raw user ids, and keeps the rest in order", () => {
   const state = app("coordinator");
   const detail = { id: 1, title: "Gala", status: "Approved", organiser_id: 1, assigned_coordinator_id: 3, organiser: "organiser1", assigned_coordinator: "coord1", clarification_note: "TEST" };
-  assert.deepEqual(plain(state.eventDetailEntries(detail)).map(([key]) => key), ["title", "organiser", "assigned_coordinator", "clarification_note"]);
+  // clarification_note is now shown on its own, after the details (clarificationNote(), TC-9998)
+  assert.deepEqual(plain(state.eventDetailEntries(detail)).map(([key]) => key), ["title", "organiser", "assigned_coordinator"]);
   assert.deepEqual(plain(state.eventDetailEntries(null)), []);
   assert.match(html, /x-for="\[key, value\] in eventDetailEntries\(eventDetail.detail\)"/);
 });

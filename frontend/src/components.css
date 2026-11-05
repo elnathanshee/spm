@@ -402,6 +402,10 @@ h1, h2, h3, h4 { color: var(--text); line-height: var(--leading-tight); }
 .callout { flex-direction: column; gap: var(--space-1); }
 .callout strong { font-size: var(--text-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
 .callout span { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A neutral note: information, not something to act on (the automatic "Latest update") */
+.callout-neutral { border-color: var(--border); border-left: 3px solid var(--border-strong); background: var(--surface-subtle); color: var(--text-secondary); }
+.callout small { color: var(--text-muted); font-size: var(--text-xs); }
+.booking-detail-grid + .clarification-note { margin-top: var(--space-4); }
 .callout-attention { border-color: var(--tone-attention-border); border-left: 3px solid var(--tone-attention-fg); background: var(--tone-attention-bg); color: var(--tone-attention-fg); }
 .rejection-callout span { white-space: pre-wrap; overflow-wrap: anywhere; }
 .alert-icon {
