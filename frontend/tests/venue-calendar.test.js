@@ -369,3 +369,27 @@ test("TC-9616 | Boundary Path | AC1: a second open replaces the first, and a slo
   assert.equal(state.venueCalendar.venue.id, 5, "the abandoned request does not replace the current view");
   assert.equal(state.venueCalendar.data.name, "Seminar Room");
 });
+
+test("TC-9617 | Cross-Cutting | AC1: a calendar opened from the booking dialog sits on top of it, and Escape closes only the calendar", () => {
+  // Both views are modal backdrops, and the booking dialog comes later in the page, so without its own
+  // layer the calendar opens hidden behind the dialog that opened it.
+  const css = readFileSync(new URL("../src/components.css", import.meta.url), "utf8");
+  const layer = selector => Number(css.match(new RegExp(`\${selector} \{[^}]*z-index: (\d+)`))?.[1]);
+  assert.match(HTML, /x-if="venueCalendar"><div class="modal-backdrop modal-backdrop-stacked"/, "the calendar's backdrop has the stacked layer");
+  assert.ok(layer(".modal-backdrop-stacked") > layer(".modal-backdrop"), "the stacked layer is above the dialog's");
+
+  // One Escape closes the calendar (its own handler) and leaves the booking dialog open underneath.
+  const handler = HTML.match(/x-if="bookingDialog"><div class="modal-backdrop" @keydown\.escape\.window="([^"]*)"/)?.[1];
+  assert.ok(handler, "the booking dialog has an Escape handler");
+  const pressEscape = state => new Function("scope", `with (scope) { ${handler} }`)(state);
+  const state = app("Coordinator");
+  let closed = 0;
+  state.closeBookings = () => { closed += 1; };
+  state.bookingDialog = { event: { id: 3 }, bookings: [] };
+  state.venueCalendar = { venue: { id: 4, name: "Grand Hall" } };
+  pressEscape(state);
+  assert.equal(closed, 0, "Escape on the calendar does not also close the booking dialog");
+  state.venueCalendar = null;
+  pressEscape(state);
+  assert.equal(closed, 1, "with no calendar open, Escape still closes the booking dialog");
+});
