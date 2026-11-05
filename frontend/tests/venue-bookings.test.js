@@ -635,15 +635,16 @@ test("TC-9103 (AC3): request on result prefills form and displays 409 clash in d
   state.apiRequest = async () => ({ ok: true, data: [] });
   await state.openBookings(event);
 
-  state.bookingDialog.search.start_time = "2026-11-20T10:00";
-  state.bookingDialog.search.end_time = "2026-11-20T14:00";
+  // A period far in the future: the request is validated against the current time.
+  state.bookingDialog.search.start_time = "2099-11-20T10:00";
+  state.bookingDialog.search.end_time = "2099-11-20T14:00";
 
   const targetVenue = { id: 5, name: "Auditorium" };
   state.selectVenueFromSearch(targetVenue);
 
   assert.equal(state.bookingDialog.form.venue_id, "5");
-  assert.equal(state.bookingDialog.form.booking_start, "2026-11-20T10:00");
-  assert.equal(state.bookingDialog.form.booking_end, "2026-11-20T14:00");
+  assert.equal(state.bookingDialog.form.booking_start, "2099-11-20T10:00");
+  assert.equal(state.bookingDialog.form.booking_end, "2099-11-20T14:00");
 
   // Submit booking that triggers 409 conflict
   state.bookingDialog.venues = [targetVenue];
