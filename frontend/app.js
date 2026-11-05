@@ -1808,19 +1808,24 @@ document.addEventListener("alpine:init", () => {
     async loadEventEquipment() {
       const view = this.eventDetail;
       if (!view || !this.canViewEquipment()) return;
-      if (!view.equipment) view.equipment = { items: [], loading: false, loaded: false, error: "", denied: false, form: this.emptyEquipmentForm(), errors: {}, busy: false };
+      if (!view.equipment) view.equipment = { items: [], loading: false, loaded: false, error: "", denied: false, form: this.emptyEquipmentForm(), errors: {}, busy: false, load: 0 };
       const equipment = view.equipment;
+      // A newer load (Try again, or the reload after adding a line) wins over an older one still in flight.
+      const load = (equipment.load || 0) + 1;
+      equipment.load = load;
       equipment.loading = true;
+      // Retrying after a failed first load: show the loading state, not the old error beside it.
+      if (!equipment.loaded) equipment.error = "";
       const recipient = this.user;
       try {
         const response = await this.apiRequest(`/events/${view.id}/equipment-requests`, { inlineErrors: true });
-        if (this.user !== recipient || this.eventDetail !== view) return;
+        if (this.user !== recipient || this.eventDetail !== view || equipment.load !== load) return;
         if (response.ok && Array.isArray(response.data?.equipment_requests)) {
           equipment.items = response.data.equipment_requests;
           this.recordListResult(equipment, response);
         } else this.recordListResult(equipment, response.ok ? { ok: false, status: 200, data: { detail: "The equipment list came back in an unexpected format." } } : response);
       } finally {
-        if (this.eventDetail === view) equipment.loading = false;
+        if (this.eventDetail === view && equipment.load === load) equipment.loading = false;
       }
     },
     // Checked before calling, from the backend's rules (EquipmentRequestCreate, record_equipment_requirement, and
@@ -1974,6 +1979,8 @@ document.addEventListener("alpine:init", () => {
     requestCloseEventDetail() {
       const routine = this.eventDetail?.routine;
       if (routine?.busy) return;
+      // Closing while a line is being added would hide whether it was saved.
+      if (this.eventDetail?.equipment?.busy) return;
       if (routine && this.routineIsDirty()) { routine.confirmDiscard = true; return; }
       this.closeEventDetail();
     },

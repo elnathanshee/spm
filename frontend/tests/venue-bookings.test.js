@@ -734,7 +734,8 @@ test("TC-10152 the event detail close button is not disabled when nothing is sav
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   // Alpine 3.17 leaves a :disabled bound to undefined disabled, so an optional
   // chain that can return undefined must be coerced to a boolean.
-  assert.match(html, /:disabled="!!eventDetail.routine\?\.busy" aria-label="Close event request"/);
+  // The close button also waits while an equipment line is being added (TC-10017); both parts coerced.
+  assert.match(html, /:disabled="!!eventDetail.routine\?\.busy \|\| !!eventDetail.equipment\?\.busy" aria-label="Close event request"/);
   const risky = [...html.matchAll(/:disabled="([^"]*)"/g)].map(match => match[1]).filter(expr => /\?\./.test(expr) && !/^!!/.test(expr));
   assert.deepEqual(risky, []);
 });
