@@ -43,7 +43,7 @@ const AMEND_DETAIL_FIELDS = ["venue_requirements", "accessibility_needs", "equip
 // Submitted and Under Review stay apart: a Submitted request may not have a Coordinator yet
 // (the Lead assigns one), while Under Review means the assigned Coordinator started the review.
 const ORGANISER_GROUPS = [
-  { key: "returned", label: "Returned for clarification", description: "A Coordinator asked a question. Update the request, then resubmit it.", statuses: ["Returned"], attention: true },
+  { key: "returned", label: "Returned for clarification", description: "A Coordinator asked a question. Edit the request, then resubmit it.", statuses: ["Returned"], attention: true },
   { key: "draft", label: "Drafts", description: "Not sent yet. Submit a draft when it's ready for review.", statuses: ["Draft"] },
   { key: "submitted", label: "Submitted", description: "Sent for review. The review hasn't started yet, and you can still amend it.", statuses: ["Submitted"] },
   { key: "under-review", label: "Under review", description: "A Coordinator is reviewing it. You can still amend it.", statuses: ["Under Review"] },
@@ -73,7 +73,7 @@ function savedSidebarCollapsed() {
 const COORDINATOR_GROUPS = [
   { key: "submitted", label: "Awaiting first review", description: "Not reviewed yet, longest wait first.", statuses: ["Submitted"], active: true, attention: true },
   { key: "under-review", label: "Under review", description: "You started the review. Record a decision from Record decision.", statuses: ["Under Review"], active: true },
-  { key: "returned", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can amend and resubmit it.", statuses: ["Returned"], active: true },
+  { key: "returned", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can edit and resubmit it.", statuses: ["Returned"], active: true },
   { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"], active: true },
   { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"], active: true },
   { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"], active: true },
@@ -685,8 +685,9 @@ document.addEventListener("alpine:init", () => {
     },
     amendChangeCount() { return this.modal?.kind === "amend" && this.amendOriginal ? Object.keys(this.amendPayload(this.amendForm)).length : 0; },
 
-    // resubmit: a Returned request goes back for review after its changes are saved
-    // (POST /amend, then POST /submit). With no changes it is resubmitted as it is.
+    // Save (POST /amend) keeps the changes and the status: a Returned request stays Returned.
+    // Resubmit saves any changes first, then POST /submit sends a Returned request back to Submitted
+    // for its Coordinator. With no changes it's only submitted (the backend allows that).
     async amendEvent(eventId, data, { resubmit = false } = {}) {
       this.fieldErrors = {};
       const payload = this.amendPayload(data);
@@ -696,6 +697,9 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this.decisionBusy = true;
+      // Which button is running, for its "Saving…" or "Resubmitting…" label
+      const modal = this.modal;
+      modal.action = resubmit ? "resubmit" : "save";
       try {
         if (changed) {
           const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
@@ -713,9 +717,10 @@ document.addEventListener("alpine:init", () => {
         }
         this.closeModal();
         await this.fetchEvents();
-        this.showAlert(resubmit ? "Your request was resubmitted for review." : "Event request updated.", "success");
+        this.showAlert(resubmit ? "Request resubmitted" : "Changes saved", "success");
       } finally {
         this.decisionBusy = false;
+        if (modal) modal.action = "";
       }
     },
 
@@ -1874,7 +1879,7 @@ document.addEventListener("alpine:init", () => {
       this.clearAlert();
       this.amendOriginal = this.amendFormFrom(event);
       this.amendForm = { ...this.amendOriginal };
-      this.modal = { open: true, kind: "amend", event, loading: false, loadError: "", resubmit: event.status === "Returned" };
+      this.modal = { open: true, kind: "amend", event, loading: false, loadError: "", resubmit: event.status === "Returned", action: "" };
       // GET /events leaves out the venue, accessibility, equipment and registration
       // fields, so a row from the list is completed from GET /events/{id} first;
       // otherwise those fields would open blank and a save could overwrite them.

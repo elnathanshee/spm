@@ -119,8 +119,8 @@ test("TC-9905 rows have no status badge; View details comes first and Submit for
   assert.match(actions, /^class="request-actions button-group">\s*<button type="button" class="button button-secondary" @click="openEventDetail\(event\.id\)">View details/);
   assert.deepEqual([...rowHtml.matchAll(/button-primary/g)].length, 1);
   assert.match(rowHtml, /event\.status === 'Draft'"><button type="button" class="button button-primary"/);
-  assert.match(rowHtml, /event\.status === 'Returned'"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Update and resubmit/);
-  assert.match(rowHtml, /\['Submitted', 'Under Review'\]\.includes\(event\.status\)"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Amend/);
+  assert.match(rowHtml, /event\.status === 'Returned'"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Edit request/); // renamed from "Update and resubmit"
+  assert.match(rowHtml, /\['Submitted', 'Under Review'\]\.includes\(event\.status\)"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Edit request/); // renamed from "Amend"
   assert.match(rowHtml, /event\.clarification_note \|\| 'No note was included/);
 });
 
@@ -158,7 +158,7 @@ test("TC-9907 a Returned request is amended and resubmitted from one dialog", as
   let sent = recorder(state, () => ({ ok: true, status: 200, data: [] }));
   await state.submitModal();
   assert.deepEqual(sent.map(request => request.path).filter(path => path !== "/events"), ["/events/5/submit"]);
-  assert.equal(state.alert.message, "Your request was resubmitted for review.");
+  assert.equal(state.alert.message, "Request resubmitted");
   assert.equal(state.modal.open, false);
 
   // Changes: amend, then submit
@@ -185,7 +185,7 @@ test("TC-9907 a Returned request is amended and resubmitted from one dialog", as
   sent = recorder(state, () => ({ ok: true, status: 200, data: [] }));
   await state.submitModal();
   assert.deepEqual(sent.filter(request => request.method === "POST").map(request => request.path), ["/events/5/amend"]);
-  assert.equal(state.alert.message, "Event request updated.");
+  assert.equal(state.alert.message, "Changes saved");
 });
 
 test("TC-9908 submitting a draft from the list can't be sent twice", async () => {
@@ -200,4 +200,62 @@ test("TC-9908 submitting a draft from the list can't be sent twice", async () =>
   await first;
   assert.deepEqual(sent, ["/events/4/submit"]);
   assert.equal(state.eventsView.busyId, null);
+});
+
+// ---- Clarification buttons: Edit request, Save, Resubmit (UI_DECISIONS "Button labels")
+const modalActions = html.slice(html.indexOf('<div class="modal-actions"><span class="change-count"'), html.indexOf("</fieldset></form></section></div></template>", html.indexOf('<div class="modal-actions"><span class="change-count"')));
+
+test("TC-9995 the row opens 'Edit request', for Returned and for requests awaiting review alike", () => {
+  assert.match(html, /<template x-if="event.status === 'Returned'"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Edit request<\/button><\/template>/);
+  assert.match(html, /<template x-if="\['Submitted', 'Under Review'\].includes\(event.status\)"><button type="button" class="button button-secondary" @click="openAmend\(event\)">Edit request<\/button><\/template>/);
+  assert.match(html, /x-text="modal.kind === 'reject' \? 'Reject request' : modal.kind === 'return' \? 'Request clarification' : 'Edit request'"/);
+  for (const old of ["Update and resubmit", "Save without resubmitting", "Save and resubmit", "Resubmit as it is", "'Save changes') :", ">Amend<"]) assert.ok(!html.includes(old), old);
+});
+
+test("TC-9996 no changes: Cancel and Resubmit; changes: Cancel, Save and Resubmit, with Resubmit the only filled button", () => {
+  // Save shows only with unsaved changes on a Returned request, and is secondary
+  assert.match(modalActions, /<button type="button" @click="closeModal\(\)" class="button button-secondary">Cancel<\/button><template x-if="modal.kind === 'amend' && modal.resubmit && amendChangeCount\(\)"><button type="button" class="button button-secondary"/);
+  assert.match(modalActions, /'Saving…' : 'Save'/);
+  assert.match(modalActions, /modal.resubmit \? \(decisionBusy && modal.action === 'resubmit' \? 'Resubmitting…' : 'Resubmit'\)/);
+  assert.equal((modalActions.match(/button-primary/g) || []).length, 1, "one filled button");
+  const order = ["closeModal()", "amendEvent(modal.event.id, amendForm)", "'Resubmit'"].map(text => modalActions.indexOf(text));
+  assert.deepEqual([...order].sort((a, b) => a - b), order, "Cancel, Save, Resubmit");
+});
+
+test("TC-9997 Save keeps the request Returned; Resubmit saves then submits; the running button says so", async () => {
+  const state = app();
+  const returned = { ...row(6, "Returned", { clarification_note: "Which hall?" }), venue_requirements: "", accessibility_needs: "", equipment_requirements: "", registration_needs: "" };
+  // Save: only POST /amend
+  state.openAmend(returned);
+  state.amendForm.venue_requirements = "Hall A";
+  let during;
+  let sent = [];
+  state.apiRequest = async (path, options = {}) => { sent.push([options.method || "GET", path]); if (options.method === "POST") during = [state.decisionBusy, state.modal.action]; return { ok: true, status: 200, data: [] }; };
+  await state.amendEvent(6, state.amendForm);
+  assert.deepEqual(sent.filter(([method]) => method === "POST"), [["POST", "/events/6/amend"]], "Save never calls /submit");
+  assert.deepEqual(during, [true, "save"]);
+  assert.equal(state.alert.message, "Changes saved");
+  assert.equal(state.modal.open, false);
+
+  // Resubmit with changes: amend, then submit
+  state.openAmend(returned);
+  state.amendForm.title = "Event 6 v2";
+  sent = [];
+  const actions = [];
+  state.apiRequest = async (path, options = {}) => { sent.push([options.method || "GET", path]); if (options.method === "POST") actions.push(state.modal.action); return { ok: true, status: 200, data: [] }; };
+  await state.submitModal();
+  assert.deepEqual(sent.filter(([method]) => method === "POST").map(([, path]) => path), ["/events/6/amend", "/events/6/submit"]);
+  assert.deepEqual(actions, ["resubmit", "resubmit"]);
+  assert.equal(state.alert.message, "Request resubmitted");
+
+  // Cancel: closes, sends nothing
+  state.openAmend(returned);
+  state.amendForm.title = "Not kept";
+  sent = [];
+  state.closeModal();
+  assert.equal(state.modal.open, false);
+  assert.deepEqual(sent, []);
+  state.openAmend(returned);
+  assert.equal(state.amendForm.title, "Event 6", "reopening starts from the saved values");
+  assert.equal(state.amendChangeCount(), 0);
 });

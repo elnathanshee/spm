@@ -45,7 +45,7 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 | The sign-in page fits the window with no page scrollbar. Fields lock while signing in. The backend's error shows inline. | Sign-in | `styles.css` `.login-shell`, `.login-fields` | `8af09a0` |
 | Filter chips are one shared component with counts, only where the data loaded on the screen supports them. | Organiser list, Venue Staff booking filters | `components.css` `.filter-chips`, `.booking-filters` | `27b852c` |
 | A Returned request shows the Coordinator's clarification request. A Rejected request shows its reason from the rejection notification (the backend returns no reason field, #10). | Organiser list, amend dialog | `app.js` `rejectionReason()`; test TC-9903 | `27b852c` |
-| A Returned request is updated and resubmitted from one dialog ("Save and resubmit"). | Organiser amend dialog | `app.js` `amendEvent(..., { resubmit })`; test TC-9907 | `27b852c` |
+| A Returned request is edited and resubmitted from one dialog ("Edit request", then "Save" or "Resubmit"; see "Button labels"). | Organiser edit dialog | `app.js` `amendEvent(..., { resubmit })`; tests TC-9907, TC-9995 to TC-9997 | `27b852c`, clarification labels |
 | The create form's main action is "Submit for review"; "Save as draft" is secondary. Field errors come from the backend, and focus moves to the first one. | Organiser create form | `app.js` `createEventDraft(..., { submit })`; test TC-9906 | `27b852c` |
 | Organiser section descriptions only say what is true for every request in the section. For example, Submitted doesn't claim a Coordinator. | Organiser list | `app.js` `ORGANISER_GROUPS`; test TC-9901 | `bc6a7cf` |
 | Values in row details (dates, names) stay on one line. Rows wrap between items. | Coordinator and Lead rows, Organiser rows | `styles.css` `.inline-meta dd`, `.request-meta dd` | `8bf1e3c`, `27b852c` |
@@ -235,6 +235,48 @@ about six coordinators at a time and scrolling for the rest.
   button; Tab closes; a click outside closes.
 - **Controlled by:** `app.js` `openPicker`, `closePicker`, `pickerOptions`, `pickerKeydown`, `choosePickerOption`;
   `components.css` "Picker". It needs no library. Guarded by TC-9957 and TC-9958.
+
+### Button labels
+
+**Button labels start with a verb and are ideally 1-2 words. Add a noun only when needed for clarity. Use one label
+per action. 'Save' keeps changes without moving the request forward, and 'Resubmit' saves any changes and sends the
+request back for review.**
+
+- **Backend behaviour, checked before renaming** (`events.py`):
+  - Save is `POST /events/{id}/amend`. It keeps the status (the history records the same status before and after),
+    so a Returned request stays Returned and doesn't go back to the Coordinator. It refuses an empty change, so Save
+    shows only when something changed.
+  - Resubmit is `POST /amend` when something changed, then `POST /events/{id}/submit`, which moves Returned to
+    Submitted. The request keeps its assigned Coordinator and appears in their queue again. Submit doesn't require
+    changes, so resubmitting as it is works. Submit re-checks the proposed start, so a request whose date has passed
+    is refused; the dialog then says whether the changes were saved.
+- **Organiser edit dialog** (Returned request):
+
+  | State | Buttons, in order | Running |
+  |---|---|---|
+  | No changes | Cancel, **Resubmit** | "Resubmitting…" |
+  | Unsaved changes | Cancel, Save, **Resubmit** | "Saving…" or "Resubmitting…", on the button that was pressed |
+
+  Resubmit is the only filled button. Success messages: "Changes saved" and "Request resubmitted". For a request
+  awaiting review (Submitted, Under Review) the dialog has Cancel and **Save** only.
+- **Labels changed:**
+
+  | Where | Before | After |
+  |---|---|---|
+  | Organiser row, Returned | Update and resubmit | Edit request |
+  | Organiser row, Submitted or Under Review (same dialog, same action) | Amend | Edit request |
+  | Edit dialog title | Update and resubmit / Amend request | Edit request |
+  | Edit dialog, Returned, with changes | Save without resubmitting | Save |
+  | Edit dialog, Returned, with changes | Save and resubmit | Resubmit |
+  | Edit dialog, Returned, no changes | Resubmit as it is | Resubmit |
+  | Edit dialog, awaiting review (same amend action) | Save changes | Save |
+  | Success messages | "Event request updated." / "Your request was resubmitted for review." | "Changes saved" / "Request resubmitted" |
+
+- **⚠ Not changed, other actions:** "Submit for review" (the first submission of a Draft, a different step);
+  "Save venue" and "Save changes" in the Venue Staff venue form (editing a venue, not a request); "Submit booking
+  request". Say if those should follow the 1-2 word rule too.
+- **Controlled by** `index.html` Organiser rows and the edit dialog's `.modal-actions`; `app.js` `amendEvent()`
+  (`modal.action`). Guarded by TC-9995 to TC-9997.
 
 ### Inline changes
 
