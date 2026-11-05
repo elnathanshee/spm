@@ -42,8 +42,9 @@ for (const role of ["coordinator", "lead"]) {
     const request = calls.find(call => call.options?.method === "POST");
     assert.equal(request.path, "/venues/3/bookings");
     assert.equal(request.options.body.event_id, event.id);
-    assert.equal(request.options.body.booking_start, new Date(form.booking_start).toISOString());
-    assert.equal(request.options.body.booking_end, new Date(form.booking_end).toISOString());
+    // The inputs are Singapore time, whatever the browser's time zone (design system: one time zone).
+    assert.equal(request.options.body.booking_start, new Date(`${form.booking_start}+08:00`).toISOString());
+    assert.equal(request.options.body.booking_end, new Date(`${form.booking_end}+08:00`).toISOString());
     assert.equal(state.alert.kind, "success");
     assert.equal(state.bookingDialog.bookings[0].rejection_reason, booking.rejection_reason);
     assert.equal(state.bookingDialog.busy, false);
@@ -179,7 +180,8 @@ test("TC-3526 date/time fieldset depends only on submission, with independent em
   assert.doesNotMatch(html, /<fieldset :disabled="bookingDialog.busy/);
   assert.match(html, /No venues available. Please contact Venue Staff to add a venue./);
   assert.match(html, /Booking history could not be loaded/);
-  assert.match(html, /!bookingDialog.form.venue_id/);
+  // Submit stays enabled without a venue so the user can see what's missing (UI_DECISIONS "Validate before calling the API")
+  assert.doesNotMatch(html, /!bookingDialog.form.venue_id/);
 });
 
 
@@ -229,9 +231,11 @@ test("TC-9501 hold presentation uses returned fields, UTC interpretation and exp
   const controlsStart = row.indexOf('<template x-if="canUpdateHoldWarning');
   assert.ok(detailsStart >= 0 && detailsStart < controlsStart);
   assert.match(row.slice(detailsStart, controlsStart), /Hold expiry:.*Warning:/);
-  assert.doesNotMatch(html.slice(0, html.indexOf('<template x-if="bookingDialog">')), /hold-warning-|formatHoldExpiry\(booking.hold_expires_at\)/);
-  assert.equal(state.bookingStatusClass("Expired"), "status-rejected");
-  assert.equal(state.bookingStatusClass("Confirmed"), "status-approved");
+  // The warning form stays in the Coordinator's dialog. Venue Staff rows may show the expiry as text (UI_AUDIT F8).
+  assert.doesNotMatch(html.slice(0, html.indexOf('<template x-if="bookingDialog">')), /hold-warning-|updateHoldWarning/);
+  assert.equal(state.bookingStatusClass("Expired"), "badge-muted");
+  assert.equal(state.bookingStatusClass("Confirmed"), "badge-success");
+  assert.notEqual(state.bookingStatusClass("Expired"), state.bookingStatusClass("Rejected"));
   assert.equal(state.formatHoldExpiry(null), "Not set");
   assert.equal(state.formatHoldExpiry("invalid"), "Not set");
   const previousTZ = process.env.TZ;
@@ -412,7 +416,7 @@ test("TC-9511 dialog Refresh displays the backend Expired status and removes war
   await state.openBookings(event);
   assert.equal(calls.filter(path => path === `/events/${event.id}/bookings`).length, 1);
   assert.equal(state.bookingDialog.bookings[0].status, "Expired");
-  assert.equal(state.bookingStatusClass(state.bookingDialog.bookings[0].status), "status-rejected");
+  assert.equal(state.bookingStatusClass(state.bookingDialog.bookings[0].status), "badge-muted");
   assert.equal(state.canUpdateHoldWarning(state.bookingDialog.bookings[0]), false);
 });
 
@@ -438,10 +442,13 @@ test("TC-9519 booking request sends the local times as UTC", () => inSingapore(a
   assert.equal(body.booking_end, "2099-04-11T04:00:00.000Z");
 }));
 
-test("TC-9520 stored booking times are shown as UTC in local time", () => inSingapore(async () => {
+test("TC-9520 stored booking times are shown as UTC in Singapore time", () => inSingapore(async () => {
   const { state } = await holdApp();
+  // A same-day range gives the date once (design system: one date and time format).
   assert.equal(state.formatSchedule("2099-04-10T02:00:00", "2099-04-10T04:00:00"),
-    `${state.formatDate("2099-04-10T10:00")} – ${state.formatDate("2099-04-10T12:00")}`);
+    `${state.formatDate("2099-04-10T10:00")} – ${state.formatTime("2099-04-10T12:00")}`);
+  assert.equal(state.formatSchedule("2099-04-10T15:00:00", "2099-04-10T17:00:00"),
+    `${state.formatDate("2099-04-10T23:00")} – ${state.formatDate("2099-04-11T01:00")}`);
   assert.equal(state.formatSchedule("2099-04-10T02:00:00+00:00", null), `${state.formatDate("2099-04-10T10:00")} – Not set`);
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   assert.ok((html.match(/formatSchedule\(/g) || []).length >= 3);
@@ -524,8 +531,8 @@ test("TC-9101 (AC1): venue search filters build query and display availability a
 
   assert.ok(requestedPath.startsWith("/venues/search"));
   const params = new URLSearchParams(requestedPath.split("?")[1]);
-  assert.equal(params.get("start_time"), new Date("2026-11-20T09:00").toISOString());
-  assert.equal(params.get("end_time"), new Date("2026-11-20T17:00").toISOString());
+  assert.equal(params.get("start_time"), new Date("2026-11-20T09:00+08:00").toISOString());
+  assert.equal(params.get("end_time"), new Date("2026-11-20T17:00+08:00").toISOString());
   assert.ok(requestedPath.includes("min_capacity=150"));
   assert.ok(requestedPath.includes("location=Building+2") || requestedPath.includes("location=Building%202"));
   assert.ok(requestedPath.includes("accessibility=Wheelchair"));
@@ -538,7 +545,7 @@ test("TC-9101 (AC1): venue search filters build query and display availability a
   assert.equal(state.bookingDialog.searchResults[1].conflict_reason, "Direct conflict with booking #102");
 });
 
-test("TC-9523 search sends the local period in UTC, as the booking submit does", async () => {
+test("TC-9523 search sends the Singapore-time period in UTC, as the booking submit does", async () => {
   const state = app("coordinator");
   state.apiRequest = async () => ({ ok: true, data: [] });
   await state.openBookings(state.assignedEvents[0]);
@@ -551,8 +558,8 @@ test("TC-9523 search sends the local period in UTC, as the booking submit does",
 
   const params = new URLSearchParams(requestedPath.split("?")[1]);
   assert.match(params.get("start_time"), /Z$/);
-  assert.equal(Date.parse(params.get("start_time")), new Date(2026, 10, 20, 10, 0).getTime());
-  assert.equal(Date.parse(params.get("end_time")), new Date(2026, 10, 20, 12, 0).getTime());
+  assert.equal(params.get("start_time"), "2026-11-20T02:00:00.000Z");
+  assert.equal(params.get("end_time"), "2026-11-20T04:00:00.000Z");
 });
 
 test("TC-9102 (AC2): suitability panel checks venue capacity and entered facilities", async () => {
@@ -628,15 +635,16 @@ test("TC-9103 (AC3): request on result prefills form and displays 409 clash in d
   state.apiRequest = async () => ({ ok: true, data: [] });
   await state.openBookings(event);
 
-  state.bookingDialog.search.start_time = "2026-11-20T10:00";
-  state.bookingDialog.search.end_time = "2026-11-20T14:00";
+  // A period far in the future: the request is validated against the current time.
+  state.bookingDialog.search.start_time = "2099-11-20T10:00";
+  state.bookingDialog.search.end_time = "2099-11-20T14:00";
 
   const targetVenue = { id: 5, name: "Auditorium" };
   state.selectVenueFromSearch(targetVenue);
 
   assert.equal(state.bookingDialog.form.venue_id, "5");
-  assert.equal(state.bookingDialog.form.booking_start, "2026-11-20T10:00");
-  assert.equal(state.bookingDialog.form.booking_end, "2026-11-20T14:00");
+  assert.equal(state.bookingDialog.form.booking_start, "2099-11-20T10:00");
+  assert.equal(state.bookingDialog.form.booking_end, "2099-11-20T14:00");
 
   // Submit booking that triggers 409 conflict
   state.bookingDialog.venues = [targetVenue];
@@ -663,15 +671,17 @@ test("TC-9104 (AC4): half-entered period (400) and empty search results show cle
   state.apiRequest = async () => ({ ok: true, data: [] });
   await state.openBookings(event);
 
-  // 1. Half-entered period (start without end)
+  // 1. Half-entered period (start without end): caught before any request, beside the field
   state.bookingDialog.search.start_time = "2026-11-20T10:00";
   state.bookingDialog.search.end_time = "";
-  state.apiRequest = async () => ({
-    ok: false,
-    status: 400,
-    data: { detail: "Provide both start_time and end_time, or neither" }
-  });
+  let calls = 0;
+  state.apiRequest = async () => { calls += 1; return { ok: false, status: 400, data: { detail: "Provide both start_time and end_time, or neither" } }; };
 
+  await state.searchVenues();
+  assert.equal(calls, 0, "no request is sent");
+  assert.equal(state.bookingDialog.searchErrors.end_time, "Add an end time, or clear the start time");
+  // The server's own message still shows if it refuses a search
+  state.bookingDialog.search.end_time = "2026-11-20T12:00";
   await state.searchVenues();
   assert.equal(state.bookingDialog.searchError, "Provide both start_time and end_time, or neither");
 
@@ -707,4 +717,24 @@ test("TC-9105 (AC5): Lead can search/check for any event; Coordinator only for a
   });
   await coordState.checkSuitability("Projector");
   assert.equal(coordState.bookingDialog.suitabilityError, "You can only check venue suitability for events assigned to you");
+});
+
+test("TC-10151 booking history renders once and Lead assignment shows only for assignable statuses", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const dialog = html.slice(html.indexOf('<template x-if="bookingDialog">'), html.indexOf('<template x-if="modal.open">'));
+  assert.equal((dialog.match(/x-for="booking in bookingDialog.bookings"/g) || []).length, 1);
+  assert.match(html, /class="assignment-controls" x-show="canAssignEvent\(event\)"/);
+  assert.match(html, /aria-label="Close event request">×<\/button>/);
+  const state = app("lead");
+  for (const status of ["Submitted", "Under Review", "Returned"]) assert.equal(state.canAssignEvent({ status }), true, status);
+  for (const status of ["Draft", "Approved", "Rejected", "Planning", "Confirmed"]) assert.equal(state.canAssignEvent({ status }), false, status);
+});
+
+test("TC-10152 the event detail close button is not disabled when nothing is saving", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  // Alpine 3.17 leaves a :disabled bound to undefined disabled, so an optional
+  // chain that can return undefined must be coerced to a boolean.
+  assert.match(html, /:disabled="!!eventDetail.routine\?\.busy" aria-label="Close event request"/);
+  const risky = [...html.matchAll(/:disabled="([^"]*)"/g)].map(match => match[1]).filter(expr => /\?\./.test(expr) && !/^!!/.test(expr));
+  assert.deepEqual(risky, []);
 });

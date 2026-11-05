@@ -29,10 +29,12 @@ function app(role = "venue_staff") {
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-// A datetime-local input value (local time, minute precision) for a Date.
+// A datetime-local input value in Singapore time (minute precision) for a Date. The app reads every
+// input as Singapore time whatever the computer's time zone (PR 47's UI-D7, SCRUM-95 D7), so this must
+// not use local time: on a UTC machine such as GitHub's CI runner it would be 8 hours off.
+// Singapore is UTC+8 all year, with no daylight saving.
 function localInput(date) {
-  const pad = n => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return new Date(date.getTime() + 8 * HOUR).toISOString().slice(0, 16);
 }
 
 // The backend sends naive UTC times (no "Z"), e.g. "2026-11-05T10:00:00".
@@ -85,7 +87,7 @@ test("TC-8905 hold form validates the new expiry and sends PUT /venues/bookings/
   await state.setStaffHold();
   assert.equal(sent.path, "/venues/bookings/9/hold");
   assert.equal(sent.options.method, "PUT");
-  assert.equal(sent.options.body.expires_at, new Date(valid).toISOString());
+  assert.equal(sent.options.body.expires_at, new Date(`${valid}+08:00`).toISOString()); // the input is Singapore time
   assert.equal(state.staffBooking.detail.hold_expires_at, "2026-11-01T09:00:00");
   assert.equal(state.staffBooking.holdExpiry, "");
   assert.equal(state.staffBooking.error, "");
@@ -168,7 +170,9 @@ test("TC-8909 booking list has an Expired filter with a count and an Expired bad
   assert.notEqual(expiredClass, "status-neutral", "Expired has its own badge style");
   assert.notEqual(expiredClass, state.bookingStatusClass("Pending"));
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  assert.match(html, /x-for="filter in \[[^\]]*'Expired'[^\]]*\]"/);
+  const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(source, /const BOOKING_FILTERS = \["All", "Pending", "Confirmed", "Rejected", "Expired"\];/);
+  assert.match(html, /<div class="list-controls list-controls-inset" x-data="\{ key: 'bookings' \}">/);
 });
 
 test("TC-8910 the requester is shown by name, with a fallback when none was recorded", () => {

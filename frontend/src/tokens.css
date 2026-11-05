@@ -1,0 +1,120 @@
+/*
+ * ConnectSphere design tokens.
+ *
+ * Every color, size, space, radius and shadow in the app comes from here.
+ * Text colors are checked for WCAG AA (4.5:1) against the surface they sit on,
+ * and component borders that identify a control (inputs) for 3:1.
+ */
+:root {
+  color-scheme: light;
+
+  /* Brand: deep green */
+  --brand-900: #12362f;   /* sidebar, primary buttons */
+  --brand-800: #19483f;   /* primary hover */
+  --brand-700: #1d5a4e;
+  --brand-600: #1b7465;   /* links, accents, focus ring: 5.6:1 on white */
+  --brand-400: #6fb9a9;   /* accents on dark surfaces */
+  --brand-100: #dcefe9;
+  --brand-50: #eef6f3;
+
+  /* Neutrals */
+  --neutral-0: #ffffff;
+  --neutral-25: #fafbfa;
+  --neutral-50: #f4f6f4;
+  --neutral-100: #eaefec;
+  --neutral-200: #dce3df;
+  --neutral-300: #c4cfca;
+  --neutral-500: #7f8f89;  /* control borders: 3.4:1 on white */
+  --neutral-600: #56645f;  /* muted text: 5.7:1 on canvas */
+  --neutral-700: #3f4d48;
+  --neutral-800: #2b3a36;
+  --neutral-900: #172320;
+
+  /* Semantic surfaces and text */
+  --surface-canvas: var(--neutral-50);
+  --surface: var(--neutral-0);
+  --surface-subtle: var(--neutral-25);
+  --surface-muted: var(--neutral-100);
+  --surface-inverse: var(--brand-900);
+  --text: var(--neutral-900);
+  --text-secondary: var(--neutral-700);
+  --text-muted: var(--neutral-600);
+  --text-placeholder: #6b7873;          /* 4.6:1 on white */
+  --text-inverse: #ffffff;
+  --text-inverse-muted: #c3d3ce;        /* 8.5:1 on brand-900 */
+  --text-inverse-subtle: #9db5ae;       /* 6.1:1 on brand-900 */
+  --text-link: var(--brand-600);
+  --border: var(--neutral-200);
+  --border-strong: var(--neutral-300);
+  --border-control: var(--neutral-500);
+  --overlay: rgb(9 28 24 / .62);
+
+  /* Status tones: background, border, text (text 6:1+ on its background) */
+  --tone-neutral-bg: #eef2f0;   --tone-neutral-border: #d5ddd9;   --tone-neutral-fg: #46544f;
+  --tone-info-bg: #e8f4f1;      --tone-info-border: #b3d9d2;      --tone-info-fg: #155f53;
+  --tone-waiting-bg: #fff7e3;   --tone-waiting-border: #ecd59f;   --tone-waiting-fg: #7a5410;
+  --tone-attention-bg: #fff1e6; --tone-attention-border: #f0cba9; --tone-attention-fg: #8a4313;
+  --tone-success-bg: #ecf7f0;   --tone-success-border: #b7dcc6;   --tone-success-fg: #22603e;
+  --tone-danger-bg: #fdf0ef;    --tone-danger-border: #eac3c0;    --tone-danger-fg: #9a322d;
+  --tone-muted-bg: #f2f0f6;     --tone-muted-border: #d6d2e1;     --tone-muted-fg: #574a73;
+  --danger: #a3352f;            /* danger buttons and errors on white: 6.8:1 */
+  --warning-accent: #c79538;    /* decorative rule only, never text */
+  --success-hover: #1a4d31;
+  --danger-hover: #862a25;
+
+  /* Type: one sans family; the serif is for display text only */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+  --text-xs: .75rem;      /* 12px: meta, table heads, badges */
+  --text-sm: .8125rem;    /* 13px: secondary copy, helper text */
+  --text-base: .875rem;   /* 14px: body, controls */
+  --text-md: 1rem;        /* 16px: card and section titles */
+  --text-lg: 1.125rem;    /* 18px: card headline */
+  --text-xl: 1.375rem;    /* 22px: modal and empty-state titles */
+  --text-2xl: 1.875rem;   /* 30px: page titles, summary figures */
+  --text-display: clamp(2.5rem, 4.5vw, 4.5rem); /* sign-in display line */
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-semibold: 650;
+  --weight-bold: 750;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --tracking-caps: .06em;
+
+  /* Space: a 4px scale */
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --gap-actions: var(--space-3);   /* between buttons, everywhere (12px) */
+
+  /* Shape and depth */
+  --radius-sm: .375rem;
+  --radius-md: .5rem;
+  --radius-lg: .75rem;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgb(16 36 31 / .05);
+  --shadow-md: 0 1px 2px rgb(16 36 31 / .04), 0 10px 28px rgb(16 36 31 / .06);
+  --shadow-lg: 0 24px 80px rgb(0 0 0 / .24);
+
+  /* Focus */
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--brand-600);
+  --focus-ring-inverse: 0 0 0 2px var(--brand-900), 0 0 0 4px #ffffff;
+
+  /* Controls */
+  --control-height: 2.5rem;
+  --control-height-compact: 2rem;
+  --icon-control-size: 2.5rem;           /* quiet icon buttons: 40px target */
+
+  /* Sidebar. The overlay breakpoint (768px) is COMPACT_NAV_QUERY in app.js and
+     the media queries in styles.css; CSS variables can't be used in media queries. */
+  --sidebar-width-expanded: 14.5rem;
+  --sidebar-width-rail: 4.5rem;
+  --sidebar-width-overlay: min(17rem, 85vw);
+  --duration: .16s;
+}

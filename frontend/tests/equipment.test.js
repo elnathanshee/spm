@@ -19,8 +19,9 @@
  *   D1  The form checks that a type is given and the quantity is above zero
  *       before sending, so the Coordinator gets the answer immediately. The
  *       server stays the authority: its 422 maps onto the same fields.
- *   D2  A duplicate type (the backend's 409) is a message about the whole
- *       line, not one field, so it is shown above the form.
+ *   D2  A duplicate type is shown beside the type field. The form catches a
+ *       type already in the list before sending, and the backend's 409 lands
+ *       on the same field. (PR 47 moved it there from above the form.)
  *   D3  The /technical page calls GET /equipment-requests and shows what comes
  *       back. The backend already decides what each role may see, so the
  *       browser does no filtering of its own.
@@ -84,6 +85,9 @@ const ITEM = {
   created_at: "2026-11-04T09:00:00",
 };
 
+// Lets the event view's equipment load finish: openEventDetail starts it without awaiting it.
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
 /** Open the event view with equipment loading stubbed out. */
 async function openDetail(state, { detail = EVENT, equipment = [ITEM], equipmentOk = true } = {}) {
   const calls = [];
@@ -98,6 +102,7 @@ async function openDetail(state, { detail = EVENT, equipment = [ITEM], equipment
     return { ok: true, status: 200, data: {} };
   };
   await state.openEventDetail(detail.id);
+  await settle();
   return calls;
 }
 
@@ -107,7 +112,7 @@ async function openDetail(state, { detail = EVENT, equipment = [ITEM], equipment
 
 test("TC-9301 | Happy Path | AC1: the assigned Coordinator records type, quantity and notes", async () => {
   const state = app();
-  await openDetail(state);
+  await openDetail(state, { equipment: [] }); // an empty list, so the form's own duplicate check lets "Projector" through
 
   const sent = [];
   state.apiRequest = async (path, options) => {
@@ -121,7 +126,7 @@ test("TC-9301 | Happy Path | AC1: the assigned Coordinator records type, quantit
     quantity: 2,
     technical_requirements: "  HDMI and USB-C, 4K capable  ",
   };
-  await state.recordEquipment();
+  await state.addEquipment();
 
   const post = sent.find(([, options]) => options?.method === "POST");
   assert.ok(post, "a POST was sent");
@@ -133,7 +138,7 @@ test("TC-9301 | Happy Path | AC1: the assigned Coordinator records type, quantit
   });
   assert.equal(state.eventDetail.equipment.items.length, 1, "the list is refreshed from the server");
   assert.equal(state.eventDetail.equipment.form.equipment_type, "", "the form is cleared for the next item");
-  assert.equal(state.eventDetail.equipment.saving, false);
+  assert.equal(state.eventDetail.equipment.busy, false);
 });
 
 test("TC-9302 | Boundary Path | AC1 (D1): a missing type or a quantity of zero or less is caught on the field", async () => {
@@ -148,8 +153,8 @@ test("TC-9302 | Boundary Path | AC1 (D1): a missing type or a quantity of zero o
     await openDetail(state);
     state.apiRequest = () => assert.fail("an invalid line must not be sent");
     state.eventDetail.equipment.form = { technical_requirements: "", ...form };
-    await state.recordEquipment();
-    assert.ok(state.fieldErrors[field], `${field} should carry the error for ${JSON.stringify(form)}`);
+    await state.addEquipment();
+    assert.ok(state.eventDetail.equipment.errors[field], `${field} should carry the error for ${JSON.stringify(form)}`);
   }
 });
 
@@ -164,7 +169,7 @@ test("TC-9303 | Boundary Path | AC1: a quantity of one is accepted, and notes ar
       : { ok: true, status: 200, data: { equipment_requests: [] } };
   };
   state.eventDetail.equipment.form = { equipment_type: "Lectern", quantity: 1, technical_requirements: "" };
-  await state.recordEquipment();
+  await state.addEquipment();
 
   const post = sent.find((options) => options?.method === "POST");
   assert.ok(post, "a quantity of one is sent");
@@ -174,7 +179,7 @@ test("TC-9303 | Boundary Path | AC1: a quantity of one is accepted, and notes ar
 
 test("TC-9304 | Negative Path | AC1 (D1): the server's field errors are shown against the fields", async () => {
   const state = app();
-  await openDetail(state);
+  await openDetail(state, { equipment: [] }); // an empty list, so "Projector" reaches the server
   state.apiRequest = async (path, options) =>
     options?.method === "POST"
       ? {
@@ -190,27 +195,27 @@ test("TC-9304 | Negative Path | AC1 (D1): the server's field errors are shown ag
       : { ok: true, status: 200, data: { equipment_requests: [] } };
 
   state.eventDetail.equipment.form = { equipment_type: "Projector", quantity: 4, technical_requirements: "" };
-  await state.recordEquipment();
+  await state.addEquipment();
 
-  assert.equal(state.fieldErrors.quantity, "Input should be greater than 0");
-  assert.equal(state.fieldErrors.equipment_type, "Equipment type cannot be empty");
+  assert.equal(state.eventDetail.equipment.errors.quantity, "Input should be greater than 0");
+  assert.equal(state.eventDetail.equipment.errors.equipment_type, "Equipment type cannot be empty");
   assert.equal(state.eventDetail.equipment.form.equipment_type, "Projector", "the typed values are kept");
-  assert.equal(state.eventDetail.equipment.saving, false);
+  assert.equal(state.eventDetail.equipment.busy, false);
 });
 
-test("TC-9305 | Negative Path | AC1 (D2): a duplicate type shows the server's message above the form", async () => {
+test("TC-9305 | Negative Path | AC1 (D2): a duplicate type shows the server's message beside the type field", async () => {
   const detail = "'Projector' is already recorded for this event (quantity 2). Amend that entry instead of adding a second one.";
   const state = app();
-  await openDetail(state);
+  await openDetail(state, { equipment: [] }); // the list hasn't caught up yet, so only the server knows it's a duplicate
   state.apiRequest = async (path, options) =>
     options?.method === "POST"
       ? { ok: false, status: 409, data: { detail } }
       : { ok: true, status: 200, data: { equipment_requests: [ITEM] } };
 
   state.eventDetail.equipment.form = { equipment_type: "projector", quantity: 5, technical_requirements: "" };
-  await state.recordEquipment();
+  await state.addEquipment();
 
-  assert.equal(state.eventDetail.equipment.formError, detail);
+  assert.equal(state.eventDetail.equipment.errors.equipment_type, detail);
   assert.equal(state.eventDetail.equipment.form.equipment_type, "projector", "the typed values are kept");
 });
 
@@ -233,10 +238,10 @@ test("TC-9307 | Negative Path | AC4: a role that cannot record never reaches the
   state.eventDetail = {
     id: 7,
     detail: EVENT,
-    equipment: { items: [], loading: false, error: "", formError: "", saving: false, form: { equipment_type: "Projector", quantity: 1, technical_requirements: "" } },
+    equipment: { items: [], loading: false, loaded: true, error: "", denied: false, errors: {}, busy: false, form: { equipment_type: "Projector", quantity: 1, technical_requirements: "" } },
   };
   state.apiRequest = () => assert.fail("Technical Support must not record equipment");
-  await state.recordEquipment();
+  await state.addEquipment();
 });
 
 // ---------------------------------------------------------------------------
@@ -295,10 +300,11 @@ test("TC-9312 | Happy Path | AC3 (D3): /technical lists every requirement with i
   };
 
   state.navigate("/technical");
-  await state.fetchEquipmentWorkspace();
+  await state.fetchTechnicalWorklist();
+  await settle();
 
   assert.ok(calls.includes("/equipment-requests"));
-  const workspace = state.equipmentWorkspace;
+  const workspace = state.technicalWorklist;
   assert.equal(workspace.items.length, 2);
   assert.equal(workspace.loaded, true);
   for (const field of ["event_title", "equipment_type", "quantity", "technical_requirements", "requested_by"]) {
@@ -309,18 +315,18 @@ test("TC-9312 | Happy Path | AC3 (D3): /technical lists every requirement with i
 test("TC-9313 | Boundary Path | AC3: an empty worklist is shown as empty, not as an error", async () => {
   const state = app("Technical Support", 8);
   state.apiRequest = async () => ({ ok: true, status: 200, data: { equipment_requests: [] } });
-  await state.fetchEquipmentWorkspace();
-  assert.deepEqual(state.equipmentWorkspace.items, []);
-  assert.equal(state.equipmentWorkspace.loaded, true);
-  assert.equal(state.equipmentWorkspace.error, "");
+  await state.fetchTechnicalWorklist();
+  assert.deepEqual(state.technicalWorklist.items, []);
+  assert.equal(state.technicalWorklist.loaded, true);
+  assert.equal(state.technicalWorklist.error, "");
 });
 
 test("TC-9314 | Negative Path | AC3: a failed worklist reports it rather than showing an empty page", async () => {
   const state = app("Technical Support", 8);
   state.apiRequest = async () => ({ ok: false, status: 500, data: {} });
-  await state.fetchEquipmentWorkspace();
-  assert.equal(state.equipmentWorkspace.loaded, false);
-  assert.ok(state.equipmentWorkspace.error.length > 0);
+  await state.fetchTechnicalWorklist();
+  assert.equal(state.technicalWorklist.loaded, false);
+  assert.ok(state.technicalWorklist.error.length > 0);
 });
 
 test("TC-9315 | Workflow Variation | AC3: navigating to /technical loads the worklist", async () => {
@@ -344,16 +350,16 @@ test("TC-9316 | Cross-Cutting | AC3: /technical is a built screen, and still onl
   for (const role of ["Coordinator", "Event Coordinator Lead", "Organiser", "Venue Staff", "Attendee"]) {
     assert.equal(resolveRolePath("/technical", role).accessDenied, true, role);
   }
-  // The Attendee screen is untouched and stays a placeholder.
-  assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, true);
+  // PR 47 built the Attendee page too (an event directory), so no placeholder paths are left.
+  assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, false);
 });
 
 test("TC-9317 | Cross-Cutting | AC4: a role other than Technical Support never loads the worklist", async () => {
   for (const role of ["Coordinator", "Organiser", "Venue Staff", "Attendee", "Event Coordinator Lead"]) {
     const state = app(role);
     state.apiRequest = () => assert.fail(`${role} must not load the Technical Support worklist`);
-    await state.fetchEquipmentWorkspace();
-    assert.equal(state.equipmentWorkspace, null, role);
+    await state.fetchTechnicalWorklist();
+    assert.equal(state.technicalWorklist, null, role);
   }
 });
 
@@ -362,19 +368,19 @@ test("TC-9317 | Cross-Cutting | AC4: a role other than Technical Support never l
 // ---------------------------------------------------------------------------
 
 test("TC-9318 | Cross-Cutting | AC2, AC3: both screens are rendered, with their empty states", () => {
-  // The event view's equipment panel and its form.
+  // The event view's equipment panel and its form (PR 47's panel, which replaced the first one).
   assert.match(HTML, /x-if="eventDetail\.equipment"/, "the event view has an equipment panel");
   assert.match(HTML, /x-for="item in eventDetail\.equipment\.items"/, "the event's items are listed");
-  assert.match(HTML, /recordEquipment\(\)/, "the panel can record a new item");
-  assert.match(HTML, /fieldErrors\.equipment_type/, "the type field shows its error");
-  assert.match(HTML, /fieldErrors\.quantity/, "the quantity field shows its error");
-  assert.match(HTML, /eventDetail\.equipment\.formError/, "a duplicate message has somewhere to appear");
+  assert.match(HTML, /addEquipment\(\)/, "the panel can record a new item");
+  assert.match(HTML, /eventDetail\.equipment\.errors\.equipment_type/, "the type field shows its error");
+  assert.match(HTML, /eventDetail\.equipment\.errors\.quantity/, "the quantity field shows its error");
+  assert.match(HTML, /eventDetail\.equipment\.errors\.form/, "a refusal such as a 403 has somewhere to appear (a duplicate goes beside the type)");
 
-  // The Technical Support workspace.
+  // The Technical Support workspace (PR 47's worklist, grouped by event).
   assert.match(HTML, /currentPath === '\/technical'/, "the /technical screen exists");
-  assert.match(HTML, /x-for="item in equipmentWorkspace\.items"/, "the worklist is listed");
+  assert.match(HTML, /x-for="item in event\.items"/, "the worklist is listed");
   assert.ok(
-    /equipmentWorkspace\.loaded && !equipmentWorkspace\.items\.length/.test(HTML),
+    /technicalWorklist\.loaded && !technicalWorklist\.denied && !technicalWorklist\.items\.length/.test(HTML),
     "the worklist has an empty state",
   );
 });
