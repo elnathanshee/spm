@@ -44,7 +44,7 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-test("TC-9801 colors, font sizes and radii outside tokens.css come from tokens", () => {
+test("TC-10121 colors, font sizes and radii outside tokens.css come from tokens", () => {
   for (const [name, css] of [["components.css", components], ["styles.css", styles]]) {
     assert.deepEqual(css.match(/#[0-9a-fA-F]{3,6}\b/g) || [], [], `${name} has raw hex colors`);
     assert.deepEqual(css.match(/font-size:\s*[0-9.]+(rem|px|em)/g) || [], [], `${name} has raw font sizes`);
@@ -52,13 +52,13 @@ test("TC-9801 colors, font sizes and radii outside tokens.css come from tokens",
   assert.match(styles, /@import "\.\/tokens\.css";\s*@import "\.\/components\.css";/);
 });
 
-test("TC-9802 the serif is used only for intentional display text", () => {
+test("TC-10122 the serif is used only for intentional display text", () => {
   assert.doesNotMatch(components + styles, /Georgia|serif\b(?!.*--font)/);
   const displayRules = (components + styles).replace(/\/\*[\s\S]*?\*\//g, "").split("}").filter(rule => rule.includes("var(--font-display)")).map(rule => rule.split("{")[0].trim());
   assert.deepEqual(displayRules.sort(), [".display-title", ".login-card h2", ".login-story h1"]);
 });
 
-test("TC-9803 every backend status has one badge tone, and that tone exists", () => {
+test("TC-10123 every backend status has one badge tone, and that tone exists", () => {
   const state = app();
   const eventStatuses = [...read("../../backend/status.py").matchAll(/=\s*"([^"]+)"/g)].map(match => match[1]);
   const bookingStatuses = ["Pending", "Confirmed", "Rejected", "Expired", "Approved", "Tentative"];
@@ -80,7 +80,7 @@ test("TC-9803 every backend status has one badge tone, and that tone exists", ()
   for (const match of statusBadges) assert.equal(match[2] ?? match[4], match[1] ?? match[3], match[0]);
 });
 
-test("TC-9804 one date and time format, in Singapore time, whatever the machine's time zone", () => {
+test("TC-10124 one date and time format, in Singapore time, whatever the machine's time zone", () => {
   const state = app();
   for (const zone of ["UTC", "America/New_York", "Asia/Singapore"]) withTimeZone(zone, () => {
     assert.equal(state.formatHoldExpiry("2026-11-04T03:55:00"), "4 Nov 2026, 11:55 am", zone);
@@ -97,7 +97,7 @@ test("TC-9804 one date and time format, in Singapore time, whatever the machine'
   assert.match(html, /class="timezone-note"[^>]*>Times in SGT</);
 });
 
-test("TC-9805 one initials rule for avatars and monograms", () => {
+test("TC-10125 one initials rule for avatars and monograms", () => {
   const state = app();
   assert.equal(state.initials("organiser1"), "OR");
   assert.equal(state.initials("Harbour Ballroom"), "HB");
@@ -109,7 +109,7 @@ test("TC-9805 one initials rule for avatars and monograms", () => {
   assert.equal((html.match(/x-text="initials\(/g) || []).length, 2);
 });
 
-test("TC-9806 every form control has a label, and every icon-only button a name", () => {
+test("TC-10126 every form control has a label, and every icon-only button a name", () => {
   const ids = [...html.matchAll(/<(?:input|select|textarea)\b[^>]*?\s(:?id)="([^"]+)"/g)].map(match => [match[1], match[2]]);
   assert.ok(ids.length > 20);
   for (const [binding, id] of ids) {
@@ -121,7 +121,7 @@ test("TC-9806 every form control has a label, and every icon-only button a name"
   for (const button of html.match(/<button[^>]*>×<\/button>/g) || []) assert.match(button, /aria-label="[^"]+"/, button);
 });
 
-test("TC-9807 token text colors meet WCAG AA on the surfaces they are used on", () => {
+test("TC-10127 token text colors meet WCAG AA on the surfaces they are used on", () => {
   const pairs = [
     ["--text-muted", "--surface-canvas"], ["--text-muted", "--surface"], ["--text-secondary", "--surface"],
     ["--brand-600", "--surface"], ["--danger", "--surface"], ["--text-placeholder", "--surface"],
@@ -136,7 +136,7 @@ test("TC-9807 token text colors meet WCAG AA on the surfaces they are used on", 
   assert.match(components, /:focus-visible \{ outline: none; box-shadow: var\(--focus-ring\); \}/);
 });
 
-test("TC-9808 success messages are toasts that clear themselves; errors stay inline", () => {
+test("TC-10128 success messages are toasts that clear themselves; errors stay inline", () => {
   assert.match(html, /<div class="toast-region" role="status" aria-live="polite"><template x-if="alert && alert.message && alert.kind === 'success'">/);
   assert.match(html, /class="alert content-alert"[^>]*x-show|x-show="alert && alert.message && alert.kind !== 'success'"[^>]*class="alert content-alert"/);
   const state = app();

@@ -33,21 +33,21 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 
 | Rule | Where | Controlled by | Commit |
 |---|---|---|---|
-| Colours, type sizes, spacing and radii come from tokens only. `styles.css` holds no raw colours or font sizes. | Everywhere | `tokens.css`; test TC-9801 | `6a0f79b` |
-| One sans typeface. The serif is only for the sign-in display headings. | Everywhere | `tokens.css` `--font-display`; test TC-9802 | `6a0f79b` |
-| One tone per backend status, the same for events and bookings. A badge always shows the status text. | Every status badge | `app.js` `STATUS_TONES`, `statusClass()`; test TC-9803 | `6a0f79b` |
-| Initials come from the first letters of the first two words, otherwise the first two letters. | Avatar, venue tiles | `app.js` `initials()`; test TC-9805 | `6a0f79b` |
+| Colours, type sizes, spacing and radii come from tokens only. `styles.css` holds no raw colours or font sizes. | Everywhere | `tokens.css`; test TC-10121 | `6a0f79b` |
+| One sans typeface. The serif is only for the sign-in display headings. | Everywhere | `tokens.css` `--font-display`; test TC-10122 | `6a0f79b` |
+| One tone per backend status, the same for events and bookings. A badge always shows the status text. | Every status badge | `app.js` `STATUS_TONES`, `statusClass()`; test TC-10123 | `6a0f79b` |
+| Initials come from the first letters of the first two words, otherwise the first two letters. | Avatar, venue tiles | `app.js` `initials()`; test TC-10125 | `6a0f79b` |
 | Success messages are toasts that clear after 6 seconds. Errors stay inline until dismissed. | Every role | `app.js` `showAlert()`; `components.css` `.toast` | `6a0f79b` |
-| Every focusable element shows the double focus ring. Text meets WCAG AA (4.5:1); control borders meet 3:1. | Everywhere | `tokens.css` `--focus-ring`; `components.css` `:focus-visible`; test TC-9807 | `6a0f79b` |
+| Every focusable element shows the double focus ring. Text meets WCAG AA (4.5:1); control borders meet 3:1. | Everywhere | `tokens.css` `--focus-ring`; `components.css` `:focus-visible`; test TC-10127 | `6a0f79b` |
 | The header is solid, with no blur behind it. | Top bar | `styles.css` `.topbar` | `8af09a0` |
 | No "Workspace" box in the sidebar. The user's name and role appear once, in the sidebar footer. | Sidebar | `index.html` `.role-card` | `8af09a0` |
 | A notification opens its booking (Venue Staff) or event request (Organiser, Coordinator, Lead) when it has one. Otherwise it's plain text. No "Mark all as read", because the backend has no bulk route (#9). | Notification panel | `app.js` `notificationTarget()`; test TC-9811 | `8af09a0` |
 | The sign-in page fits the window with no page scrollbar. Fields lock while signing in. The backend's error shows inline. | Sign-in | `styles.css` `.login-shell`, `.login-fields` | `8af09a0` |
 | Filter chips are one shared component with counts, only where the data loaded on the screen supports them. | Organiser list, Venue Staff booking filters | `components.css` `.filter-chips`, `.booking-filters` | `27b852c` |
-| A Returned request shows the Coordinator's clarification request. A Rejected request shows its reason from the rejection notification (the backend returns no reason field, #10). | Organiser list, amend dialog | `app.js` `rejectionReason()`; test TC-9903 | `27b852c` |
-| A Returned request is edited and resubmitted from one dialog ("Edit request", then "Save" or "Resubmit"; see "Button labels"). | Organiser edit dialog | `app.js` `amendEvent(..., { resubmit })`; tests TC-9907, TC-9995 to TC-9997 | `27b852c`, clarification labels |
-| The create form's main action is "Submit for review"; "Save as draft" is secondary. Field errors come from the backend, and focus moves to the first one. | Organiser create form | `app.js` `createEventDraft(..., { submit })`; test TC-9906 | `27b852c` |
-| Organiser section descriptions only say what is true for every request in the section. For example, Submitted doesn't claim a Coordinator. | Organiser list | `app.js` `ORGANISER_GROUPS`; test TC-9901 | `bc6a7cf` |
+| A Returned request shows the Coordinator's clarification request. A Rejected request shows its reason from the rejection notification (the backend returns no reason field, #10). | Organiser list, amend dialog | `app.js` `rejectionReason()`; test TC-10133 | `27b852c` |
+| A Returned request is edited and resubmitted from one dialog ("Edit request", then "Save" or "Resubmit"; see "Button labels"). | Organiser edit dialog | `app.js` `amendEvent(..., { resubmit })`; tests TC-10137, TC-9995 to TC-9997 | `27b852c`, clarification labels |
+| The create form's main action is "Submit for review"; "Save as draft" is secondary. Field errors come from the backend, and focus moves to the first one. | Organiser create form | `app.js` `createEventDraft(..., { submit })`; test TC-10136 | `27b852c` |
+| Organiser section descriptions only say what is true for every request in the section. For example, Submitted doesn't claim a Coordinator. | Organiser list | `app.js` `ORGANISER_GROUPS`; test TC-10131 | `bc6a7cf` |
 | Values in row details (dates, names) stay on one line. Rows wrap between items. | Coordinator and Lead rows, Organiser rows | `styles.css` `.inline-meta dd`, `.request-meta dd` | `8bf1e3c`, `27b852c` |
 | The notification bell is the same quiet icon button as the sidebar control. | Top bar | `components.css` `.icon-control` | `8bf1e3c` |
 
@@ -57,7 +57,7 @@ All of D1 to D8 are in the code. D9's per-value labels are **missing on purpose*
 |---|---|---|
 | Three filters, in this order: All (the default), Active, Completed. Completed means Rejected, Completed or Cancelled; everything else is active. All shows every assigned request once, under the same status sections, with the sections needing a decision first. Counts follow the list-controls rule (section 4). | Assigned requests | `app.js` `COORDINATOR_GROUPS` (`active`), `coordinatorScopeChips()`, `coordinatorInScope()`; tests TC-9931, TC-9932 |
 | Sections keep the backend's queue order: awaiting first review, longest wait first, then by proposed date (`coordinator.assigned_requests`). | Assigned requests | `app.js` `coordinatorGroups()` |
-| Counts appear only on the filters and section headings; there is no summary row. Search, sort and the no-match state come from the shared list controls (section 4). | Assigned requests | `index.html` Coordinator template; test TC-9701 |
+| Counts appear only on the filters and section headings; there is no summary row. Search, sort and the no-match state come from the shared list controls (section 4). | Assigned requests | `index.html` Coordinator template; test TC-10111 |
 | One main action per row, from the backend's rules: "Start review" for Submitted; "Record decision" for Under Review, which opens the details panel holding Approve, Request clarification and Reject. No main action for other statuses or for unassigned requests. | Assigned requests | `app.js` `coordinatorPrimary()`, `canDecideEvent()`; test TC-9933 |
 | "Venue bookings" follows the venue booking rule in section 4. | Assigned requests | `app.js` `canBookEvent()`; test TC-9934 |
 | Search, filters and sort for both screens are listed in section 4, "List controls". | Both Coordinator screens | `app.js` `listControls()` |
@@ -351,7 +351,7 @@ to Confirmed yet, so no Attendee can see any event (`BACKEND_ISSUES.md` #1, `UI_
   asked for. Change it when a list route arrives.
 - **Not built:** opening an event by its number. The backend allows it for a Confirmed event, but none can exist and
   Attendees have no way to learn an id.
-- Guarded by TC-9703.
+- Guarded by TC-10113.
 
 ### Inline changes
 

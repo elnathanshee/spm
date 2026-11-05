@@ -38,13 +38,13 @@ const lines = [
   { id: 3, event_id: 1, event_title: "Gala", event_proposed_start: null, equipment_type: "Stage lights", quantity: 6, technical_requirements: null, requested_by: "lead1", created_at: "2026-11-04T03:10:00" },
 ];
 
-test("TC-9601 (F1) the app component starts once: Alpine calls init() itself, so the root has no x-init", () => {
+test("TC-10101 (F1) the app component starts once: Alpine calls init() itself, so the root has no x-init", () => {
   const root = html.match(/<div x-data="appState\(\)"[^>]*>/)[0];
   assert.doesNotMatch(root, /x-init/);
   assert.match(source, /async init\(\)/);
 });
 
-test("TC-9602 (F2) notification times are read as UTC, like booking times", () => {
+test("TC-10102 (F2) notification times are read as UTC, like booking times", () => {
   const state = app("organiser");
   const previousTZ = process.env.TZ;
   try {
@@ -58,7 +58,7 @@ test("TC-9602 (F2) notification times are read as UTC, like booking times", () =
   }
 });
 
-test("TC-9603 (F6) /technical is a real screen for Technical Support and /equipment-requests is proxied", () => {
+test("TC-10103 (F6) /technical is a real screen for Technical Support and /equipment-requests is proxied", () => {
   for (const role of ["technical support", "technical_support"]) {
     assert.deepEqual(plain(resolveRolePath("/technical", normalizeRole(role))), { accessDenied: false, currentPath: "/technical", unbuiltRole: false });
   }
@@ -67,7 +67,7 @@ test("TC-9603 (F6) /technical is a real screen for Technical Support and /equipm
   assert.match(html, /x-if="currentPath === '\/technical' && user.role === 'Technical Support' && technicalWorklist"/);
 });
 
-test("TC-9604 (F6) the worklist loads GET /equipment-requests and groups lines by event in backend order", async () => {
+test("TC-10104 (F6) the worklist loads GET /equipment-requests and groups lines by event in backend order", async () => {
   const state = app();
   const paths = [];
   state.apiRequest = async (path, options) => { paths.push([path, options?.inlineErrors]); return { ok: true, status: 200, data: { equipment_requests: lines } }; };
@@ -79,7 +79,7 @@ test("TC-9604 (F6) the worklist loads GET /equipment-requests and groups lines b
   assert.deepEqual(plain(state.technicalEventGroups().map(group => [group.event_id, group.items.map(item => item.id)])), [[4, [1, 2]], [1, [3]]]);
 });
 
-test("TC-9605 (F6) a failed load shows the backend's message and keeps no data", async () => {
+test("TC-10105 (F6) a failed load shows the backend's message and keeps no data", async () => {
   const state = app();
   state.apiRequest = async () => ({ ok: false, status: 403, data: { detail: "Only Coordinators, Leads and Technical Support Staff can view equipment requirements" } });
   await state.fetchTechnicalWorklist();
@@ -94,7 +94,7 @@ test("TC-9605 (F6) a failed load shows the backend's message and keeps no data",
   assert.match(html200.technicalWorklist.error, /unexpected response/);
 });
 
-test("TC-9606 (F6) other roles never request the worklist, and signing out clears it", async () => {
+test("TC-10106 (F6) other roles never request the worklist, and signing out clears it", async () => {
   for (const role of ["organiser", "coordinator", "lead", "venue_staff", "attendee"]) {
     const state = app(role);
     let called = false;

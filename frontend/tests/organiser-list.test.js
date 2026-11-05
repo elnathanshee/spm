@@ -34,7 +34,7 @@ function recorder(state, responses) {
 
 const row = (id, status, extra = {}) => ({ id, title: `Event ${id}`, purpose: "", description: "", status, proposed_start: null, expected_attendance: 10, created_at: `2026-10-0${id}T00:00:00`, submitted_at: null, clarification_note: null, ...extra });
 
-test("TC-9901 each status has its own section, the ones needing the Organiser first; empty sections are hidden", () => {
+test("TC-10131 each status has its own section, the ones needing the Organiser first; empty sections are hidden", () => {
   const state = app();
   const statuses = [...readFileSync(new URL("../../backend/status.py", import.meta.url), "utf8").matchAll(/=\s*"([^"]+)"/g)].map(match => match[1]);
   assert.equal(statuses.length, 10);
@@ -50,7 +50,7 @@ test("TC-9901 each status has its own section, the ones needing the Organiser fi
   assert.doesNotMatch(plain(state.organiserGroups())[0].description, /Coordinator/);
 });
 
-test("TC-9902 search, status group filter and sort work on the loaded list", () => {
+test("TC-10132 search, status group filter and sort work on the loaded list", () => {
   const state = app();
   state.events = [
     row(1, "Submitted", { title: "Harbour Gala", proposed_start: "2027-03-01T18:00:00", submitted_at: "2026-10-02T00:00:00" }),
@@ -76,7 +76,7 @@ test("TC-9902 search, status group filter and sort work on the loaded list", () 
   assert.equal(state.eventsView.group, "all");
 });
 
-test("TC-9903 a rejection reason comes from the Organiser's rejection notification", () => {
+test("TC-10133 a rejection reason comes from the Organiser's rejection notification", () => {
   const state = app();
   const event = row(9, "Rejected", { title: "Gala" });
   assert.equal(state.rejectionReason(event), "", "no notification, no reason");
@@ -89,7 +89,7 @@ test("TC-9903 a rejection reason comes from the Organiser's rejection notificati
   assert.match(html, /rejectionReason\(event\) \|\| 'No reason is shown here/);
 });
 
-test("TC-9904 the list shows loading, permission-denied and load-error states without hiding loaded requests", async () => {
+test("TC-10134 the list shows loading, permission-denied and load-error states without hiding loaded requests", async () => {
   const state = app();
   assert.equal(state.eventsView.loaded, false);
   recorder(state, [{ ok: false, status: 403, data: { detail: "Only organisers and coordinators can view event requests" } }]);
@@ -110,7 +110,7 @@ test("TC-9904 the list shows loading, permission-denied and load-error states wi
   for (const label of ["Loading your requests…", "You can't view these requests", "Couldn't load your requests", "No event requests yet"]) assert.ok(html.includes(label), label);
 });
 
-test("TC-9905 rows have no status badge; View details comes first and Submit for review is the only filled button", () => {
+test("TC-10135 rows have no status badge; View details comes first and Submit for review is the only filled button", () => {
   const start = html.indexOf('x-for="event in group.events"');
   const rowHtml = html.slice(start, html.indexOf("</li></template>", start));
   assert.doesNotMatch(rowHtml, /status-badge/, "the section heading shows the status");
@@ -125,7 +125,7 @@ test("TC-9905 rows have no status badge; View details comes first and Submit for
   assert.match(rowHtml, /<template x-if="event.status === 'Returned'"><div class="request-note"><template x-if="clarificationNote\(event\)">/);
 });
 
-test("TC-9906 a new request can be submitted straight away, or saved as a draft", async () => {
+test("TC-10136 a new request can be submitted straight away, or saved as a draft", async () => {
   const state = app();
   state.draft.title = "Summit";
   let sent = recorder(state, [{ ok: true, status: 201, data: { id: 101, status: "Draft" } }, { ok: true, status: 200, data: { id: 101, status: "Submitted" } }]);
@@ -148,7 +148,7 @@ test("TC-9906 a new request can be submitted straight away, or saved as a draft"
   assert.equal(state.alert.message, "Your event request was saved as a draft.");
 });
 
-test("TC-9907 a Returned request is amended and resubmitted from one dialog", async () => {
+test("TC-10137 a Returned request is amended and resubmitted from one dialog", async () => {
   const state = app();
   const returned = { ...row(5, "Returned", { clarification_note: "Which hall?" }), venue_requirements: "", accessibility_needs: "", equipment_requirements: "", registration_needs: "" };
   state.openAmend(returned);
@@ -189,7 +189,7 @@ test("TC-9907 a Returned request is amended and resubmitted from one dialog", as
   assert.equal(state.alert.message, "Changes saved");
 });
 
-test("TC-9908 submitting a draft from the list can't be sent twice", async () => {
+test("TC-10138 submitting a draft from the list can't be sent twice", async () => {
   const state = app();
   let release;
   const sent = [];
