@@ -422,3 +422,160 @@ def test_tc4616_a_list_shows_my_status(client, db, users):
     login(client, "att_2")
     assert listed(client)[0]["my_status"] is None
     assert listed(client)[0]["places_left"] == 4
+
+
+# --- SCRUM-47: view my registration status and withdraw -----------------------
+
+
+def withdraw(client, event):
+    return client.post(f"/registrations/events/{event.id}/withdraw")
+
+
+def mine(client):
+    response = client.get("/registrations/mine")
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_tc4701_my_registrations_show_my_status_and_safe_fields(client, db, users):
+    """TC-4701: an Attendee sees their own registrations with the same whitelist, plus when they registered and withdrew."""
+    event = make_event(db, users, venues=[make_venue(db)])
+    make_event(db, users, title="Someone else's")
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    rows = mine(client)
+    assert [row["event_id"] for row in rows] == [event.id]
+    assert set(rows[0]) == ATTENDEE_KEYS | {"registered_at", "withdrawn_at"}
+    assert rows[0]["my_status"] == "registered"
+    assert rows[0]["registered_at"]
+    assert rows[0]["withdrawn_at"] is None
+    assert_no_internal_detail(rows)
+
+
+def test_tc4702_only_my_own_registrations_are_listed(client, db, users):
+    """TC-4702: someone else's registration is never in my list."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_2"])
+    login(client, "att_1")
+    assert mine(client) == []
+
+
+def test_tc4703_withdrawing_frees_a_place_and_keeps_the_row(client, db, users):
+    """TC-4703: withdrawing frees a place at once, and the row stays as history with the time."""
+    event = make_event(db, users, attendance=1)
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    response = withdraw(client, event)
+    assert response.status_code == 200
+    assert response.json()["my_status"] == "withdrawn"
+    assert response.json()["places_left"] == 1
+    assert response.json()["message"]
+    rows = rows_for(db, event)
+    assert [r.status for r in rows] == ["withdrawn"]
+    assert rows[0].withdrawn_at is not None
+    assert mine(client)[0]["my_status"] == "withdrawn"
+    assert mine(client)[0]["withdrawn_at"]
+    login(client, "att_2")
+    assert register(client, event).status_code == 201
+
+
+def test_tc4704_registering_again_reuses_the_row(client, db, users):
+    """TC-4704: withdraw then register again: still one row, registered, with the withdrawal time cleared."""
+    event = make_event(db, users, attendance=5)
+    login(client, "att_1")
+    first_id = register(client, event).status_code and rows_for(db, event)[0].id
+    assert withdraw(client, event).status_code == 200
+    response = register(client, event)
+    assert response.status_code == 201
+    assert response.json()["places_left"] == 4
+    rows = rows_for(db, event)
+    assert [(r.id, r.status, r.withdrawn_at) for r in rows] == [(first_id, "registered", None)]
+
+
+def test_tc4705_registering_again_needs_a_place(client, db, users):
+    """TC-4705: a withdrawn Attendee whose place was taken gets the same full message and stays withdrawn."""
+    event = make_event(db, users, attendance=1)
+    add_registration(db, event, users["att_1"], status="withdrawn")
+    add_registration(db, event, users["att_2"])
+    login(client, "att_1")
+    response = register(client, event)
+    assert response.status_code == 409
+    assert "full" in response.json()["detail"]
+    assert mine(client)[0]["my_status"] == "withdrawn"
+
+
+def test_tc4706_withdrawing_twice_or_without_registering_is_refused(client, db, users):
+    """TC-4706: never registered is a 404; already withdrawn is a 409. Both say so in a sentence."""
+    event = make_event(db, users)
+    login(client, "att_1")
+    response = withdraw(client, event)
+    assert response.status_code == 404
+    assert "aren't registered" in response.json()["detail"]
+    assert register(client, event).status_code == 201
+    assert withdraw(client, event).status_code == 200
+    response = withdraw(client, event)
+    assert response.status_code == 409
+    assert "already withdrawn" in response.json()["detail"]
+
+
+def test_tc4707_withdrawing_is_allowed_when_registration_has_closed(client, db, users):
+    """TC-4707: an Attendee can still give up a place when the setting is off or the event went back to Planning."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    add_registration(db, event, users["att_2"])
+    event.registration_setting.enabled = False
+    db.commit()
+    login(client, "att_1")
+    assert mine(client)[0]["event_state"] == "closed"
+    assert withdraw(client, event).status_code == 200
+    event.status = PLANNING
+    db.commit()
+    login(client, "att_2")
+    assert withdraw(client, event).status_code == 200
+
+
+@pytest.mark.parametrize("status,state", [(CANCELLED, "cancelled"), (COMPLETED, "completed")])
+def test_tc4708_a_finished_event_keeps_the_registration_as_history(client, db, users, status, state):
+    """TC-4708: on a cancelled or completed event the row stays registered, shows the state, and can't be withdrawn."""
+    event = make_event(db, users, status=status)
+    add_registration(db, event, users["att_1"])
+    login(client, "att_1")
+    rows = mine(client)
+    assert (rows[0]["my_status"], rows[0]["event_state"]) == ("registered", state)
+    response = withdraw(client, event)
+    assert response.status_code == 409
+    assert state in response.json()["detail"]
+    assert [r.status for r in rows_for(db, event)] == ["registered"]
+
+
+def test_tc4709_a_closed_event_never_shows_its_internal_status(client, db, users):
+    """TC-4709: an event back in Planning reads closed. The internal status and fields stay hidden."""
+    event = make_event(db, users, status=PLANNING)
+    add_registration(db, event, users["att_1"])
+    login(client, "att_1")
+    rows = mine(client)
+    assert rows[0]["event_state"] == "closed"
+    assert_no_internal_detail(rows)
+    assert PLANNING not in str(rows)
+
+
+def test_tc4710_newest_registration_first(client, db, users):
+    """TC-4710: my list shows the latest registration first."""
+    older = make_event(db, users, title="Older")
+    newer = make_event(db, users, title="Newer")
+    add_registration(db, older, users["att_1"]).created_at = datetime(2099, 1, 1)
+    add_registration(db, newer, users["att_1"]).created_at = datetime(2099, 1, 2)
+    db.commit()
+    login(client, "att_1")
+    assert [row["title"] for row in mine(client)] == ["Newer", "Older"]
+
+
+@pytest.mark.parametrize("username", ["org_a", "coord_a", "lead", "venue", "tech"])
+def test_tc4711_my_registrations_are_for_attendees_only(client, db, users, username):
+    """TC-4711: other roles get 403 from both the list and withdraw."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, username)
+    assert client.get("/registrations/mine").status_code == 403
+    assert withdraw(client, event).status_code == 403
+    assert [r.status for r in rows_for(db, event)] == ["registered"]
