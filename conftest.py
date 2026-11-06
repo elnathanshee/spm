@@ -18,8 +18,18 @@ including an exported Neon URL, is replaced.
 """
 
 import os
+from passlib.context import CryptContext
+import backend.security
 
 _requested = os.environ.get("DATABASE_URL", "")
 
 if not _requested.startswith("sqlite"):
     os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+# Speed up test password hashing from 12 rounds to 4 rounds.
+# Real logins and production app code stay at 12 rounds. Lowering rounds to 4
+# in conftest.py applies to test executions only, dropping suite runtime from
+# ~14 minutes to under 1 minute without altering application behavior.
+backend.security.pwd_context = CryptContext(
+    schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=4
+)
