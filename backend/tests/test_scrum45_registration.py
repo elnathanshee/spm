@@ -810,6 +810,36 @@ def test_tc5212_someone_no_longer_an_attendee_does_not_block_the_change(db, user
     assert len(notices_for(db, users["att_2"])) == 1
 
 
+def test_tc5213_a_venue_approved_through_the_api_tells_everyone_registered(client, db, users):
+    """TC-5213: the real path: Venue Staff approve a booking, so the venue and the places change, and each Attendee holding a place gets one plain notice."""
+    event = make_event(db, users, attendance=100)
+    booking = book(db, event, make_venue(db, capacity=5), status="Pending")
+    add_registration(db, event, users["att_1"])
+    add_registration(db, event, users["att_2"], status="withdrawn")
+    login(client, "venue")
+    assert client.post(f"/venues/bookings/{booking.id}/approve").status_code == 200
+    notices = notices_for(db, users["att_1"])
+    assert [n.kind for n in notices] == [registrations.KIND_VENUE_CHANGED]
+    assert "Open Day" in notices[0].message
+    assert_message_is_for_attendees(notices[0])
+    assert notices_for(db, users["att_2"]) == []
+    login(client, "att_1")
+    row = mine(client)[0]
+    assert row["venues"] == [{"name": "Main Hall", "location": "Block A"}]
+    assert row["places_left"] == 4
+
+
+def test_tc5214_a_rejected_booking_tells_nobody_registered(client, db, users):
+    """TC-5214: a Pending booking was never shown to an Attendee, so rejecting it changes nothing they can see."""
+    event = make_event(db, users, attendance=100)
+    booking = book(db, event, make_venue(db, capacity=5), status="Pending")
+    add_registration(db, event, users["att_1"])
+    login(client, "venue")
+    response = client.post(f"/venues/bookings/{booking.id}/reject", json={"reason": "The hall is closed that week."})
+    assert response.status_code == 200
+    assert notices_for(db, users["att_1"]) == []
+
+
 # --- SCRUM-65 (registration half): registration is switched on per event ------
 
 
