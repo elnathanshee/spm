@@ -69,6 +69,8 @@ around these; each entry has the evidence.
   or Approved/Planning/Confirmed), and refuse the rest.
 - **Frontend until then:** "Venue bookings" stays visible for every status, as the backend
   allows it. Hiding it in the UI alone would be a workaround.
+- **SCRUM-102:** Cancelled and Completed events are now refused, in the backend and the UI.
+  The other statuses, including Rejected, are still undecided.
 
 ## 6. Venue Staff booking review has no event attendance or status
 

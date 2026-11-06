@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user
 from .database import get_db
 from .models import EquipmentRequest, Event, User
+from .status import CANCELLED, COMPLETED
 
 router = APIRouter(tags=["equipment"])
 
@@ -170,6 +171,12 @@ def record_equipment_requirement(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Coordinators can record equipment only for events assigned to them",
+        )
+    # [SCRUM-102] Nothing can be arranged for a Cancelled or Completed event.
+    if event.status in (CANCELLED, COMPLETED):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This event is {event.status}, so it can't take new equipment.",
         )
 
     # One line per equipment type, so the list stays readable and quantities

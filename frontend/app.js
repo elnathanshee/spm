@@ -112,14 +112,14 @@ const TECHNICAL_GROUPS = [
 ];
 // Event statuses in workflow order, for status filter chips
 const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Safety Review", "Confirmed", "Rejected", "Completed", "Cancelled"];
-const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
+const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired", "Cancelled"];
 // Venue Staff booking sections, in the order they need attention. Pending is the only status Venue Staff can
 // decide (venues._decide_booking), whatever its date; Confirmed bookings that haven't ended still hold the
 // venue; everything else is the record.
 const VENUE_BOOKING_GROUPS = [
   { key: "decide", title: "Needs a decision", hint: "Pending requests. Approve one, or reject it with a reason. A hold that runs out turns the request Expired, and it can't be decided." },
   { key: "upcoming", title: "Upcoming confirmed", hint: "Approved bookings that haven't ended. They hold the venue for their date and time." },
-  { key: "closed", title: "Past and closed", hint: "Rejected, expired and ended bookings, for reference. Nothing here needs action." },
+  { key: "closed", title: "Past and closed", hint: "Rejected, expired, cancelled and ended bookings, for reference. Nothing here needs action." },
 ];
 // Statuses that hold a venue: what retiring a venue lists as affected (venues.retire_venue).
 const BLOCKING_BOOKING_STATUSES = ["Pending", "Confirmed"];
@@ -374,6 +374,9 @@ document.addEventListener("alpine:init", () => {
         returned: "Clarification requested",
         approved: "Event request approved",
         rejected: "Event request rejected",
+        event_confirmed: "Event confirmed", // [SCRUM-66]
+        event_cancelled: "Event cancelled",
+        safety_returned: "Safety check returned",
         assigned_to_you: "Event assigned to you",
         reassigned_to_you: "Event reassigned to you",
         reassigned_away: "Event reassigned",
@@ -382,8 +385,8 @@ document.addEventListener("alpine:init", () => {
       }[notification?.kind] || "Workspace update";
     },
     notificationTone(notification) {
-      if (["booking_approved", "approved"].includes(notification?.kind)) return "success";
-      if (["booking_rejected", "rejected", "returned", "hold_expired"].includes(notification?.kind)) return "warning";
+      if (["booking_approved", "approved", "event_confirmed"].includes(notification?.kind)) return "success";
+      if (["booking_rejected", "rejected", "returned", "hold_expired", "event_cancelled", "safety_returned"].includes(notification?.kind)) return "warning";
       if (["booking_submitted", "assigned_to_you", "reassigned_to_you", "hold_warning"].includes(notification?.kind)) return "action";
       return "info";
     },
@@ -972,8 +975,11 @@ document.addEventListener("alpine:init", () => {
         editing: null, formMessage: null, retire: null, outcome: null,
       };
       const workspace = this.venueWorkspace;
-      if (workspace.busy) return;
+      // [SCRUM-101] A refresh already running may have read the list before a save or
+      // retire, so a request made meanwhile runs once that one ends instead of being lost.
+      if (workspace.busy) { workspace.refreshAgain = true; return; }
       workspace.busy = true;
+      workspace.refreshAgain = false;
       const recipient = this.user;
       try {
         const venues = await this.apiRequest("/venues", { inlineErrors: true });
@@ -998,6 +1004,8 @@ document.addEventListener("alpine:init", () => {
           ? response.data.map(booking => ({ ...booking, venue_name: venue.name })) : []);
       } finally {
         if (this.venueWorkspace === workspace) workspace.busy = false;
+        // In finally, so a failed older list still leads to the later refresh.
+        if (workspace.refreshAgain && this.user === recipient && this.venueWorkspace === workspace) await this.fetchVenueWorkspace();
       }
     },
 
@@ -1300,6 +1308,8 @@ document.addEventListener("alpine:init", () => {
 
     canBookEvent(event) {
       if (!event) return false;
+      // [SCRUM-102] The backend refuses bookings on a closed event, so don't offer one.
+      if (event.status === "Cancelled" || event.status === "Completed") return false;
       const role = this.normalizeRole(this.user?.role);
       if (role === "Event Coordinator Lead") return true;
       if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
@@ -1370,6 +1380,7 @@ document.addEventListener("alpine:init", () => {
       this.bookingDialog = {
         event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
         warningInputs: {}, warningErrors: {}, warningInvalid: {}, warningBusy: null,
+        cancelAsk: null, cancelBusy: false, cancelError: "", // [SCRUM-83]
         form: { venue_id: "", booking_start: "", booking_end: "" },
         error: "",
         search: {
@@ -1615,7 +1626,8 @@ document.addEventListener("alpine:init", () => {
 
     closeVenueCalendar() { this.venueCalendar = null; },
 
-    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length); },
+    // [SCRUM-82] A day with an unavailable period isn't free, even with no bookings.
+    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length) && !day?.unavailable?.length; },
 
     calendarHours(day) {
       // AC2: the venue's recorded hours, or an honest "not recorded".
@@ -1638,6 +1650,57 @@ document.addEventListener("alpine:init", () => {
     },
 
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
+
+    // [SCRUM-82] AC6: the flagged booking's times, in Singapore time, ready for the
+    // search and the request form below. The Coordinator still chooses the venue.
+    startReplacementRequest(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog) return;
+      const toInput = value => new Date(this.parseUtc(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
+      const start = toInput(booking.booking_start);
+      const end = toInput(booking.booking_end);
+      Object.assign(dialog.form, { booking_start: start, booking_end: end });
+      Object.assign(dialog.search, { start_time: start, end_time: end, available_only: true });
+      document.getElementById?.("search-start")?.focus();
+    },
+
+    // [SCRUM-83] Cancel one booking. Only a booking still holding the venue can be cancelled; the others stay as they are.
+    canCancelBooking(booking) {
+      const dialog = this.bookingDialog;
+      return !!dialog && this.canBookEvent(dialog.event) && BLOCKING_BOOKING_STATUSES.includes(booking.status) && !this.bookingEnded(booking);
+    },
+    // [SCRUM-83] Attendees see an event's first Confirmed booking as its venue, so the last one going leaves them none.
+    cancelLeavesNoVenue(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.event.status !== "Confirmed" || booking.status !== "Confirmed") return false;
+      return !dialog.bookings.some(other => other.id !== booking.id && other.status === "Confirmed");
+    },
+    askCancelBooking(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.cancelBusy) return;
+      dialog.cancelAsk = booking.id;
+      dialog.cancelError = "";
+    },
+    keepBooking() { if (this.bookingDialog && !this.bookingDialog.cancelBusy) this.bookingDialog.cancelAsk = null; },
+    async confirmCancelBooking(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.cancelBusy || !this.canCancelBooking(booking)) return;
+      dialog.cancelBusy = true;
+      this.clearAlert();
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${booking.id}/cancel`, { method: "POST", inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) this.showAlert(`Booking at ${booking.venue_name} cancelled. The event's other bookings are unchanged.`, "success");
+        else dialog.cancelError = this.dialogErrorMessage(response);
+        // Refresh after a refusal too: it usually means the list on screen is out of date.
+        const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
+        if (this.user === recipient && this.bookingDialog === dialog && bookings.ok && Array.isArray(bookings.data)) dialog.bookings = bookings.data;
+      } finally {
+        dialog.cancelBusy = false;
+        dialog.cancelAsk = null;
+      }
+    },
 
     async submitBooking() {
       const dialog = this.bookingDialog;
@@ -1945,9 +2008,9 @@ document.addEventListener("alpine:init", () => {
     },
     // [SCRUM-94 | Renee] Update routine information during planning (PATCH /events/{id}, SCRUM-28).
     // AC1, AC4: only the event's Organiser or its assigned Coordinator, and only while it is
-    // Approved, Planning or Confirmed (the backend's PLANNING_STATUSES).
+    // Approved, Planning, Safety Review or Confirmed (the backend's PLANNING_STATUSES).
     canEditRoutine(event) {
-      if (!event || !["Approved", "Planning", "Confirmed"].includes(event.status)) return false;
+      if (!event || !["Approved", "Planning", "Safety Review", "Confirmed"].includes(event.status)) return false;
       const role = this.normalizeRole(this.user?.role);
       const me = Number(this.user?.user_id);
       return (role === "Organiser" && Number(event.organiser_id) === me)

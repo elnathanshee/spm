@@ -15,12 +15,15 @@ else suitable. Missing information is never treated as a pass.
 Advisory only: nothing is booked or changed. Venue Staff keep the final say.
 """
 
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from .arrangements import event_window  # [SCRUM-82]
 from .auth import get_current_user
+from .booking_rules import period_text, windows_overlap  # [SCRUM-82]
 from .database import get_db
 from .models import Event, User, Venue
 from .venues import deserialize_list
@@ -101,6 +104,19 @@ def facilities_check(venue_facilities: Optional[List[str]], required: Optional[L
     return _check("facilities", PASS, "has all required facilities: " + ", ".join(required))
 
 
+def availability_check(venue: Venue, window: Optional[Tuple[datetime, datetime]]) -> Optional[dict]:
+    """[SCRUM-82] A failed check when an unavailability period overlaps the
+    event's window, naming the reason. None otherwise: a venue with no such
+    period keeps its usual two checks."""
+    if window is None:
+        return None
+    overlaps = [p for p in venue.unavailable_periods if windows_overlap(window[0], window[1], p.start_at, p.end_at)]
+    if not overlaps:
+        return None
+    period = min(overlaps, key=lambda p: p.start_at)
+    return _check("availability", FAIL, f"unavailable ({period.reason}) from {period_text(period)}")
+
+
 def overall_suitability(checks: List[dict]) -> str:
     results = [c["result"] for c in checks]
     if FAIL in results:
@@ -142,6 +158,7 @@ def venue_suitability(
 
     required = parse_required_facilities(facilities)
     venues = db.query(Venue).filter(Venue.is_active == True).order_by(Venue.name.asc()).all()
+    window = event_window(event)  # [SCRUM-82]
 
     results = []
     for venue in venues:
@@ -150,6 +167,9 @@ def venue_suitability(
             capacity_check(venue.capacity, event.expected_attendance),
             facilities_check(venue_facilities, required),
         ]
+        unavailable = availability_check(venue, window)  # [SCRUM-82]
+        if unavailable:
+            checks.append(unavailable)
         results.append(
             {
                 "id": venue.id,

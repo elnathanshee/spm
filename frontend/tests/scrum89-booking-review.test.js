@@ -171,7 +171,7 @@ test("TC-8909 booking list has an Expired filter with a count and an Expired bad
   assert.notEqual(expiredClass, state.bookingStatusClass("Pending"));
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-  assert.match(source, /const BOOKING_FILTERS = \["All", "Pending", "Confirmed", "Rejected", "Expired"\];/);
+  assert.match(source, /const BOOKING_FILTERS = \["All", "Pending", "Confirmed", "Rejected", "Expired", "Cancelled"\];/); // [SCRUM-83] Cancelled added
   assert.match(html, /<div class="list-controls list-controls-inset" x-data="\{ key: 'bookings' \}">/);
 });
 
