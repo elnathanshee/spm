@@ -579,3 +579,70 @@ def test_tc4711_my_registrations_are_for_attendees_only(client, db, users, usern
     assert client.get("/registrations/mine").status_code == 403
     assert withdraw(client, event).status_code == 403
     assert [r.status for r in rows_for(db, event)] == ["registered"]
+
+
+# --- SCRUM-48: the Organiser and assigned Coordinator see registrations ------
+
+
+def test_tc4801_organiser_sees_who_registered_and_the_counts(client, db, users):
+    """TC-4801: the event's Organiser sees each Attendee, their status and the counts, with withdrawn rows kept as history."""
+    event = make_event(db, users, attendance=3, venues=[make_venue(db, capacity=50)])
+    add_registration(db, event, users["att_1"])
+    add_registration(db, event, users["att_2"], status="withdrawn")
+    login(client, "org_a")
+    response = client.get(f"/events/{event.id}/registrations")
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["capacity"], body["registered_count"], body["places_left"]) == (3, 1, 2)
+    assert [(row["attendee"], row["status"]) for row in body["registrations"]] == [("att_1", "registered"), ("att_2", "withdrawn")]
+    assert body["registrations"][1]["withdrawn_at"]
+    assert body["registrations"][0]["registered_at"]
+    assert "password" not in str(body)
+
+
+@pytest.mark.parametrize("username", ["coord_a", "lead"])
+def test_tc4802_assigned_coordinator_and_lead_see_registrations(client, db, users, username):
+    """TC-4802: the assigned Coordinator and the Lead get the same list."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, username)
+    response = client.get(f"/events/{event.id}/registrations")
+    assert response.status_code == 200
+    assert [row["attendee"] for row in response.json()["registrations"]] == ["att_1"]
+
+
+def test_tc4803_the_list_is_refused_to_everyone_else(client, db, users):
+    """TC-4803: another Organiser gets 404 (the event stays concealed); another Coordinator, Venue Staff, Technical Support and Attendees get 403."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, "org_b")
+    assert client.get(f"/events/{event.id}/registrations").status_code == 404
+    for username in ["coord_b", "venue", "tech", "att_1", "att_2"]:
+        login(client, username)
+        assert client.get(f"/events/{event.id}/registrations").status_code == 403, username
+
+
+def test_tc4804_an_unknown_event_is_404(client, db, users):
+    """TC-4804: a missing event answers 404."""
+    login(client, "lead")
+    assert client.get("/events/99999/registrations").status_code == 404
+
+
+def test_tc4805_an_empty_list_works_before_anything_is_set(client, db, users):
+    """TC-4805: an event with no setting and no registrations gives an empty list, not an error."""
+    event = make_event(db, users, status=PLANNING, enabled=None, attendance=None)
+    login(client, "org_a")
+    body = client.get(f"/events/{event.id}/registrations").json()
+    assert body["registrations"] == []
+    assert (body["capacity"], body["registered_count"], body["places_left"]) == (None, 0, 0)
+
+
+def test_tc4806_people_still_holding_places_come_first(client, db, users):
+    """TC-4806: registered rows come before withdrawn ones, so a long history doesn't bury the live list."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"], status="withdrawn")
+    add_registration(db, event, users["att_2"])
+    add_registration(db, event, users["att_3"], status="withdrawn")
+    login(client, "coord_a")
+    body = client.get(f"/events/{event.id}/registrations").json()
+    assert [row["status"] for row in body["registrations"]] == ["registered", "withdrawn", "withdrawn"]
