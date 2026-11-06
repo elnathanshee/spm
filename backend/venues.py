@@ -15,12 +15,14 @@ from sqlalchemy.orm import Session, object_session
 
 from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
 from .registrations import tell_attendees_venue_changed  # [SCRUM-52]
+from .status import CANCELLED, COMPLETED
 from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
 from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck_venue_bookings  # [SCRUM-80 | Renee; GitHub #29]
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-95]
+from .booking_rules import unavailability_overlaps, unavailable_reason  # [SCRUM-82]
 from . import booking_rules  # [SCRUM-83] for booking_rules.utc_now(), so tests can set the clock in one place
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
@@ -202,11 +204,17 @@ def create_venue(
 
 @router.get("")
 def list_venues(
+    retired: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all active venues."""
-    venues = db.query(Venue).filter(Venue.is_active == True).order_by(Venue.name.asc()).all()
+    """List all active venues.
+
+    [SCRUM-100] retired=true lists the retired ones instead, for Venue Staff only:
+    their bookings still hold them, but nobody else should find or request them."""
+    if retired:
+        require_venue_staff(current_user)
+    venues = db.query(Venue).filter(Venue.is_active == (not retired)).order_by(Venue.name.asc()).all()
     return [venue_to_dict(v) for v in venues]
 
 
@@ -231,7 +239,14 @@ def check_venue_availability(
 
     [SCRUM-38 part 2] exclude_booking_id leaves one booking out, so an existing
     booking can be checked against the venue's other bookings (at approval).
+
+    [SCRUM-82] An unavailability period blocks the slot too, and is named first:
+    no change to the other bookings would free the venue.
     """
+    periods = unavailability_overlaps(venue, start_time, end_time)
+    if periods:
+        return False, unavailable_reason(periods[0])
+
     conflicts = find_conflicts(db, venue, start_time, end_time, exclude_booking_id=exclude_booking_id)
     if not conflicts:
         return True, None
@@ -345,9 +360,10 @@ def get_venue(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get venue by ID."""
-    venue = db.query(Venue).filter(Venue.id == venue_id, Venue.is_active == True).first()
-    if not venue:
+    """Get venue by ID. [SCRUM-100] Venue Staff can also open a retired one, to correct it."""
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    is_staff = (current_user.role or "").strip().lower() == "venue_staff"
+    if not venue or not (venue.is_active or is_staff):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Venue not found",
@@ -585,6 +601,12 @@ def submit_venue_booking_request(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Coordinators can book venues only for events assigned to them",
+        )
+    # [SCRUM-102] A Cancelled or Completed event must not take a venue from a live one.
+    if event.status in (CANCELLED, COMPLETED):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This event is {event.status}, so it can't book a venue.",
         )
 
     # [SCRUM-95] D7: stored in UTC, like hold times, so the expiry cap at the

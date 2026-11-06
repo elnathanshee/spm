@@ -154,6 +154,13 @@ def set_hold_expiry(
     the warning is due again for the new time."""
     booking = _get_booking_or_404(booking_id, db)
     _refuse_unless_live_hold(booking)
+    # [SCRUM-82] A slot the venue can't serve must not be held for longer.
+    periods = booking_rules.unavailability_overlaps(booking.venue, booking.booking_start, booking.booking_end)
+    if periods:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot change this hold: {booking_rules.unavailable_reason(periods[0])}",
+        )
 
     expires_at = booking_rules.to_naive_utc(payload.expires_at)
     now = booking_rules.utc_now()

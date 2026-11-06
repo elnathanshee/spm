@@ -14,7 +14,10 @@ from .venue_calendar import router as venue_calendar_router
 from .venue_holds import router as venue_holds_router, run_hold_checks  # [SCRUM-81 | Elnathan]
 from .venues import router as venues_router
 # [Sprint 5] B SCRUM-82 router import: insert directly below this line.
+from .venue_unavailability import router as venue_unavailability_router
 # [Sprint 5] C SCRUM-102 router import: insert directly below this line.
+from .lifecycle import router as lifecycle_router
+from .safety import router as safety_router
 # [Sprint 5] D SCRUM-41 router import: insert directly below this line.
 # [Sprint 5] E SCRUM-45 router import: insert directly below this line.
 from .registrations import router as registrations_router
@@ -54,7 +57,10 @@ app.include_router(venue_calendar_router)
 app.include_router(suitability_router)
 app.include_router(venue_holds_router, dependencies=HOLD_CHECKS)  # [SCRUM-81]
 # [Sprint 5] B SCRUM-82 include_router: insert directly below this line.
+app.include_router(venue_unavailability_router, dependencies=HOLD_CHECKS)
 # [Sprint 5] C SCRUM-102 include_router: insert directly below this line.
+app.include_router(lifecycle_router, dependencies=HOLD_CHECKS)
+app.include_router(safety_router)
 # [Sprint 5] D SCRUM-41 include_router: insert directly below this line.
 # [Sprint 5] E SCRUM-45 include_router: insert directly below this line.
 app.include_router(registrations_router)
