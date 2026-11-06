@@ -78,6 +78,11 @@ export function equipmentRequestActions() {
       return `${line.name} (${line.equipment_type}): ${line.available} available of ${line.total_quantity}, ${line.reserved} reserved, ${line.unavailable} unavailable`;
     },
 
+    chosenAvailability() {
+      const line = this.arrangement.availability.find(row => String(row.item_id) === String(this.arrangement.itemId));
+      return line ? this.availabilityLabel(line) : "";
+    },
+
     // ---- [SCRUM-44] Reserve and release
     heldLabel(held) {
       return `${held.quantity} of ${held.item_name}${held.released_at ? " (released)" : ""}`;
