@@ -22,11 +22,10 @@ DoD 15 - Errors are handled and surfaced, not swallowed. A refused action tells
 Test case numbering starts at TC-101 so it does not collide with TC-001..TC-006
 in test_spine.py.
 
-Note on AC2: the notification stories (SCRUM-51, SCRUM-63) were dropped from
-Sprint 1, so amendments do not notify the Coordinator. The amendment writes an
-EventStatusHistory row instead, which is an audit trail rather than a
-notification. TC-104 evidences that audit row. The "is notified" half of AC2 is
-not satisfied by this code.
+Note on AC2: the amendment writes an EventStatusHistory row, which is an audit
+trail, and TC-104 evidences that row. SCRUM-67 added the notice to the assigned
+Coordinator, so the "is notified" half of AC2 is tested in
+test_scrum67_change_notifications.py.
 """
 
 import os

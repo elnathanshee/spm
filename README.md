@@ -14,6 +14,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
+- **Change requests:** after submission, the Organiser asks for a change with a reason, and the assigned Coordinator approves or rejects it. An approved important change flags the event's venue bookings and equipment for another look. See [Change requests](#change-requests-sprint-5).
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
 
 ## Team — Machu Picchu
@@ -188,6 +189,15 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 <!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
+### Change requests (Sprint 5)
+
+- **Organiser:** opens the event's detail dialog and uses the Change requests panel. They can ask to change the date and time, expected attendance, venue requirements, equipment requirements or description, with a reason. They can ask when the event is Submitted, Under Review, Approved, Planning, Safety Review or Confirmed, and a Coordinator is assigned. One request can be pending per event. The event doesn't change until the request is decided.
+- **Assigned Coordinator:** sees the pending request in the same panel, and approves or rejects it with a reason. Rejecting changes nothing on the event. Approving applies the fields and writes the event's history. The event's status stays as it is, even when it's Confirmed.
+- **Routine or important:** date and time, attendance, and venue and equipment requirements are important (`SIGNIFICANT_FIELDS` in `backend/events.py`). Everything else is routine. An important change flags the event's venue bookings and equipment for another look, and nothing is cancelled or deleted. A routine change flags nothing.
+- **Other ways to edit:** `PATCH /events/{id}` takes routine fields only, and its refusal points to a change request. `POST /events/{id}/amend` reports `change_type` (`routine` or `important`) and `arrangements_flagged`.
+- **Notices:** the assigned Coordinator is told when a request is amended and when a change request is raised, with the fields. The Organiser and the Coordinator are both told the outcome, with the reason.
+- **Endpoints:** `POST` and `GET /events/{id}/change-requests`, and `POST /events/{id}/change-requests/{change_request_id}/decision` with `decision` (`approve` or `reject`) and `reason`. The decision's response includes `arrangements_flagged`.
+
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
 
 ## Developer Standards & SOP
