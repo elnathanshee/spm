@@ -8,8 +8,55 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+import { NAVIGATION, normalizeRole, resolveRolePath } from "../src/rbac.js";
+import { resetSignedOutState } from "../src/session-state.js";
 
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+
+// Loads app.js with a fixed clock (when `now` is given), address and document.
+function app({ now, hostname = "localhost", document: page = {} } = {}) {
+  let factory;
+  const context = {
+    NAVIGATION,
+    normalizeRoleName: normalizeRole,
+    resolveRolePath,
+    resetSignedOutState,
+    requestedFrontendPath: () => null,
+    document: { addEventListener: (_, fn) => fn(), ...page },
+    Alpine: { data: (_, fn) => (factory = fn) },
+    window: { location: { hostname }, setInterval: () => 0 },
+    fetch: async () => { throw new TypeError("Failed to fetch"); },
+  };
+  if (now) {
+    context.Date = class extends Date {
+      constructor(...args) { if (args.length) super(...args); else super(now); }
+      static now() { return Date.parse(now); }
+    };
+  }
+  vm.runInNewContext(
+    source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""),
+    context,
+  );
+  const state = factory();
+  state.user = { user_id: 9, username: "coord1", role: "Coordinator" };
+  state.apiRequest = async () => ({ ok: true, status: 200, data: { days: [] } });
+  return state;
+}
+
+// The browser's own zone must not matter, so run these as a user far from Singapore.
+async function inNewYork(check) {
+  const original = process.env.TZ;
+  process.env.TZ = "America/New_York";
+  try {
+    await check();
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
+}
 
 // ---------------------------------------------------------- calendar on phones
 
@@ -28,4 +75,25 @@ test("TC-9909 busy blocks lose the list's bullets and its two-column grid, and l
   assert.match(styles, /\.booking-list \.calendar-blocks\{[^}]*padding:0/);
   assert.match(styles, /\.booking-list \.calendar-blocks li\{[^}]*display:block/);
   assert.match(styles, /\.booking-list \.calendar-blocks li\{[^}]*overflow-wrap:anywhere/);
+});
+
+// ---------------------------------------------------------- Singapore days
+
+test("TC-9913 the default range starts on today's Singapore date, whatever the browser's zone", async () => {
+  await inNewYork(async () => {
+    // 20:00 UTC on 1 March is already 04:00 on 2 March in Singapore, and 15:00 on 1 March in New York.
+    const state = app({ now: "2099-03-01T20:00:00Z" });
+    await state.openVenueCalendar({ id: 3, name: "Grand Hall" });
+    assert.equal(state.venueCalendar.from, "2099-03-02");
+    assert.equal(state.venueCalendar.to, "2099-03-08", "seven days, today included");
+  });
+});
+
+test("TC-9914 a calendar day's label is day-first and names the date asked for, whatever the browser's zone", async () => {
+  await inNewYork(() => {
+    const label = app().calendarDayLabel("2099-03-09");
+    assert.match(label, /^[A-Z][a-z]{2}, 9 Mar$/);
+  });
+  assert.equal(app().calendarDayLabel("not a date"), "not a date", "an unreadable date is shown as sent");
+  assert.equal(app().calendarDayLabel(""), "Not set");
 });
