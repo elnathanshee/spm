@@ -89,7 +89,8 @@ class EquipmentRequestCreate(BaseModel):
     """
 
     equipment_type: str
-    quantity: int = Field(..., gt=0, description="How many are needed. A whole number above zero.")
+    # [SCRUM-99] The upper limit is what the Integer column holds. Above it the database refused the insert, a 500.
+    quantity: int = Field(..., gt=0, le=2147483647, description="How many are needed. A whole number above zero.")
     technical_requirements: Optional[str] = None
 
     @field_validator("equipment_type")

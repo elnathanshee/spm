@@ -142,7 +142,7 @@ def test_tc9918_the_largest_equipment_quantity_is_accepted(client, event):
     response = record_equipment(client, event, 2147483647)
 
     assert response.status_code == 201
-    assert response.json()["quantity"] == 2147483647
+    assert response.json()["equipment_request"]["quantity"] == 2147483647
 
 
 @pytest.mark.parametrize("quantity", [2147483648, 10**30])

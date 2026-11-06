@@ -1851,6 +1851,7 @@ document.addEventListener("alpine:init", () => {
       const quantity = String(form.quantity ?? "").trim();
       if (!quantity) errors.quantity = "Enter how many are needed";
       else if (!/^\d+$/.test(quantity) || Number(quantity) < 1) errors.quantity = "Enter a whole number, 1 or more";
+      else if (Number(quantity) > 2147483647) errors.quantity = "Enter a quantity of 2,147,483,647 or fewer"; // [SCRUM-99] the same limit as the API
       return errors;
     },
     async addEquipment() {
