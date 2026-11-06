@@ -253,6 +253,7 @@ test("TC-5220 the three notices read as titled event updates for an Attendee, wi
   assert.equal(state.notificationTitle({ kind: "registered_event_cancelled" }), "Event cancelled");
   assert.equal(state.notificationTitle({ kind: "registered_event_changed" }), "Event changed");
   assert.equal(state.notificationTitle({ kind: "registered_details_changed" }), "Event details updated");
+  assert.equal(state.notificationTitle({ kind: "registered_venue_changed" }), "Event venue updated");
   state.user = { role: "Attendee" };
   assert.equal(state.notificationTarget({ id: 1, event_id: 7, booking_id: null, kind: "registered_event_changed" }), null);
 });

@@ -30,6 +30,7 @@ ALREADY_REGISTERED_MESSAGE = "You're already registered for this event."
 KIND_EVENT_CANCELLED = "registered_event_cancelled"
 KIND_EVENT_CHANGED = "registered_event_changed"
 KIND_DETAILS_CHANGED = "registered_details_changed"
+KIND_VENUE_CHANGED = "registered_venue_changed"
 # The routine-edit fields an Attendee can see in attendee_event_view.
 ATTENDEE_VISIBLE_FIELDS = {"title", "description"}
 
@@ -375,3 +376,9 @@ def _tell_attendees_details_changed(db, event, actor, changed_fields):
         return
     message = f'The details of "{event.title}", which you registered for, have been updated.'
     _notify_registered(db, event, KIND_DETAILS_CHANGED, message)
+
+
+def tell_attendees_venue_changed(db, event):
+    """[SCRUM-52] A Confirmed booking sets the venue and the places an Attendee sees. The caller commits."""
+    message = f'The venue for "{event.title}", which you registered for, has changed. Please check the venue and places.'
+    _notify_registered(db, event, KIND_VENUE_CHANGED, message)

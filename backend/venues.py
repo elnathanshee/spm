@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
+from .registrations import tell_attendees_venue_changed  # [SCRUM-52]
 from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
 from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck_venue_bookings  # [SCRUM-80 | Renee; GitHub #29]
@@ -752,6 +753,8 @@ def _decide_booking(
     try:
         db.flush()  # The unique decision constraint also arbitrates concurrent decisions.
         notify_booking(db, booking, KIND_BOOKING_APPROVED if decision == "Approved" else KIND_BOOKING_REJECTED)
+        if approving:
+            tell_attendees_venue_changed(db, booking.event)  # [SCRUM-52]
         db.commit()
     except IntegrityError:
         db.rollback()

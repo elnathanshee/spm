@@ -374,6 +374,7 @@ document.addEventListener("alpine:init", () => {
         registered_event_cancelled: "Event cancelled",
         registered_event_changed: "Event changed",
         registered_details_changed: "Event details updated",
+        registered_venue_changed: "Event venue updated",
         submitted: "Event request submitted",
         returned: "Clarification requested",
         approved: "Event request approved",
