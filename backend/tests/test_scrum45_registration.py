@@ -229,3 +229,196 @@ def test_tc4509_soonest_event_first(client, db, users):
     db.commit()
     login(client, "att_1")
     assert [row["title"] for row in listed(client)] == ["Sooner", "Later", "Undated"]
+
+
+# --- SCRUM-46: register, within capacity, no duplicates -----------------------
+
+
+def register(client, event):
+    return client.post(f"/registrations/events/{event.id}")
+
+
+def rows_for(db, event):
+    db.expire_all()
+    return db.query(EventRegistration).filter(EventRegistration.event_id == event.id).all()
+
+
+def test_tc4601_attendee_registers(client, db, users):
+    """TC-4601: registering on an open event stores a row and shows my status and one place fewer."""
+    event = make_event(db, users, attendance=10, venues=[make_venue(db, capacity=50)])
+    login(client, "att_1")
+    response = register(client, event)
+    assert response.status_code == 201
+    assert response.json()["my_status"] == "registered"
+    assert response.json()["places_left"] == 9
+    assert response.json()["message"]
+    assert_no_internal_detail(response.json())
+    assert [(r.attendee_id, r.status, r.withdrawn_at) for r in rows_for(db, event)] == [(users["att_1"].id, "registered", None)]
+
+
+@pytest.mark.parametrize("attendance,capacity,expected", [(10, 50, 10), (50, 10, 10), (20, 20, 20)])
+def test_tc4602_capacity_is_the_lower_of_attendance_and_venue(client, db, users, attendance, capacity, expected):
+    """TC-4602: expected attendance and venue capacity, whichever is lower, whichever way round."""
+    make_event(db, users, attendance=attendance, venues=[make_venue(db, capacity=capacity)])
+    login(client, "att_1")
+    assert listed(client)[0]["places_left"] == expected
+
+
+def test_tc4603_several_venues_use_the_smallest(client, db, users):
+    """TC-4603: decided on the safe side: with several Confirmed venues the smallest capacity decides."""
+    make_event(db, users, attendance=100, venues=[make_venue(db, "Big", 80), make_venue(db, "Small", 30), make_venue(db, "Mid", 60)])
+    login(client, "att_1")
+    assert listed(client)[0]["places_left"] == 30
+
+
+def test_tc4604_only_confirmed_bookings_count_towards_capacity(client, db, users):
+    """TC-4604: a smaller venue that is only pending or rejected does not lower the limit."""
+    event = make_event(db, users, attendance=100, venues=[make_venue(db, "Real", 40)])
+    book(db, event, make_venue(db, "Tiny pending", 2), status="Pending", day=1)
+    book(db, event, make_venue(db, "Tiny rejected", 3), status="Rejected", day=2)
+    db.commit()
+    login(client, "att_1")
+    assert listed(client)[0]["places_left"] == 40
+
+
+def test_tc4605_one_number_known_is_enough(client, db, users):
+    """TC-4605: with no attendance figure the venue decides; with no Confirmed venue the attendance decides."""
+    make_event(db, users, title="No attendance", attendance=None, venues=[make_venue(db, capacity=7)])
+    make_event(db, users, title="No venue", attendance=9)
+    login(client, "att_1")
+    assert {row["title"]: row["places_left"] for row in listed(client)} == {"No attendance": 7, "No venue": 9}
+
+
+def test_tc4606_no_number_known_refuses_with_a_sentence(client, db, users):
+    """TC-4606: a Confirmed event with neither number has no known limit, so nobody can register yet."""
+    event = make_event(db, users, attendance=None)
+    login(client, "att_1")
+    assert listed(client)[0]["places_left"] == 0
+    response = register(client, event)
+    assert response.status_code == 409
+    assert "number of places" in response.json()["detail"]
+    assert rows_for(db, event) == []
+
+
+def test_tc4607_the_last_place_can_be_taken_and_then_it_is_full(client, db, users):
+    """TC-4607: the boundary: the last place succeeds, the next person gets a 409 with a sentence."""
+    event = make_event(db, users, attendance=2)
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    login(client, "att_2")
+    response = register(client, event)
+    assert response.status_code == 201
+    assert response.json()["places_left"] == 0
+    login(client, "att_3")
+    response = register(client, event)
+    assert response.status_code == 409
+    assert "full" in response.json()["detail"]
+    assert listed(client)[0]["places_left"] == 0
+    assert len(rows_for(db, event)) == 2
+
+
+def test_tc4608_registering_twice_is_refused(client, db, users):
+    """TC-4608: a second try is a 409, and takes no second place."""
+    event = make_event(db, users, attendance=5)
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    response = register(client, event)
+    assert response.status_code == 409
+    assert "already registered" in response.json()["detail"]
+    assert len(rows_for(db, event)) == 1
+    assert listed(client)[0]["places_left"] == 4
+
+
+def test_tc4609_a_full_event_tells_a_registered_attendee_they_are_registered(client, db, users):
+    """TC-4609: someone already holding a place on a full event hears that, not that it is full."""
+    event = make_event(db, users, attendance=1)
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    assert "already registered" in register(client, event).json()["detail"]
+
+
+def test_tc4610_the_database_refuses_a_duplicate_and_it_becomes_a_409(client, db, users, monkeypatch):
+    """TC-4610: the race: both requests pass the check, the unique constraint stops the second, and the user gets a 409."""
+    from backend import registrations
+
+    event = make_event(db, users, attendance=5)
+    add_registration(db, event, users["att_1"])
+    monkeypatch.setattr(registrations, "_find_registration", lambda *args: None)
+    login(client, "att_1")
+    response = register(client, event)
+    assert response.status_code == 409
+    assert "already registered" in response.json()["detail"]
+    assert len(rows_for(db, event)) == 1
+
+
+def test_tc4611_the_setting_row_is_locked_while_counting(client, db, users, monkeypatch):
+    """TC-4611: registering asks for a lock on the setting row. SQLite ignores the lock itself, so this checks the request."""
+    from sqlalchemy.orm import Query
+
+    seen = []
+    real = Query.with_for_update
+
+    def spy(self, *args, **kwargs):
+        seen.append(self.column_descriptions[0]["entity"])
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Query, "with_for_update", spy)
+    event = make_event(db, users, attendance=5)
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    assert seen == [EventRegistrationSetting]
+
+
+@pytest.mark.parametrize("status", ["Draft", PLANNING, APPROVED, "Safety Review", CANCELLED, COMPLETED])
+def test_tc4612_setting_on_but_not_confirmed_refuses(client, db, users, status):
+    """TC-4612: the setting can be on early, but registering waits for Confirmed. Same answer as an unknown event, so nothing is revealed."""
+    event = make_event(db, users, status=status)
+    login(client, "att_1")
+    response = register(client, event)
+    assert response.status_code == 404
+    assert response.json()["detail"] == client.post("/registrations/events/99999").json()["detail"]
+    assert "open for registration" in response.json()["detail"]
+    assert rows_for(db, event) == []
+
+
+def test_tc4613_refused_again_when_the_event_stops_being_confirmed(client, db, users):
+    """TC-4613: open, then back to Planning: refused, and open again once Confirmed again."""
+    event = make_event(db, users)
+    login(client, "att_1")
+    assert register(client, event).status_code == 201
+    event.status = PLANNING
+    db.commit()
+    login(client, "att_2")
+    assert register(client, event).status_code == 404
+    assert listed(client) == []
+    event.status = CONFIRMED
+    db.commit()
+    assert register(client, event).status_code == 201
+
+
+@pytest.mark.parametrize("enabled", [False, None])
+def test_tc4614_setting_off_refuses(client, db, users, enabled):
+    """TC-4614: a Confirmed event with registration off, or never set, refuses."""
+    event = make_event(db, users, enabled=enabled)
+    login(client, "att_1")
+    assert register(client, event).status_code == 404
+
+
+@pytest.mark.parametrize("username", ["org_a", "coord_a", "lead", "venue", "tech"])
+def test_tc4615_only_attendees_register(client, db, users, username):
+    """TC-4615: other roles get 403 and no row is written."""
+    event = make_event(db, users)
+    login(client, username)
+    assert register(client, event).status_code == 403
+    assert rows_for(db, event) == []
+
+
+def test_tc4616_a_list_shows_my_status(client, db, users):
+    """TC-4616: my status in the open list is mine, not someone else's."""
+    event = make_event(db, users, attendance=5)
+    add_registration(db, event, users["att_1"])
+    login(client, "att_1")
+    assert listed(client)[0]["my_status"] == "registered"
+    login(client, "att_2")
+    assert listed(client)[0]["my_status"] is None
+    assert listed(client)[0]["places_left"] == 4
