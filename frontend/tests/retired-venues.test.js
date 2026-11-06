@@ -69,9 +69,11 @@ test("TC-10037 the panel is in the Venue Staff workspace, offers a correction an
   assert.match(MAIN, /Alpine\.data\("retiredVenues", retiredVenues\);/);
 });
 
-test("TC-10038 Correct opens the edit form and moves focus to it, so the press has a visible result", async () => {
+test("TC-10038 Correct opens the edit form and moves focus to it, so the press has a visible result", async t => {
   const state = panel({});
   const input = { focused: 0, focus() { this.focused += 1; } };
+  // All test files share one process, so the stub must not outlive this test.
+  t.after(() => { delete globalThis.document; });
   globalThis.document = { getElementById: id => (id === "venue-name" ? input : null) };
   state.$nextTick = callback => callback();
   state.venueWorkspace = { editing: null };
@@ -83,7 +85,6 @@ test("TC-10038 Correct opens the edit form and moves focus to it, so the press h
   state.openVenueEdit = async () => { state.venueWorkspace.editing = null; };
   await state.correct(OLD_STORE);
   assert.equal(input.focused, 1);
-  delete globalThis.document;
 });
 
 test("TC-10039 the Correct button uses it, and the panel reloads when the booking dialog closes", () => {
