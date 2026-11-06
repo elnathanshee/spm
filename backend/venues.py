@@ -831,6 +831,9 @@ def cancel_booking(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"This booking no longer holds the venue, so it can't be cancelled (status: {shown_status}).",
         )
+    # [SCRUM-52] Only a Confirmed booking was ever shown to Attendees.
+    if booking.status == "Confirmed":
+        tell_attendees_venue_changed(db, booking.event)
     booking.status = "Cancelled"
     db.commit()
     db.refresh(booking)
