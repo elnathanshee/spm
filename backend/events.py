@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
+from . import event_hooks  # [Sprint 5]
 from .auth import get_current_user
 from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
@@ -848,6 +849,7 @@ def update_event_routine_info(
         actor_id=current_user.id,
         reason=f"Updated: {', '.join(changed_fields)}",
     ))
+    event_hooks.details_changed(db, event, current_user, changed_fields)  # [Sprint 5] SCRUM-52
     db.commit()
     db.refresh(event)
 

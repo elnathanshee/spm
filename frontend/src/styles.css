@@ -457,3 +457,10 @@
 .equipment-form legend{padding:0}
 .equipment-form-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(7rem,1fr);gap:var(--space-4)}
 @media(max-width:640px){.equipment-form-grid{grid-template-columns:1fr}}
+/* [Sprint 5] B SCRUM-82 styles: insert directly below this line. */
+/* [Sprint 5] C SCRUM-102 styles: insert directly below this line. */
+/* [Sprint 5] D SCRUM-41 styles: insert directly below this line. */
+/* [Sprint 5] E SCRUM-45 styles: insert directly below this line. */
+/* [Sprint 5] F SCRUM-49 styles: insert directly below this line. */
+/* [Sprint 5] G SCRUM-85 styles: insert directly below this line. */
+/* [Sprint 5] H SCRUM-99 styles: insert directly below this line. */

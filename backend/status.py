@@ -7,6 +7,7 @@ RETURNED = "Returned" #[NEW] 10th status
 
 # Later sprints vocabulary
 PLANNING = "Planning"
+SAFETY_REVIEW = "Safety Review"  # [SCRUM-102] the Operational Safety Check
 CONFIRMED = "Confirmed"
 COMPLETED = "Completed"
 CANCELLED = "Cancelled"

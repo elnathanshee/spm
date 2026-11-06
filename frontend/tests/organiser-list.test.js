@@ -37,12 +37,12 @@ const row = (id, status, extra = {}) => ({ id, title: `Event ${id}`, purpose: ""
 test("TC-10131 each status has its own section, the ones needing the Organiser first; empty sections are hidden", () => {
   const state = app();
   const statuses = [...readFileSync(new URL("../../backend/status.py", import.meta.url), "utf8").matchAll(/=\s*"([^"]+)"/g)].map(match => match[1]);
-  assert.equal(statuses.length, 10);
-  state.events = [...statuses.map((status, index) => row(index + 1, status)), row(11, "Mystery")];
+  assert.equal(statuses.length, 11);
+  state.events = [...statuses.map((status, index) => row(index + 1, status)), row(12, "Mystery")];
   const groups = plain(state.organiserGroups());
-  assert.deepEqual(groups.map(group => group.label), ["Returned for clarification", "Drafts", "Submitted", "Under review", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled", "Other statuses"]);
+  assert.deepEqual(groups.map(group => group.label), ["Returned for clarification", "Drafts", "Submitted", "Under review", "Approved", "Planning", "Safety review", "Confirmed", "Rejected", "Completed", "Cancelled", "Other statuses"]);
   assert.ok(groups.every(group => group.events.length === 1 && group.statuses.length <= 1), "one status per section");
-  assert.deepEqual(groups.map(group => group.events[0].status), ["Returned", "Draft", "Submitted", "Under Review", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled", "Mystery"]);
+  assert.deepEqual(groups.map(group => group.events[0].status), ["Returned", "Draft", "Submitted", "Under Review", "Approved", "Planning", "Safety Review", "Confirmed", "Rejected", "Completed", "Cancelled", "Mystery"]);
   assert.equal(groups.flatMap(group => group.events).length, state.events.length, "no request disappears");
   state.events = [row(1, "Submitted")];
   assert.deepEqual(plain(state.organiserGroups()).map(group => group.key), ["submitted"]);

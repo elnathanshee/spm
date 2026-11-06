@@ -28,7 +28,7 @@ const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
 // statuses: booking_rules and venues). The label is always the status itself.
 const STATUS_TONES = {
   Draft: "neutral", Submitted: "waiting", "Under Review": "info", Returned: "attention",
-  Approved: "success", Rejected: "danger", Planning: "info", Confirmed: "success",
+  Approved: "success", Rejected: "danger", Planning: "info", "Safety Review": "waiting", Confirmed: "success",
   Completed: "neutral", Cancelled: "muted", Pending: "waiting", Tentative: "waiting", Expired: "muted",
 };
 
@@ -60,6 +60,7 @@ const ORGANISER_GROUPS = [
   { key: "under-review", label: "Under review", description: "A Coordinator is reviewing it. You can still amend it.", statuses: ["Under Review"] },
   { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"] },
   { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"] },
+  { key: "safety-review", label: "Safety review", description: "The Safety Officer is checking the arrangements.", statuses: ["Safety Review"] },
   { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"] },
   { key: "rejected", label: "Rejected", description: "A rejected request can't be amended.", statuses: ["Rejected"] },
   { key: "completed", label: "Completed", description: "No further changes can be made.", statuses: ["Completed"] },
@@ -87,6 +88,7 @@ const COORDINATOR_GROUPS = [
   { key: "returned", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can edit and resubmit it.", statuses: ["Returned"], active: true },
   { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"], active: true },
   { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"], active: true },
+  { key: "safety-review", label: "Safety review", description: "The Safety Officer is checking the arrangements.", statuses: ["Safety Review"], active: true },
   { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"], active: true },
   { key: "rejected", label: "Rejected", description: "No further decisions can be made.", statuses: ["Rejected"], active: false },
   { key: "completed", label: "Completed", description: "No further decisions can be made.", statuses: ["Completed"], active: false },
@@ -109,15 +111,15 @@ const TECHNICAL_GROUPS = [
   { key: "past", label: "Past events", description: "Events before today, kept for reference." },
 ];
 // Event statuses in workflow order, for status filter chips
-const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"];
-const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
+const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Safety Review", "Confirmed", "Rejected", "Completed", "Cancelled"];
+const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired", "Cancelled"];
 // Venue Staff booking sections, in the order they need attention. Pending is the only status Venue Staff can
 // decide (venues._decide_booking), whatever its date; Confirmed bookings that haven't ended still hold the
 // venue; everything else is the record.
 const VENUE_BOOKING_GROUPS = [
   { key: "decide", title: "Needs a decision", hint: "Pending requests. Approve one, or reject it with a reason. A hold that runs out turns the request Expired, and it can't be decided." },
   { key: "upcoming", title: "Upcoming confirmed", hint: "Approved bookings that haven't ended. They hold the venue for their date and time." },
-  { key: "closed", title: "Past and closed", hint: "Rejected, expired and ended bookings, for reference. Nothing here needs action." },
+  { key: "closed", title: "Past and closed", hint: "Rejected, expired, cancelled and ended bookings, for reference. Nothing here needs action." },
 ];
 // Statuses that hold a venue: what retiring a venue lists as affected (venues.retire_venue).
 const BLOCKING_BOOKING_STATUSES = ["Pending", "Confirmed"];
@@ -1365,6 +1367,7 @@ document.addEventListener("alpine:init", () => {
       this.bookingDialog = {
         event, venues: [], bookings: [], busy: true, submitting: false, ready: false, bookingsLoaded: false,
         warningInputs: {}, warningErrors: {}, warningInvalid: {}, warningBusy: null,
+        cancelAsk: null, cancelBusy: false, cancelError: "", // [SCRUM-83]
         form: { venue_id: "", booking_start: "", booking_end: "" },
         error: "",
         search: {
@@ -1633,6 +1636,44 @@ document.addEventListener("alpine:init", () => {
     },
 
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
+
+    // [SCRUM-83] Cancel one booking. Only a booking still holding the venue can be cancelled; the others stay as they are.
+    canCancelBooking(booking) {
+      const dialog = this.bookingDialog;
+      return !!dialog && this.canBookEvent(dialog.event) && BLOCKING_BOOKING_STATUSES.includes(booking.status) && !this.bookingEnded(booking);
+    },
+    // [SCRUM-83] Attendees see an event's first Confirmed booking as its venue, so the last one going leaves them none.
+    cancelLeavesNoVenue(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.event.status !== "Confirmed" || booking.status !== "Confirmed") return false;
+      return !dialog.bookings.some(other => other.id !== booking.id && other.status === "Confirmed");
+    },
+    askCancelBooking(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.cancelBusy) return;
+      dialog.cancelAsk = booking.id;
+      dialog.cancelError = "";
+    },
+    keepBooking() { if (this.bookingDialog && !this.bookingDialog.cancelBusy) this.bookingDialog.cancelAsk = null; },
+    async confirmCancelBooking(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.cancelBusy || !this.canCancelBooking(booking)) return;
+      dialog.cancelBusy = true;
+      this.clearAlert();
+      const recipient = this.user;
+      try {
+        const response = await this.apiRequest(`/venues/bookings/${booking.id}/cancel`, { method: "POST", inlineErrors: true });
+        if (this.user !== recipient || this.bookingDialog !== dialog) return;
+        if (response.ok) this.showAlert(`Booking at ${booking.venue_name} cancelled. The event's other bookings are unchanged.`, "success");
+        else dialog.cancelError = this.dialogErrorMessage(response);
+        // Refresh after a refusal too: it usually means the list on screen is out of date.
+        const bookings = await this.apiRequest(`/events/${dialog.event.id}/bookings`);
+        if (this.user === recipient && this.bookingDialog === dialog && bookings.ok && Array.isArray(bookings.data)) dialog.bookings = bookings.data;
+      } finally {
+        dialog.cancelBusy = false;
+        dialog.cancelAsk = null;
+      }
+    },
 
     async submitBooking() {
       const dialog = this.bookingDialog;
