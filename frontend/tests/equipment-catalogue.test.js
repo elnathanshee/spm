@@ -228,7 +228,8 @@ test("TC-4127 closing the form returns focus to Add item, so keyboard users don'
   await state.init();
   let focused = 0;
   state.$nextTick = callback => callback();
-  state.$refs = { catalogueAdd: { focus: () => { focused += 1; } } };
+  // Like Alpine: $refs belongs to the clicked button, so it's empty once the form has gone.
+  Object.defineProperty(state, "$refs", { get: () => (state.catalogue.form ? { catalogueAdd: { focus: () => { focused += 1; } } } : undefined) });
   state.startCatalogueAdd();
   state.cancelCatalogueForm();
   assert.equal(focused, 1);
@@ -245,7 +246,8 @@ test("TC-4229 closing the unavailable units section returns focus to that item's
   const looked = [];
   let focused = 0;
   state.$nextTick = callback => callback();
-  state.$root = { querySelector: selector => { looked.push(selector); return { focus: () => { focused += 1; } }; } };
+  // Like Alpine: $root belongs to the clicked Close button, so it's empty once the section has gone.
+  Object.defineProperty(state, "$root", { get: () => (state.catalogue.periods ? { querySelector: selector => { looked.push(selector); return { focus: () => { focused += 1; } }; } } : undefined) });
   await state.openCataloguePeriods(microphone);
   state.closeCataloguePeriods();
   assert.equal(state.catalogue.periods, null);
@@ -255,11 +257,13 @@ test("TC-4229 closing the unavailable units section returns focus to that item's
 });
 
 test("TC-4230 removing a period moves focus to the section heading, because the Remove button goes away", async () => {
-  const { state } = component();
+  // Like Alpine: $refs belongs to the clicked Remove button, so it's empty once the row has gone.
+  let rowGone = false;
+  const { state } = component({ "DELETE /equipment/items/1/unavailability/5": () => { rowGone = true; return { ok: true, status: 200, data: {} }; } });
   await state.init();
   let focused = 0;
   state.$nextTick = callback => callback();
-  state.$refs = { periodsHeading: { focus: () => { focused += 1; } } };
+  Object.defineProperty(state, "$refs", { get: () => (rowGone ? undefined : { periodsHeading: { focus: () => { focused += 1; } } }) });
   await state.openCataloguePeriods(microphone);
   await state.removePeriod(period);
   assert.equal(focused, 1);

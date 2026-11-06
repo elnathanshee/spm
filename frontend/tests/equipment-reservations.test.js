@@ -210,11 +210,13 @@ test("TC-4430 a refused release reloads the list, so a stale row and its button 
 });
 
 test("TC-4431 releasing hands focus to the row's Reserve button, because the Release button goes away", async () => {
-  const { state } = actions();
+  // Like Alpine: $refs belongs to the clicked Release button, so it may be empty once the list reloads.
+  let reloaded = false;
+  const { state } = actions({ "DELETE /events/7/equipment-reservations/9": () => { reloaded = true; return { ok: true, status: 200, data: { reservation: held } }; } });
   const item = request();
   let focused = 0;
   state.$nextTick = callback => callback();
-  state.$refs = { reserveToggle: { focus: () => { focused += 1; } } };
+  Object.defineProperty(state, "$refs", { get: () => (reloaded ? undefined : { reserveToggle: { focus: () => { focused += 1; } } }) });
   state.startArrangement(item);
   await state.releaseReservation(item, held);
   assert.equal(focused, 1);
