@@ -20,6 +20,8 @@ from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-95]
+from .booking_rules import unavailability_overlaps, unavailable_reason  # [SCRUM-82]
+from . import booking_rules  # [SCRUM-83] for booking_rules.utc_now(), so tests can set the clock in one place
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
@@ -200,11 +202,17 @@ def create_venue(
 
 @router.get("")
 def list_venues(
+    retired: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all active venues."""
-    venues = db.query(Venue).filter(Venue.is_active == True).order_by(Venue.name.asc()).all()
+    """List all active venues.
+
+    [SCRUM-100] retired=true lists the retired ones instead, for Venue Staff only:
+    their bookings still hold them, but nobody else should find or request them."""
+    if retired:
+        require_venue_staff(current_user)
+    venues = db.query(Venue).filter(Venue.is_active == (not retired)).order_by(Venue.name.asc()).all()
     return [venue_to_dict(v) for v in venues]
 
 
@@ -229,7 +237,14 @@ def check_venue_availability(
 
     [SCRUM-38 part 2] exclude_booking_id leaves one booking out, so an existing
     booking can be checked against the venue's other bookings (at approval).
+
+    [SCRUM-82] An unavailability period blocks the slot too, and is named first:
+    no change to the other bookings would free the venue.
     """
+    periods = unavailability_overlaps(venue, start_time, end_time)
+    if periods:
+        return False, unavailable_reason(periods[0])
+
     conflicts = find_conflicts(db, venue, start_time, end_time, exclude_booking_id=exclude_booking_id)
     if not conflicts:
         return True, None
@@ -343,9 +358,10 @@ def get_venue(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get venue by ID."""
-    venue = db.query(Venue).filter(Venue.id == venue_id, Venue.is_active == True).first()
-    if not venue:
+    """Get venue by ID. [SCRUM-100] Venue Staff can also open a retired one, to correct it."""
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    is_staff = (current_user.role or "").strip().lower() == "venue_staff"
+    if not venue or not (venue.is_active or is_staff):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Venue not found",
@@ -795,3 +811,39 @@ def reject_booking(
 ):
     """SCRUM-36 AC3, AC4 & SCRUM-37 AC1, AC2: reject a Pending request with mandatory reason."""
     return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db, reason=action.reason)
+
+
+@router.post("/bookings/{booking_id}/cancel")
+def cancel_booking(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-83] Cancel one booking; the event's other bookings stay as they are.
+
+    "Cancelled" is not in BLOCKING_STATUSES, so the slot frees. The row stays as history.
+    """
+    role = (current_user.role or "").strip().lower()
+    # Role check before the lookup, so other roles learn nothing about the booking.
+    if role not in ("coordinator", "lead"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the assigned Coordinator or a Lead can cancel a booking",
+        )
+    booking = _get_booking_or_404(booking_id, db)
+    if role == "coordinator" and booking.event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can cancel bookings only for events assigned to them",
+        )
+    # [SCRUM-83] Rejected, expired, cancelled and ended bookings no longer hold the venue.
+    if not is_blocking(booking) or booking.booking_end <= booking_rules.utc_now():
+        shown_status = hold_fields(booking)["status"]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This booking no longer holds the venue, so it can't be cancelled (status: {shown_status}).",
+        )
+    booking.status = "Cancelled"
+    db.commit()
+    db.refresh(booking)
+    return {"message": "Booking cancelled", "booking": booking_detail_dict(booking)}

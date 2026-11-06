@@ -9,7 +9,9 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 ## What's new in v1.1.0 (Sprint 5)
 
 <!-- [Sprint 5] A SCRUM-83 multiple venues: one bullet directly below this line. -->
+- **Multiple venues for one event:** an event can hold several bookings, each checked on its own, and the Coordinator can now cancel one booking without affecting the others.
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: one bullet directly below this line. -->
+- **Venue unavailability:** Venue Staff record when a venue can't be used. Overlapping bookings are flagged, not cancelled, and the Coordinator is told to make other arrangements. Venue Staff can also see bookings at retired venues and correct a retired venue.
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
 <!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
@@ -185,7 +187,23 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Limitation:** if nobody uses the app between a hold's warning time and its expiry, only the expiry notice is shown.
 
 <!-- [Sprint 5] A SCRUM-83 multiple venues: its section directly below this line. -->
+### Multiple venues for one event (SCRUM-83)
+
+- **Coordinator or Lead:** open an event's Venue bookings dialog and use **Request another venue** to hold more than one venue, even for the same time. A clash at one venue refuses only that request.
+- **Each booking stands alone:** rejecting, expiring or cancelling one leaves the others as they were. `GET /events/{id}/bookings` lists all of them, and `GET /events/{id}/venue-suitability` checks each venue on its own.
+- **Cancel booking:** the event's assigned Coordinator or a Lead can cancel a booking from Booking history, after a confirm step. `POST /venues/bookings/{id}/cancel` sets the status to Cancelled. This frees the slot, and the row stays as history. A booking that no longer holds the venue (rejected, expired, already cancelled, or ended) returns 400. Cancelling a Confirmed event's last Confirmed booking is allowed: the confirm step warns that the event stays Confirmed and attendees will see no venue until another booking is confirmed.
+- **Venue Staff:** Cancelled bookings appear under Past and closed, with their own filter. Venue Staff get no notification when a booking is cancelled.
+
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: its section directly below this line. -->
+## Venue Unavailability (SCRUM-82, SCRUM-100, SCRUM-101)
+
+- **Venue Staff** record a period (start, end, reason such as maintenance, equipment failure, renovation or safety) in **Unavailable periods** on a venue's record in the catalogue, and can remove it. Endpoints: `GET` and `POST /venues/{id}/unavailability`, `DELETE /venues/{id}/unavailability/{period_id}`. Only Venue Staff can write. Coordinators and Leads can read.
+- **What a period blocks:** new requests, hold changes and approvals (409 with the reason), when it overlaps the window the booking occupies, setup and turnaround included. Periods that only touch that window don't clash. Search and the suitability check show the venue as unavailable with the reason, and the calendar lists the period in `unavailable_periods`.
+- **Bookings already made:** Pending and Confirmed bookings that overlap and haven't ended are flagged with the SCRUM-80 conflict flag. Nothing is cancelled, and the event's own information doesn't change. The flag is worked out when shown, so removing the period clears it.
+- **Coordinators** get one in-app notice per affected event per period. They see the flag in the event's **Venue bookings** dialog (`GET /events/{id}/bookings`), and **Request another venue** fills in the search and the request form with the flagged times.
+- **Retired venues (SCRUM-100):** the Venue Staff page lists them with their bookings, and **Correct** opens the usual edit form. `GET /venues?retired=true` is for Venue Staff only. Other roles still don't see retired venues.
+- **Catalogue refresh (SCRUM-101):** a refresh asked for while another is running now runs when that one ends, so a save or retire always shows in the catalogue.
+
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: its section directly below this line. -->
 <!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
