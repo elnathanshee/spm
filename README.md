@@ -16,6 +16,8 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
 
+- **Register and review follow-ups (SCRUM-99):** the CSV test register matches the Markdown again, and a test keeps them matched. Calendar days follow Singapore time, and PR #48's small fixes are in.
+
 ## Team — Machu Picchu
 
 | Name | Role |
@@ -189,6 +191,13 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
+
+### Test register and review follow-ups (SCRUM-99)
+
+- **Test register:** `docs/TEST_CASES.md` and `docs/TEST_CASES.csv` hold the same rows in the same order. `backend/tests/test_register_sync.py` fails if they drift apart, so add each new row to both files.
+- **Venue calendar (Coordinators, Leads, Venue Staff):** `GET /venues/{id}/calendar` now lists a booking under its Singapore day, so one at 07:00 in Singapore appears on that date rather than the day before. The dialog opens on today's Singapore date, shows dates day-first, stacks on phones, and returns focus to the button that opened it.
+- **Equipment (Coordinators, Leads):** `POST /events/{id}/equipment-requests` and the form refuse a quantity above 2,147,483,647, the most the database column holds, with a 422 rather than a 500.
+- **Everyone:** the "Start FastAPI" hint now shows only on `localhost` and `127.0.0.1`. The browser tab has an icon.
 
 ## Developer Standards & SOP
 
