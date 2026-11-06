@@ -1560,17 +1560,14 @@ document.addEventListener("alpine:init", () => {
       return ["Coordinator", "Event Coordinator Lead", "Venue Staff"].includes(this.normalizeRole(this.user?.role));
     },
 
-    calendarDateValue(date) {
-      const pad = number => String(number).padStart(2, "0");
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-    },
+    // [SCRUM-99] Calendar days are Singapore days, whatever zone the browser is in.
+    calendarDateValue(date) { return DAY_KEY_FORMAT.format(date); },
 
     async openVenueCalendar(venue) {
       if (!this.canViewVenueCalendar() || !venue) return;
       // AC1: a week from today, which is the span a planner usually wants.
       const first = new Date();
-      const last = new Date(first);
-      last.setDate(last.getDate() + 6);
+      const last = new Date(first.getTime() + 6 * 86400e3);
       this.venueCalendar = {
         venue,
         from: this.calendarDateValue(first),
@@ -1621,10 +1618,11 @@ document.addEventListener("alpine:init", () => {
 
     calendarDayLabel(date) {
       if (!date) return "Not set";
-      const parsed = new Date(`${date}T00:00:00`);
+      // [SCRUM-99] Day first, and read in Singapore time so it names the day asked for.
+      const parsed = new Date(`${date}T00:00:00${DISPLAY_OFFSET}`);
       return Number.isNaN(parsed.getTime())
         ? date
-        : new Intl.DateTimeFormat("en", { weekday: "short", day: "numeric", month: "short" }).format(parsed);
+        : new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TIME_ZONE, weekday: "short", day: "numeric", month: "short" }).format(parsed);
     },
 
     calendarBufferNote() {

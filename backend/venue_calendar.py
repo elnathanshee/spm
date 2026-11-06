@@ -25,10 +25,16 @@ from .booking_rules import BLOCKING_STATUSES, is_blocking, occupied_window, wind
 from .database import get_db
 from .models import User, Venue, VenueBooking
 from .venues import require_venue_searcher
+from .booking_rules import SINGAPORE, to_naive_utc  # [SCRUM-99]
 
 router = APIRouter(prefix="/venues", tags=["venue calendar"])
 
 MAX_DAYS = 31
+
+
+def singapore_midnight(day: date) -> datetime:
+    """[SCRUM-99] The start of a Singapore day in naive UTC, like the stored booking times."""
+    return to_naive_utc(datetime.combine(day, time.min, tzinfo=SINGAPORE))
 
 
 def busy_block(booking: VenueBooking, occupied_start: datetime, occupied_end: datetime) -> Dict[str, Any]:
@@ -66,8 +72,8 @@ def venue_calendar(
 
     setup = timedelta(minutes=venue.setup_time_mins)
     turnaround = timedelta(minutes=venue.turnaround_time_mins)
-    range_start = datetime.combine(from_date, time.min)
-    range_end = datetime.combine(to_date + timedelta(days=1), time.min)
+    range_start = singapore_midnight(from_date)
+    range_end = singapore_midnight(to_date + timedelta(days=1))
 
     # A booking is in range when its occupied window overlaps the range:
     # start - setup < range_end and end + turnaround > range_start. The buffers
@@ -93,7 +99,7 @@ def venue_calendar(
     days = []
     for i in range(day_count):
         d = from_date + timedelta(days=i)
-        day_start = datetime.combine(d, time.min)
+        day_start = singapore_midnight(d)
         day_end = day_start + timedelta(days=1)
         days.append(
             {
