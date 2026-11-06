@@ -217,10 +217,10 @@ test("TC-4919 the panel only opens and loads for the owning Organiser and the as
   assert.deepEqual(await load({ user_id: 30, role: "Event Coordinator Lead" }), [false, 0]);
 });
 
-test("TC-4920 the component is registered at SCRUM-49's fixed places, with labelled status and error regions", () => {
-  assert.match(MAIN, /F SCRUM-49 component import: insert directly below this line\.\r?\nimport \{ changeRequests \} from "\.\/change-requests\.js";/);
-  assert.match(MAIN, /F SCRUM-49 Alpine\.data: insert directly below this line\.\r?\nAlpine\.data\("changeRequests", changeRequests\);/);
-  assert.match(HTML, /SCRUM-49 change requests panel: insert directly below this line\. -->\r?\n\s*<section [^>]*x-data="changeRequests\(\)"/);
+test("TC-4920 the component is registered, with labelled status and error regions", () => {
+  assert.match(MAIN, /import \{ changeRequests \} from "\.\/change-requests\.js";/);
+  assert.match(MAIN, /Alpine\.data\("changeRequests", changeRequests\);/);
+  assert.match(HTML, /SCRUM-49 change requests panel -->\r?\n\s*<section [^>]*x-data="changeRequests\(\)"/);
   assert.match(PANEL, /role="status"[^>]*x-text="changeNotice"|x-text="changeNotice"[^>]*role="status"/);
   assert.match(PANEL, /role="alert"[^>]*x-text="changeError"|x-text="changeError"[^>]*role="alert"/);
 });

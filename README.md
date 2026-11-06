@@ -8,19 +8,12 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 
 ## What's new in v1.1.0 (Sprint 5)
 
-<!-- [Sprint 5] A SCRUM-83 multiple venues: one bullet directly below this line. -->
 - **Multiple venues for one event:** an event can hold several bookings, each checked on its own, and the Coordinator can now cancel one booking without affecting the others.
-<!-- [Sprint 5] B SCRUM-82 venue unavailability: one bullet directly below this line. -->
 - **Venue unavailability:** Venue Staff record when a venue can't be used. Overlapping bookings are flagged, not cancelled, and the Coordinator is told to make other arrangements. Venue Staff can also see bookings at retired venues and correct a retired venue.
-<!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
 - **Event lifecycle and safety check:** Approved events move through Planning, a Safety Officer's check, Confirmed and Completed, and can be cancelled with a reason before Completed.
-<!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
 - **Equipment (SCRUM-40 to 44, SCRUM-65):** Technical Support keep a catalogue of equipment, record units that are unavailable, reserve what's available for an event, and update each equipment request's status and note. The event's Coordinator is told about each update.
-<!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
 - **Attendee registration (SCRUM-45, 46, 47, 48, 52, 65):** Attendees see open events, register, check their status and withdraw. The Organiser and assigned Coordinator switch registration on and see who registered. Registered Attendees are told when the event changes or is cancelled.
-<!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
 - **Change requests:** after submission, the Organiser asks for a change with a reason, and the assigned Coordinator approves or rejects it. An approved important change flags the event's venue bookings and equipment for another look. See [Change requests](#change-requests-sprint-5).
-<!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
 - **Lead oversight (SCRUM-85):** the Lead can reassign an event until it is finished, filter by status, and see each Coordinator's assignments.
 
 - **Register and review follow-ups (SCRUM-99):** the CSV test register matches the Markdown again, and a test keeps them matched. Calendar days follow Singapore time, and PR #48's small fixes are in.
@@ -191,7 +184,6 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **When notices are created:** there is no background job (the app runs on serverless hosting). Due notices are created at the start of any request to the events, notifications or venues API, which includes every signed-in user's notification poll (every 15 seconds in the web app). Any user's activity creates everyone's due notices.
 - **Limitation:** if nobody uses the app between a hold's warning time and its expiry, only the expiry notice is shown.
 
-<!-- [Sprint 5] A SCRUM-83 multiple venues: its section directly below this line. -->
 ### Multiple venues for one event (SCRUM-83)
 
 - **Coordinator or Lead:** open an event's Venue bookings dialog and use **Request another venue** to hold more than one venue, even for the same time. A clash at one venue refuses only that request.
@@ -199,7 +191,6 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Cancel booking:** the event's assigned Coordinator or a Lead can cancel a booking from Booking history, after a confirm step. `POST /venues/bookings/{id}/cancel` sets the status to Cancelled. This frees the slot, and the row stays as history. A booking that no longer holds the venue (rejected, expired, already cancelled, or ended) returns 400. Cancelling a Confirmed event's last Confirmed booking is allowed: the confirm step warns that the event stays Confirmed and attendees will see no venue until another booking is confirmed.
 - **Venue Staff:** Cancelled bookings appear under Past and closed, with their own filter. Venue Staff get no notification when a booking is cancelled.
 
-<!-- [Sprint 5] B SCRUM-82 venue unavailability: its section directly below this line. -->
 ## Venue Unavailability (SCRUM-82, SCRUM-100, SCRUM-101)
 
 - **Venue Staff** record a period (start, end, reason such as maintenance, equipment failure, renovation or safety) in **Unavailable periods** on a venue's record in the catalogue, and can remove it. Endpoints: `GET` and `POST /venues/{id}/unavailability`, `DELETE /venues/{id}/unavailability/{period_id}`. Only Venue Staff can write. Coordinators and Leads can read.
@@ -209,7 +200,6 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Retired venues (SCRUM-100):** the Venue Staff page lists them with their bookings, and **Correct** opens the usual edit form. `GET /venues?retired=true` is for Venue Staff only. Other roles still don't see retired venues.
 - **Catalogue refresh (SCRUM-101):** a refresh asked for while another is running now runs when that one ends, so a save or retire always shows in the catalogue.
 
-<!-- [Sprint 5] C SCRUM-102 lifecycle and safety: its section directly below this line. -->
 ## Event lifecycle and safety check (SCRUM-102, 86, 87, 66)
 
 - **Coordinator:** starts planning, submits for the safety check once there is a Confirmed booking and all equipment is arranged, and marks a Confirmed event Completed after it ends.
@@ -219,7 +209,6 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Notices:** the Organiser and the Coordinator are told when an event is confirmed or cancelled. The Coordinator is told when a check returns it.
 - **Endpoints:** `POST /events/{id}/start-planning`, `/submit-safety`, `/complete`, `/cancel`; `GET /events/{id}/lifecycle-actions`; `GET /events/{id}/review-flags`, `POST /events/{id}/review-flags/clear`; `GET /safety/events`, `GET /safety/events/{id}`, `POST /safety/events/{id}/decision`.
 
-<!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
 ## Equipment Catalogue and Reservations (SCRUM-40 to 44, SCRUM-65)
 
 **Who does what**
@@ -249,7 +238,6 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - `GET` and `POST /events/{id}/equipment-reservations`, `DELETE /events/{id}/equipment-reservations/{reservation_id}`
 - `POST /equipment-requests/{id}/status` with a status (requested, reserved, arranged or unavailable) and an optional note. History is kept, and equipment request responses show `latest_status` and `latest_note`.
 
-<!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
 ## Attendee Registration (SCRUM-45, 46, 47, 48, 52, 65)
 
 An event is **open** when its registration setting is on and its status is Confirmed. The setting can be switched on earlier, but nobody can register until the Safety Officer's approval makes the event Confirmed.
@@ -261,7 +249,6 @@ An event is **open** when its registration setting is on and its status is Confi
 - **History:** a withdrawn registration, or one on a cancelled event, stays as a record. Registering again reuses the same row, so there are never duplicates.
 - **Notices (in-app):** registered Attendees are told when the event is cancelled, when an important change is approved, when a routine edit changes the title or description, and when a booking is approved or a Confirmed booking is cancelled, because that changes the venue and the places. An edit to a field they can't see sends nothing, and an Attendee who withdrew gets nothing. Once they withdraw, their earlier notices about that event leave their list too.
 
-<!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
 ### Change requests (Sprint 5)
 
 - **Organiser:** opens the event's detail dialog and uses the Change requests panel. They can ask to change the date and time, expected attendance, venue requirements, equipment requirements or description, with a reason. They can ask when the event is Submitted, Under Review, Approved, Planning, Safety Review or Confirmed, and a Coordinator is assigned. One request can be pending per event. The event doesn't change until the request is decided.
@@ -271,7 +258,6 @@ An event is **open** when its registration setting is on and its status is Confi
 - **Notices:** the assigned Coordinator is told when a request is amended and when a change request is raised, with the fields. The Organiser and the Coordinator are both told the outcome, with the reason.
 - **Endpoints:** `POST` and `GET /events/{id}/change-requests`, and `POST /events/{id}/change-requests/{change_request_id}/decision` with `decision` (`approve` or `reject`) and `reason`. The decision's response includes `arrangements_flagged` (new flags) and `arrangements_active` (flags still waiting for another look).
 
-<!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
 ## Lead oversight (SCRUM-85)
 
 The Event Coordinator Lead works from **Assignment oversight** (`/lead/events`).

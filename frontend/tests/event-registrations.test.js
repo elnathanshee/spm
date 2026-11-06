@@ -9,7 +9,7 @@ import { eventRegistrations } from "../src/event-registrations.js";
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const mainJs = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
 const panelStart = html.indexOf('x-data="eventRegistrations()"');
-const panel = html.slice(panelStart, html.indexOf("<!-- [Sprint 5] SCRUM-49", panelStart));
+const panel = html.slice(panelStart, html.indexOf("<!-- SCRUM-49", panelStart));
 
 const SETTING = { event_id: 7, enabled: true, open: true, updated_by: "org_a", updated_at: "2099-01-01T00:00:00", message: "Registration is open for this event." };
 const LIST = {
@@ -125,9 +125,9 @@ test("TC-4827 the panel reads again when the event's status changes in the dialo
 
 test("TC-4826 the markup sits at its fixed place with a gate, a table and an empty state", () => {
   assert.ok(panelStart > 0);
-  const place = html.indexOf("<!-- [Sprint 5] SCRUM-48 registrations panel");
+  const place = html.indexOf("<!-- SCRUM-48 registrations panel");
   assert.ok(place > 0 && place < panelStart, "the panel is directly below the group's comment line");
-  assert.ok(panelStart < html.indexOf("<!-- [Sprint 5] SCRUM-49 change requests panel"));
+  assert.ok(panelStart < html.indexOf("<!-- SCRUM-49 change requests panel"));
   assert.match(panel, /x-show="canManageRegistrations\(\)"/);
   assert.match(panel, /x-for="row in regList\.registrations"/);
   assert.match(panel, /x-text="row\.attendee"/);

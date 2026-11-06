@@ -38,7 +38,7 @@ test("TC-4121 the catalogue loads on /technical, for Technical Support only", as
   assert.deepEqual(sent, [["GET", "/equipment/items", undefined]]);
   assert.equal(state.catalogue.loaded, true);
   assert.deepEqual(state.catalogue.items.map(item => item.name), ["Microphone"]);
-  const place = html.indexOf("<!-- [Sprint 5] SCRUM-41 equipment catalogue workspace: insert directly below this line. -->");
+  const place = html.indexOf("<!-- SCRUM-41 equipment catalogue workspace -->");
   assert.ok(place > 0 && place < html.indexOf('x-data="equipmentCatalogue()"'));
   assert.match(html, /<template x-if="currentPath === '\/technical' && user\.role === 'Technical Support'"><section class="queue-panel equipment-catalogue" x-data="equipmentCatalogue\(\)"/);
   assert.match(main, /import \{ equipmentCatalogue \} from "\.\/equipment-catalogue\.js";/);

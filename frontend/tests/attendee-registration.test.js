@@ -11,7 +11,7 @@ import { attendeeRegistration } from "../src/attendee-registration.js";
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const mainJs = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
 const pageStart = html.indexOf("currentPath === '/attendee' && user.role === 'Attendee'");
-const page = html.slice(pageStart, html.indexOf("<!-- [Sprint 5] SCRUM-86", pageStart));
+const page = html.slice(pageStart, html.indexOf("<!-- SCRUM-86", pageStart));
 
 function openEvent(overrides = {}) {
   return {

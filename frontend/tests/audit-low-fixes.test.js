@@ -54,7 +54,7 @@ test("TC-10112 (F5) event detail leaves out the id, the status and the raw user 
 test("TC-10113 (F7) the Attendee page is its own screen with a plain empty state and no role note", () => {
   assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, false);
   const start = html.indexOf("currentPath === '/attendee' && user.role === 'Attendee'");
-  const page = html.slice(start, html.indexOf("<!-- [Sprint 5] SCRUM-86", start));
+  const page = html.slice(start, html.indexOf("<!-- SCRUM-86", start));
   assert.match(page, /<h2>No events are open for registration<\/h2><p>Please check back later\.<\/p>/);
   assert.doesNotMatch(html, /Role-based access is active|Your focused workspace is ready|no attendee events/);
   assert.doesNotMatch(page, /list-controls/, "nothing to search or sort");

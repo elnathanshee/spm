@@ -13,16 +13,11 @@ from .suitability import router as suitability_router
 from .venue_calendar import router as venue_calendar_router
 from .venue_holds import router as venue_holds_router, run_hold_checks  # [SCRUM-81 | Elnathan]
 from .venues import router as venues_router
-# [Sprint 5] B SCRUM-82 router import: insert directly below this line.
 from .venue_unavailability import router as venue_unavailability_router
-# [Sprint 5] C SCRUM-102 router import: insert directly below this line.
 from .lifecycle import router as lifecycle_router
 from .safety import router as safety_router
-# [Sprint 5] D SCRUM-41 router import: insert directly below this line.
 from .equipment_catalogue import router as equipment_catalogue_router
-# [Sprint 5] E SCRUM-45 router import: insert directly below this line.
 from .registrations import router as registrations_router
-# [Sprint 5] F SCRUM-49 router import: insert directly below this line.
 from .change_requests import router as change_requests_router  # [SCRUM-49]
 
 # [SCRUM-81] Hold expiry needs no timer: the check that sends hold warnings and
@@ -58,16 +53,11 @@ app.include_router(venues_router, dependencies=HOLD_CHECKS)
 app.include_router(venue_calendar_router)
 app.include_router(suitability_router)
 app.include_router(venue_holds_router, dependencies=HOLD_CHECKS)  # [SCRUM-81]
-# [Sprint 5] B SCRUM-82 include_router: insert directly below this line.
 app.include_router(venue_unavailability_router, dependencies=HOLD_CHECKS)
-# [Sprint 5] C SCRUM-102 include_router: insert directly below this line.
 app.include_router(lifecycle_router, dependencies=HOLD_CHECKS)
 app.include_router(safety_router)
-# [Sprint 5] D SCRUM-41 include_router: insert directly below this line.
 app.include_router(equipment_catalogue_router)
-# [Sprint 5] E SCRUM-45 include_router: insert directly below this line.
 app.include_router(registrations_router)
-# [Sprint 5] F SCRUM-49 include_router: insert directly below this line.
 app.include_router(change_requests_router, dependencies=HOLD_CHECKS)  # [SCRUM-49]
 
 

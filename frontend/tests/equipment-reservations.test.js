@@ -8,7 +8,7 @@ import { equipmentRequestActions, eventReservations } from "../src/equipment-res
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
 const row = html.slice(html.indexOf('x-data="equipmentRequestActions()"'), html.indexOf("<template x-if=\"currentPath === '/events' && user.role === 'Organiser'\">"));
-const panel = html.slice(html.indexOf('x-data="eventReservations()"'), html.indexOf("<!-- [Sprint 5] SCRUM-48 registrations panel"));
+const panel = html.slice(html.indexOf('x-data="eventReservations()"'), html.indexOf("<!-- SCRUM-48 registrations panel"));
 
 const request = () => ({ id: 3, event_id: 7, event_title: "Gala", equipment_type: "Microphone", quantity: 2, latest_status: "requested", latest_note: null });
 const available = [
@@ -262,7 +262,7 @@ test("TC-4427 a failed load says so, and a refusal doesn't look like an empty li
 });
 
 test("TC-4428 the panel is at its place, read-only, and only for the assigned Coordinator and the Lead", () => {
-  const place = html.indexOf("<!-- [Sprint 5] SCRUM-44 equipment reservations panel: insert directly below this line. -->");
+  const place = html.indexOf("<!-- SCRUM-44 equipment reservations panel -->");
   assert.ok(place > 0 && place < html.indexOf('x-data="eventReservations()"'));
   assert.match(html, /<template x-if="eventDetail\.detail && canRecordEquipment\(eventDetail\.detail\)"><section class="dialog-section equipment-panel" x-data="eventReservations\(\)"/);
   assert.doesNotMatch(panel, /<button|<form|<input|<select/, "Technical Support make the changes; the Coordinator only reads");
