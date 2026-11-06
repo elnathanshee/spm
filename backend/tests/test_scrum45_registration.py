@@ -27,7 +27,6 @@ from backend.models import (
     Venue,
     VenueBooking,
 )
-from backend.security import hash_password
 from backend.status import APPROVED, CANCELLED, COMPLETED, CONFIRMED, PLANNING
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -74,7 +73,7 @@ def users(db):
     }
     found = {}
     for username, role in roles.items():
-        user = User(username=username, password_hash=hash_password("not-a-real-secret"), role=role,
+        user = User(username=username, password_hash="x", role=role,
                     is_active_coordinator=role == "coordinator")
         db.add(user)
         found[username] = user

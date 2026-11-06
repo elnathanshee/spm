@@ -17,6 +17,7 @@ from .venues import router as venues_router
 # [Sprint 5] C SCRUM-102 router import: insert directly below this line.
 # [Sprint 5] D SCRUM-41 router import: insert directly below this line.
 # [Sprint 5] E SCRUM-45 router import: insert directly below this line.
+from .registrations import router as registrations_router
 # [Sprint 5] F SCRUM-49 router import: insert directly below this line.
 
 # [SCRUM-81] Hold expiry needs no timer: the check that sends hold warnings and
@@ -56,6 +57,7 @@ app.include_router(venue_holds_router, dependencies=HOLD_CHECKS)  # [SCRUM-81]
 # [Sprint 5] C SCRUM-102 include_router: insert directly below this line.
 # [Sprint 5] D SCRUM-41 include_router: insert directly below this line.
 # [Sprint 5] E SCRUM-45 include_router: insert directly below this line.
+app.include_router(registrations_router)
 # [Sprint 5] F SCRUM-49 include_router: insert directly below this line.
 
 
