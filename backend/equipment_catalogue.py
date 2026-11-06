@@ -5,6 +5,8 @@ SCRUM-42: update an item, or record a number of units unavailable for a period.
 SCRUM-43: availability for an event's window.
 SCRUM-44: reserve available equipment for an event. A reservation has no window of
 its own: it uses its event's, read live, so it follows the event's bookings.
+SCRUM-40: Technical Support update an equipment request as arrangements are made.
+SCRUM-65: the event's Coordinator is told when an equipment request changes.
 """
 
 from datetime import datetime
@@ -16,12 +18,20 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import booking_rules, event_hooks
-from .arrangements import event_window
+from .arrangements import EQUIPMENT_STATUSES, event_window, record_equipment_status
 from .auth import get_current_user
 from .booking_rules import to_naive_utc, windows_overlap
 from .database import get_db
-from .equipment import COORDINATOR, LEAD, TECHNICAL_SUPPORT, _role_of, load_event
-from .models import EquipmentItem, EquipmentItemUnavailability, EquipmentReservation, Event, User
+from .equipment import COORDINATOR, LEAD, TECHNICAL_SUPPORT, _role_of, equipment_request_to_dict, load_event
+from .models import (
+    EquipmentItem,
+    EquipmentItemUnavailability,
+    EquipmentRequest,
+    EquipmentReservation,
+    Event,
+    User,
+)
+from .notifications import can_see_event, notify
 from .status import CANCELLED, COMPLETED, REJECTED
 
 router = APIRouter(tags=["equipment catalogue"])
@@ -37,6 +47,9 @@ READER_ROLES = TECHNICAL_SUPPORT | {LEAD, COORDINATOR}
 # [SCRUM-44] An event in one of these isn't going ahead, so a reservation would
 # only keep units from the events that are.
 CLOSED_EVENT_STATUSES = {CANCELLED, COMPLETED, REJECTED}
+
+# [SCRUM-65] The notice a Coordinator gets when an equipment request changes.
+KIND_EQUIPMENT_REQUEST_UPDATED = "equipment_request_updated"
 
 
 def require_technical_support(current_user: User = Depends(get_current_user)) -> User:
@@ -521,3 +534,56 @@ def release_equipment(
     db.commit()
     db.refresh(reservation)
     return {"message": "Equipment released", "reservation": reservation_to_dict(reservation)}
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-40: update an equipment request. SCRUM-65: tell the Coordinator.
+# ---------------------------------------------------------------------------
+
+
+class EquipmentStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def known_status(cls, value: str) -> str:
+        if value not in EQUIPMENT_STATUSES:
+            raise ValueError(f"Status must be one of: {', '.join(EQUIPMENT_STATUSES)}")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def clean_note(cls, value: Optional[str]) -> Optional[str]:
+        return _optional_text(value)
+
+
+def notify_coordinator_of_update(db: Session, request: EquipmentRequest, update_status: str, note: Optional[str]) -> None:
+    """[SCRUM-65] Tell the event's assigned Coordinator. With nobody assigned, or an
+    assignee who may no longer see the event, the update still has to save."""
+    event = request.event
+    coordinator = event.assigned_coordinator
+    if coordinator is None or not can_see_event(coordinator, event):
+        return
+    message = f'Equipment for "{event.title}": {request.equipment_type} is now {update_status}.'
+    if note:
+        message += f" Note: {note}"
+    notify(db, coordinator, event, KIND_EQUIPMENT_REQUEST_UPDATED, message)
+
+
+@router.post("/equipment-requests/{request_id}/status")
+def update_equipment_status(
+    request_id: int,
+    payload: EquipmentStatusUpdate,
+    current_user: User = Depends(require_technical_support),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-40] Add a status update. The history stays, and the request shows the latest."""
+    request = db.query(EquipmentRequest).filter(EquipmentRequest.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment request not found")
+    record_equipment_status(db, request, payload.status, payload.note, current_user)
+    notify_coordinator_of_update(db, request, payload.status, payload.note)
+    db.commit()
+    db.refresh(request)
+    return {"message": "Equipment request updated", "equipment_request": equipment_request_to_dict(request)}
