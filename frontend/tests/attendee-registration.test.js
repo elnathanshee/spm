@@ -80,6 +80,13 @@ test("TC-4522 what an event shows: date, venue names and locations, and places l
   assert.equal(state.regPlaces(openEvent({ places_left: 0 })), "Full");
 });
 
+test("TC-4525 an unknown number of places reads as to be confirmed, not as full", () => {
+  const state = screen();
+  const event = openEvent({ places_left: null });
+  assert.equal(state.regPlaces(event), "Places to be confirmed");
+  assert.equal(state.regCanRegister(event), false);
+});
+
 test("TC-4523 the screen replaces the placeholder, keeps the role gate and names no internal field", () => {
   assert.ok(pageStart > 0, "the fixed role gate is still there");
   assert.match(page, /x-data="attendeeRegistration\(\)"/);
@@ -183,7 +190,7 @@ test("TC-4721 withdrawing needs a confirm step: asking sends nothing, keeping my
   state.askWithdraw(state.regMine[0]);
   assert.equal(state.regConfirmId, 7);
   assert.deepEqual(state.calls, []);
-  state.keepPlace();
+  state.keepPlace(state.regMine[0]);
   assert.equal(state.regConfirmId, null);
   assert.deepEqual(state.calls, []);
 });
@@ -214,6 +221,38 @@ test("TC-4723 a refused withdrawal shows why and closes the confirm step", async
   assert.equal(state.regConfirmId, null);
 });
 
+test("TC-4726 keeping my place puts focus back on the row's Withdraw button", async () => {
+  const state = screen({ mine: ok([openEvent({ my_status: "registered" })]) });
+  await state.init();
+  const looked = [];
+  let focused = 0;
+  state.$nextTick = callback => callback();
+  state.$root = { querySelector: selector => { looked.push(selector); return { focus: () => { focused += 1; } }; } };
+  state.askWithdraw(state.regMine[0]);
+  state.keepPlace(state.regMine[0]);
+  assert.deepEqual(looked, ['[data-withdraw="7"]']);
+  assert.equal(focused, 1);
+});
+
+test("TC-4727 confirming moves focus to the status message at once, and again when the answer arrives", async () => {
+  const registered = openEvent({ my_status: "registered" });
+  const state = screen({ open: ok([registered]), mine: ok([registered]), action: ok({ message: "Done." }) });
+  await state.init();
+  let focused = 0;
+  state.$nextTick = callback => callback();
+  state.$refs = { regStatus: { focus: () => { focused += 1; } } };
+  const answered = state.apiRequest;
+  let focusedWhenSent = null;
+  state.apiRequest = (path, options) => {
+    if (options.method === "POST") focusedWhenSent = focused;
+    return answered(path, options);
+  };
+  state.askWithdraw(registered);
+  await state.confirmWithdraw(registered);
+  assert.equal(focusedWhenSent, 1);
+  assert.equal(focused, 2);
+});
+
 test("TC-4724 only a live registration can be withdrawn", () => {
   const state = screen();
   assert.equal(state.regCanWithdraw(openEvent({ my_status: "registered" })), true);
@@ -227,7 +266,8 @@ test("TC-4725 the markup has the confirm step, with focus moved into it and a cl
   assert.match(page, /@click="askWithdraw\(item\)"/);
   assert.match(page, /x-if="regConfirmId === item\.event_id"/);
   assert.match(page, /@click="confirmWithdraw\(item\)"/);
-  assert.match(page, /@click="keepPlace\(\)"/);
+  assert.match(page, /@click="keepPlace\(item\)"/);
+  assert.match(page, /:data-withdraw="item\.event_id"/);
   assert.match(page, /Keep my place/);
   assert.match(page, /x-init="\$nextTick\(\(\) => \$el\.focus\(\)\)"/);
   assert.match(page, /x-text="regStatusText\(item\)"/);

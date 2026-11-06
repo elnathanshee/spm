@@ -296,7 +296,7 @@ def test_tc4606_no_number_known_refuses_with_a_sentence(client, db, users):
     """TC-4606: a Confirmed event with neither number has no known limit, so nobody can register yet."""
     event = make_event(db, users, attendance=None)
     login(client, "att_1")
-    assert listed(client)[0]["places_left"] == 0
+    assert listed(client)[0]["places_left"] is None  # unknown, not full
     response = register(client, event)
     assert response.status_code == 409
     assert "number of places" in response.json()["detail"]
@@ -615,14 +615,29 @@ def test_tc4802_assigned_coordinator_and_lead_see_registrations(client, db, user
 
 
 def test_tc4803_the_list_is_refused_to_everyone_else(client, db, users):
-    """TC-4803: another Organiser gets 404 (the event stays concealed); another Coordinator, Venue Staff, Technical Support and Attendees get 403."""
+    """TC-4803: another Organiser and Attendees get 404 (the event stays concealed); another Coordinator, Venue Staff and Technical Support get 403."""
     event = make_event(db, users)
     add_registration(db, event, users["att_1"])
-    login(client, "org_b")
-    assert client.get(f"/events/{event.id}/registrations").status_code == 404
-    for username in ["coord_b", "venue", "tech", "att_1", "att_2"]:
+    for username in ["org_b", "att_1", "att_2"]:
+        login(client, username)
+        assert client.get(f"/events/{event.id}/registrations").status_code == 404, username
+    for username in ["coord_b", "venue", "tech"]:
         login(client, username)
         assert client.get(f"/events/{event.id}/registrations").status_code == 403, username
+
+
+def test_tc4807_an_attendee_cannot_tell_an_event_exists_from_the_staff_routes(client, db, users):
+    """TC-4807: an existing event and an unknown one answer an Attendee the same on all three staff routes."""
+    event = make_event(db, users, status=PLANNING)
+    login(client, "att_1")
+    for event_id in [event.id, 99999]:
+        answers = [
+            client.get(f"/events/{event_id}/registrations"),
+            client.get(f"/events/{event_id}/registration-settings"),
+            client.put(f"/events/{event_id}/registration-settings", json={"enabled": True}),
+        ]
+        assert [a.status_code for a in answers] == [404, 404, 404], event_id
+        assert {a.json()["detail"] for a in answers} == {"Event not found"}
 
 
 def test_tc4804_an_unknown_event_is_404(client, db, users):
@@ -637,7 +652,7 @@ def test_tc4805_an_empty_list_works_before_anything_is_set(client, db, users):
     login(client, "org_a")
     body = client.get(f"/events/{event.id}/registrations").json()
     assert body["registrations"] == []
-    assert (body["capacity"], body["registered_count"], body["places_left"]) == (None, 0, 0)
+    assert (body["capacity"], body["registered_count"], body["places_left"]) == (None, 0, None)
 
 
 def test_tc4806_people_still_holding_places_come_first(client, db, users):
@@ -791,7 +806,7 @@ def test_tc5211_a_registered_row_opens_no_event_details(client, db, users):
     detail = client.get(f"/events/{event.id}")
     assert set(detail.json()) == {"name", "description", "date", "time", "venue_name"}
     assert client.get(f"/events/{event.id}/bookings").status_code == 403
-    assert client.get(f"/events/{event.id}/registrations").status_code == 403
+    assert client.get(f"/events/{event.id}/registrations").status_code == 404
     event.status = PLANNING
     db.commit()
     assert client.get(f"/events/{event.id}").status_code == 404
@@ -917,12 +932,13 @@ def test_tc6554_the_lead_can_read_but_not_switch(client, db, users):
 
 
 def test_tc6555_everyone_else_is_refused(client, db, users):
-    """TC-6555: another Organiser gets 404; another Coordinator, Venue Staff, Technical Support and Attendees get 403, for read and write."""
+    """TC-6555: another Organiser and Attendees get 404; another Coordinator, Venue Staff and Technical Support get 403, for read and write."""
     event = make_event(db, users, enabled=None)
-    login(client, "org_b")
-    assert client.get(f"/events/{event.id}/registration-settings").status_code == 404
-    assert put_setting(client, event).status_code == 404
-    for username in ["coord_b", "venue", "tech", "att_1"]:
+    for username in ["org_b", "att_1"]:
+        login(client, username)
+        assert client.get(f"/events/{event.id}/registration-settings").status_code == 404, username
+        assert put_setting(client, event).status_code == 404, username
+    for username in ["coord_b", "venue", "tech"]:
         login(client, username)
         assert client.get(f"/events/{event.id}/registration-settings").status_code == 403, username
         assert put_setting(client, event).status_code == 403, username
@@ -930,7 +946,7 @@ def test_tc6555_everyone_else_is_refused(client, db, users):
     assert db.query(EventRegistrationSetting).count() == 0
 
 
-@pytest.mark.parametrize("body", [{}, {"enabled": "maybe"}, {"enabled": None}])
+@pytest.mark.parametrize("body", [{}, {"enabled": "maybe"}, {"enabled": None}, {"enabled": "yes"}, {"enabled": 1}])
 def test_tc6556_a_bad_body_is_refused(client, db, users, body):
     """TC-6556: enabled must be true or false, and nothing is written otherwise."""
     event = make_event(db, users, enabled=None)
@@ -952,8 +968,22 @@ def test_tc6557_two_first_saves_at_once_give_a_409(client, db, users, monkeypatc
     assert db.query(EventRegistrationSetting).one().enabled is True
 
 
+@pytest.mark.parametrize("status,word", [(CANCELLED, "cancelled"), (COMPLETED, "completed")])
+def test_tc6559_switching_on_a_finished_event_says_it_stays_closed(client, db, users, status, word):
+    """TC-6559: a finished event can never become Confirmed, so the message says it stays closed."""
+    event = make_event(db, users, status=status, enabled=None)
+    login(client, "org_a")
+    body = put_setting(client, event).json()
+    assert body["open"] is False
+    assert body["message"] == f"This event is {word}, so registration stays closed."
+
+
 def test_tc6558_the_new_tables_are_new_and_events_is_unchanged(db, users):
     """TC-6558: production only creates missing tables, so this story adds tables and adds no column to events."""
     assert {"event_registration_settings", "event_registrations"} <= set(Base.metadata.tables)
-    assert "registration_enabled" not in Event.__table__.columns
+    assert {column.name for column in Event.__table__.columns} == {
+        "id", "title", "purpose", "description", "proposed_start", "expected_attendance", "venue_requirements",
+        "accessibility_needs", "equipment_requirements", "registration_needs", "organiser_id", "status",
+        "assigned_coordinator_id", "created_at", "submitted_at",
+    }
     assert "uq_event_registration_attendee" in {c.name for c in EventRegistration.__table__.constraints}
