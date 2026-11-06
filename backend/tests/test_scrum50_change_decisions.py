@@ -11,7 +11,9 @@ import pytest
 
 from backend import event_hooks
 from backend.arrangements import SOURCE_IMPORTANT_CHANGE, active_review_flags
-from backend.models import EquipmentRequest, EventChangeRequest, EventStatusHistory, Venue, VenueBooking
+from backend.booking_rules import singapore_time, utc_now
+from backend.change_requests import KIND_CHANGE_APPROVED
+from backend.models import EquipmentRequest, Event, EventChangeRequest, EventStatusHistory, Notification, Venue, VenueBooking
 from backend.tests.test_scrum49_change_requests import (  # noqa: F401  (fixtures)
     NEW_START,
     client,
@@ -217,6 +219,21 @@ def test_tc5009_a_request_is_decided_once_and_must_belong_to_the_event(client, w
     assert client.post("/events/99999/change-requests/1/decision", json={"decision": "approve", "reason": "x"}).status_code == 404
 
 
+def test_tc5009_a_request_cannot_be_decided_through_another_event(client, world, db_session):
+    """TC-5009: the same Coordinator, a real request id, but another event's URL: 404, and it stays Pending."""
+    request_id = raised(client, world, {"expected_attendance": 150})
+    other = Event(title="Other event", status="Planning", organiser_id=world["org"].id,
+                  assigned_coordinator_id=world["coord"].id, expected_attendance=5)
+    db_session.add(other)
+    db_session.commit()
+    assert decide(client, other, request_id).status_code == 404
+    assert db_session.get(EventChangeRequest, request_id).status == "Pending"
+    db_session.refresh(other)
+    assert other.expected_attendance == 5
+    db_session.refresh(world["event"])
+    assert world["event"].expected_attendance == 100
+
+
 def test_tc5010_values_are_checked_again_when_applied(client, world, db_session):
     """TC-5010: a date that has passed since the request is refused at approval; rejecting still works."""
     request_id = raised(client, world, {"proposed_start": NEW_START})
@@ -297,3 +314,56 @@ def test_tc5015_previous_values_are_the_ones_replaced_at_approval(client, world,
     world["event"].expected_attendance = 120
     db_session.commit()
     assert decide(client, world["event"], request_id).json()["previous_values"] == {"expected_attendance": 120}
+
+
+def test_tc5021_a_start_hours_past_in_singapore_is_refused_at_approval(client, world, db_session):
+    """TC-5021: three hours ago on the Singapore clock is ahead of UTC, but it's still past, so approval refuses it."""
+    request_id = raised(client, world, {"proposed_start": NEW_START})
+    row = db_session.get(EventChangeRequest, request_id)
+    hours_ago = singapore_time(utc_now()) - timedelta(hours=3)
+    row.requested_changes = json.dumps({"proposed_start": hours_ago.isoformat()})
+    db_session.commit()
+
+    res = decide(client, world["event"], request_id)
+    assert res.status_code == 400
+    assert "past" in res.json()["detail"]
+    db_session.refresh(row)
+    assert row.status == "Pending"
+    db_session.refresh(world["event"])
+    assert world["event"].proposed_start == datetime(2099, 3, 10, 14, 0)
+
+
+def test_tc5022_a_field_an_amendment_already_set_is_left_out_of_the_outcome(client, world, db_session):
+    """TC-5022: only the field approval really changed is recorded and named, so nothing false is shown."""
+    world["event"].status = "Under Review"
+    db_session.commit()
+    request_id = raised(client, world, {"expected_attendance": 200, "description": "New words"})
+    login(client, "org")
+    assert client.post(f"/events/{world['event'].id}/amend", json={"expected_attendance": 200}).status_code == 200
+    login(client, "coord")
+
+    res = decide(client, world["event"], request_id)
+    assert res.status_code == 200
+    assert res.json()["changes"] == {"description": "New words"}
+    assert res.json()["previous_values"] == {"description": "Dinner and auction"}
+    notices = db_session.query(Notification).filter_by(kind=KIND_CHANGE_APPROVED).all()
+    assert len(notices) == 2
+    assert all("(description)" in notice.message for notice in notices)
+    db_session.refresh(world["event"])
+    assert world["event"].description == "New words"
+    assert world["event"].expected_attendance == 200
+
+
+def test_tc5023_a_second_approval_says_the_arrangements_are_still_flagged(client, world, db_session, arrangements):
+    """TC-5023: active flags aren't repeated, so the new count is 0, but the response gives the 2 still active."""
+    first = decide(client, world["event"], raised(client, world, {"expected_attendance": 150}))
+    assert (first.json()["arrangements_flagged"], first.json()["arrangements_active"]) == (2, 2)
+    second = decide(client, world["event"], raised(client, world, {"proposed_start": NEW_START}))
+    assert (second.json()["arrangements_flagged"], second.json()["arrangements_active"]) == (0, 2)
+    assert len(active_review_flags(db_session, world["event"])) == 2
+
+
+def test_tc5023_with_nothing_flagged_the_active_count_is_zero(client, world):
+    """TC-5023: no arrangements means nothing active, so the panel can say none were flagged."""
+    res = decide(client, world["event"], raised(client, world, {"expected_attendance": 150}))
+    assert (res.json()["arrangements_flagged"], res.json()["arrangements_active"]) == (0, 0)

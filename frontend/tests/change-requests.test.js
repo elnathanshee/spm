@@ -278,6 +278,24 @@ test("TC-5018 the message fits what happened: one flagged, none flagged, or reje
   assert.match(await decided("reject", 0), /Rejected\. The event hasn't changed/);
 });
 
+test("TC-5024 a second approval says the arrangements are still flagged, not that none were", async () => {
+  const notice = async (flagged, active) => {
+    const replies = {
+      "GET /events/5/change-requests": { ok: true, status: 200, data: [pendingRequest()] },
+      "POST /events/5/change-requests/3/decision": { ok: true, status: 200, data: { arrangements_flagged: flagged, arrangements_active: active } },
+    };
+    const state = panel(COORDINATOR, eventDetail(), replies);
+    await state.init();
+    state.changeDecisionReason = "A reason";
+    await state.decideChange(state.pendingItems()[0], "approve");
+    return state.changeNotice;
+  };
+  assert.equal(await notice(0, 2), "Approved and applied. No new flags: 2 arrangements are already flagged for another look.");
+  assert.equal(await notice(0, 1), "Approved and applied. No new flags: 1 arrangement is already flagged for another look.");
+  assert.equal(await notice(2, 2), "Approved and applied. 2 arrangements flagged for another look.");
+  assert.equal(await notice(0, 0), "Approved and applied. No arrangements were flagged.");
+});
+
 test("TC-5019 a decision needs a reason, and a refusal keeps it on screen", async () => {
   const replies = {
     "GET /events/5/change-requests": { ok: true, status: 200, data: [pendingRequest()] },
