@@ -29,6 +29,8 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 MAX_QUANTITY = 2147483647
+# Hashing is slow on purpose, so every account in this file shares one hash.
+TEST_HASH = hash_password("test-only")
 
 
 @pytest.fixture
@@ -72,7 +74,7 @@ def users(db):
     ]
     created = {}
     for username, role in specs:
-        user = User(username=username, password_hash=hash_password("test-only"), role=role)
+        user = User(username=username, password_hash=TEST_HASH, role=role)
         db.add(user)
         db.commit()
         db.add(LoginSession(user_id=user.id, token=f"tok_{username}", valid=True))

@@ -383,6 +383,19 @@ class VenueUnavailability(Base):
 # [Sprint 5] C SCRUM-102 models: insert directly below this line.
 
 # [Sprint 5] D SCRUM-41 models: insert directly below this line.
+# [Sprint 5 | SCRUM-41] NEW: one kind of equipment Technical Support hold, and how
+# many units exist. A new table because create_all() never alters existing ones.
+class EquipmentItem(Base):
+    __tablename__ = "equipment_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    equipment_type = Column(String(100), nullable=False)
+    name = Column(String(255), nullable=False)
+    total_quantity = Column(Integer, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 
 # [Sprint 5] E SCRUM-45 models: insert directly below this line.
 
