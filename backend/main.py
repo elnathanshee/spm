@@ -19,6 +19,7 @@ from .venue_unavailability import router as venue_unavailability_router
 from .lifecycle import router as lifecycle_router
 from .safety import router as safety_router
 # [Sprint 5] D SCRUM-41 router import: insert directly below this line.
+from .equipment_catalogue import router as equipment_catalogue_router
 # [Sprint 5] E SCRUM-45 router import: insert directly below this line.
 from .registrations import router as registrations_router
 # [Sprint 5] F SCRUM-49 router import: insert directly below this line.
@@ -62,6 +63,7 @@ app.include_router(venue_unavailability_router, dependencies=HOLD_CHECKS)
 app.include_router(lifecycle_router, dependencies=HOLD_CHECKS)
 app.include_router(safety_router)
 # [Sprint 5] D SCRUM-41 include_router: insert directly below this line.
+app.include_router(equipment_catalogue_router)
 # [Sprint 5] E SCRUM-45 include_router: insert directly below this line.
 app.include_router(registrations_router)
 # [Sprint 5] F SCRUM-49 include_router: insert directly below this line.

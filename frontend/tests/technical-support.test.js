@@ -134,13 +134,14 @@ test("TC-9991 events are split by date: the next 7 days first, then later, undat
   assert.deepEqual(shape()[0], ["soon", [14, 10]], "most recently recorded first, within the section");
 });
 
-test("TC-9992 each event's lines are an aligned table, with no actions and no summary cards", () => {
-  const page = html.slice(html.indexOf("currentPath === '/technical'"), html.indexOf("currentPath === '/events' && user.role === 'Organiser'"));
-  assert.match(page, /<table class="data-table equipment-table"><thead><tr><th scope="col">Equipment<\/th><th scope="col" class="cell-number">Quantity<\/th><th scope="col">Technical requirements<\/th><th scope="col">Recorded<\/th><\/tr><\/thead>/);
-  for (const label of ["Equipment", "Quantity", "Technical requirements", "Recorded"]) assert.match(page, new RegExp(`<td data-label="${label}"`));
+test("TC-9992 each event's lines are an aligned table, with only the arrangement actions and no summary cards", () => {
+  // [SCRUM-40, SCRUM-44] The worklist is no longer read-only: each line has a status form and a reserve action.
+  const page = html.slice(html.indexOf("currentPath === '/technical' && user.role === 'Technical Support' && technicalWorklist"), html.indexOf("currentPath === '/events' && user.role === 'Organiser'"));
+  assert.match(page, /<table class="data-table equipment-table"><thead><tr><th scope="col">Equipment<\/th><th scope="col" class="cell-number">Quantity<\/th><th scope="col">Technical requirements<\/th><th scope="col">Recorded<\/th><th scope="col">Arrangements<\/th><\/tr><\/thead>/);
+  for (const label of ["Equipment", "Quantity", "Technical requirements", "Recorded", "Arrangements"]) assert.match(page, new RegExp(`<td data-label="${label}"`));
   assert.match(page, /class="equipment-event table-container"/);
   assert.doesNotMatch(page, /summary-strip|operations-summary/, "no card repeats the section counts");
-  assert.doesNotMatch(page, /row-link|<button[^>]*@click="(?!fetchTechnicalWorklist|clearListSearch|listControls)/, "the role can't open or change anything (BACKEND_ISSUES #14)");
+  assert.doesNotMatch(page, /row-link|<button[^>]*@click="(?!fetchTechnicalWorklist|clearListSearch|listControls|toggleReserve|releaseReservation)/, "the only row actions are status, reserve and release");
   assert.match(page, /item\.technical_requirements \|\| 'None recorded'/);
 });
 
