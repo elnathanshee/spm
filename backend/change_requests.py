@@ -25,6 +25,7 @@ from .events import (
     validate_event_business_rules,
 )
 from .models import Event, EventChangeRequest, EventStatusHistory, User
+from .notifications import notify
 from .status import APPROVED, CONFIRMED, PLANNING, SAFETY_REVIEW, SUBMITTED, UNDER_REVIEW
 
 router = APIRouter(prefix="/events", tags=["change requests"])
@@ -32,6 +33,11 @@ router = APIRouter(prefix="/events", tags=["change requests"])
 PENDING = "Pending"
 APPROVED_REQUEST = "Approved"
 REJECTED_REQUEST = "Rejected"
+
+# [SCRUM-67] Notification kinds, kept here so notifications.py stays untouched.
+KIND_CHANGE_REQUESTED = "change_requested"
+KIND_CHANGE_APPROVED = "change_approved"
+KIND_CHANGE_REJECTED = "change_rejected"
 
 # [SCRUM-49] The statuses named by the story. Before these the Organiser edits the
 # Draft or the Returned request directly; after them the event is finished.
@@ -133,6 +139,30 @@ def _to_json(values: Dict[str, Any]) -> str:
     })
 
 
+def _notify_coordinator_of_request(db: Session, event: Event, change_request: EventChangeRequest, fields: List[str]) -> None:
+    """[SCRUM-67] Tell the assigned Coordinator what is being asked, and why."""
+    coordinator = event.assigned_coordinator or db.get(User, event.assigned_coordinator_id)
+    notify(
+        db, coordinator, event, KIND_CHANGE_REQUESTED,
+        f'A change request for "{event.title}" asks to change {_names(fields)}. Reason: {change_request.reason}',
+    )
+
+
+def _notify_outcome(db: Session, event: Event, change_request: EventChangeRequest, fields: List[str]) -> None:
+    """[SCRUM-67] Tell the Organiser and the Coordinator the outcome, with the reason."""
+    approved = change_request.status == APPROVED_REQUEST
+    kind = KIND_CHANGE_APPROVED if approved else KIND_CHANGE_REJECTED
+    outcome = "approved" if approved else "rejected"
+    message = (
+        f'The change request for "{event.title}" ({_names(fields)}) was {outcome}. '
+        f"Reason: {change_request.decision_reason}"
+    )
+    organiser = event.organiser or db.get(User, event.organiser_id)
+    coordinator = event.assigned_coordinator or db.get(User, event.assigned_coordinator_id)
+    notify(db, organiser, event, kind, message)
+    notify(db, coordinator, event, kind, message)
+
+
 def _change_request_to_dict(change_request: EventChangeRequest) -> Dict[str, Any]:
     decider = change_request.decided_by
     return {
@@ -232,6 +262,7 @@ def raise_change_request(
         # Two requests raced past the check above: the unique index stopped the second.
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PENDING_REFUSAL)
+    _notify_coordinator_of_request(db, event, change_request, list(changes))
     db.commit()
     db.refresh(change_request)
     return _change_request_to_dict(change_request)
@@ -349,6 +380,7 @@ def decide_change_request(
     change_request.decided_by_id = current_user.id
     change_request.decision_reason = payload.reason
     change_request.decided_at = booking_rules.utc_now()
+    _notify_outcome(db, event, change_request, list(json.loads(change_request.requested_changes)))
     db.commit()
     db.refresh(change_request)
     db.refresh(event)

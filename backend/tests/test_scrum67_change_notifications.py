@@ -40,7 +40,7 @@ def test_tc6701_the_coordinator_hears_about_an_amendment_naming_the_fields(clien
     assert len(rows) == 1
     assert rows[0].event_id == world["event"].id
     assert "Annual Gala" in rows[0].message
-    assert "expected_attendance" in rows[0].message and "purpose" in rows[0].message
+    assert "expected attendance" in rows[0].message and "purpose" in rows[0].message
     assert notices(db_session, world["org"], KIND_REQUEST_AMENDED) == []
     assert notices(db_session, world["other_coord"]) == []
 

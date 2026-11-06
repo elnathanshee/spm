@@ -13,9 +13,13 @@ from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SU
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
-from .notifications import notify_first_assignment, notify_organiser_of_status
+from .notifications import notify, notify_first_assignment, notify_organiser_of_status
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+# [SCRUM-67] The notice to the assigned Coordinator. Kept here, next to amend,
+# because change_requests.py imports this module and not the other way round.
+KIND_REQUEST_AMENDED = "request_amended"
 
 
 class ReviewAction(BaseModel):
@@ -396,6 +400,15 @@ def amend_event(
     )
     db.add(status_history)
     change_type, arrangements_flagged = _handle_amendment(db, event, current_user, changed_fields)  # [SCRUM-29]
+    # [SCRUM-67] Only a real change, and only when there is a Coordinator to tell.
+    if changed_fields and event.assigned_coordinator_id is not None:
+        notify(
+            db,
+            event.assigned_coordinator or db.get(User, event.assigned_coordinator_id),
+            event,
+            KIND_REQUEST_AMENDED,
+            f'The Organiser amended "{event.title}". Fields changed: {", ".join(field.replace("_", " ") for field in changed_fields)}',
+        )
     db.commit()
     db.refresh(event)
 
