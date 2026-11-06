@@ -6,12 +6,12 @@ import { normalizeRole, resolveRolePath } from "../src/rbac.js";
 import { resetSignedOutState } from "../src/session-state.js";
 import * as venueRecord from "../src/venue-record.js";
 
-function app(role = "venue_staff") {
+function app(role = "venue_staff", documentStub = {}) {
   let factory;
   const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
   vm.runInNewContext(source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""), {
     NAVIGATION: [], requestedFrontendPath: () => null, normalizeRoleName: normalizeRole,
-    document: { addEventListener: (_, fn) => fn() }, Alpine: { data: (_, fn) => { factory = fn; } },
+    document: { addEventListener: (_, fn) => fn(), ...documentStub }, Alpine: { data: (_, fn) => { factory = fn; } },
     window: { location: {} }, ...venueRecord,
   });
   const state = factory(); state.user = { user_id: 3, role }; return state;
@@ -593,4 +593,50 @@ test("TC-9223 Retire and Retire venue are disabled while saving; the venue form 
   state.venueWorkspace.saving = false;
   state.venueWorkspace.retire.busy = true;
   for (const tag of [fieldset, edit.tag]) assert.equal(disabledBy(state, tag), true, `retiring: ${tag}`);
+});
+
+// [SCRUM-92] The form sits above the venue list, so without this a press on Edit looks like it did nothing.
+function editFormStub() {
+  const moves = [];
+  const form = { scrollIntoView: options => moves.push(["scroll", options.block]) };
+  const input = { focus: options => moves.push(["focus", options.preventScroll]) };
+  return {
+    moves,
+    documentStub: {
+      querySelector: selector => (selector === "form.create-venue-card" ? form : null),
+      getElementById: id => (id === "venue-name" ? input : null),
+    },
+  };
+}
+
+test("TC-9225 pressing Edit brings the form into view and puts focus on its first field", async () => {
+  const { moves, documentStub } = editFormStub();
+  const state = app("venue_staff", documentStub);
+  serve(state, { "GET /venues": { ok: true, data: [grandHall()] }, "GET /venues/7": { ok: true, data: grandHall() } });
+  await state.fetchVenueWorkspace();
+  const waiting = [];
+  state.$nextTick = callback => waiting.push(callback);
+  await state.openVenueEdit(grandHall());
+  assert.deepEqual(moves, [], "nothing moves until Alpine has shown the form");
+  assert.equal(waiting.length, 1);
+  waiting[0]();
+  assert.deepEqual(moves, [["scroll", "start"], ["focus", true]]);
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /<form class="create-venue-card"/, "the selector matches the real form");
+  assert.match(html, /<input id="venue-name"/, "the id matches the real field");
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.create-venue-card\{[^}]*scroll-margin-top:/, "the sticky top bar must not cover the form's heading");
+});
+
+test("TC-9226 a venue that can't be opened moves nothing", async () => {
+  const { moves, documentStub } = editFormStub();
+  const state = app("venue_staff", documentStub);
+  serve(state, { "GET /venues": { ok: true, data: [grandHall()] }, "GET /venues/7": { ok: false, status: 404, data: { detail: "Venue not found" } } });
+  await state.fetchVenueWorkspace();
+  const waiting = [];
+  state.$nextTick = callback => waiting.push(callback);
+  await state.openVenueEdit(grandHall());
+  waiting.forEach(callback => callback());
+  assert.deepEqual(moves, []);
+  assert.equal(state.venueWorkspace.showCreate, false);
 });

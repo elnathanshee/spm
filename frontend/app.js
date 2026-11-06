@@ -1141,6 +1141,11 @@ document.addEventListener("alpine:init", () => {
       workspace.editing = response.data;
       workspace.form = venueFormFrom(response.data);
       workspace.showCreate = true;
+      // [SCRUM-92] The form sits above the venue list: without this, pressing Edit looks like it did nothing.
+      if (typeof this.$nextTick === "function") this.$nextTick(() => {
+        document.querySelector?.("form.create-venue-card")?.scrollIntoView?.({ block: "start" });
+        document.getElementById?.("venue-name")?.focus?.({ preventScroll: true });
+      });
     },
 
     // AC2, AC3: send only the changed fields (D3); list newly flagged bookings (D5).

@@ -199,7 +199,7 @@
 .mark-read:hover{text-decoration:underline}
 
 .operations-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(17rem,.75fr);align-items:start;gap:1.25rem}
-.create-venue-card{margin-bottom:1.25rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-md)}
+.create-venue-card{scroll-margin-top:5.25rem;margin-bottom:1.25rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-md)}
 .section-heading{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--border);padding:1.1rem 1.25rem}
 .section-heading>div{display:flex;gap:.75rem}
 .section-heading h2{margin:0;font-size:var(--text-base)}
