@@ -77,6 +77,9 @@ def can_see_event(user: User, event: Event) -> bool:
         return True
     # [Sprint 5] C SCRUM-86 safety officer: insert directly below this line.
     # [Sprint 5] E SCRUM-52 attendee: insert directly below this line.
+    # [SCRUM-52] Only for notifications: GET /events/{id} has its own rules for Attendees.
+    if role == "attendee":
+        return any(r.attendee_id == user.id and r.status == "registered" for r in event.registrations)
     return False
 
 

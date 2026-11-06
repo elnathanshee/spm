@@ -12,6 +12,8 @@ import { safetyWorkspace } from "./safety-workspace.js";
 import { equipmentCatalogue } from "./equipment-catalogue.js";
 import { equipmentRequestActions, eventReservations } from "./equipment-reservations.js";
 // [Sprint 5] E SCRUM-45 component import: insert directly below this line.
+import { attendeeRegistration } from "./attendee-registration.js";
+import { eventRegistrations } from "./event-registrations.js";
 // [Sprint 5] F SCRUM-49 component import: insert directly below this line.
 
 window.Alpine = Alpine;
@@ -27,5 +29,7 @@ Alpine.data("equipmentCatalogue", equipmentCatalogue);
 Alpine.data("equipmentRequestActions", equipmentRequestActions);
 Alpine.data("eventReservations", eventReservations);
 // [Sprint 5] E SCRUM-45 Alpine.data: insert directly below this line.
+Alpine.data("attendeeRegistration", attendeeRegistration);
+Alpine.data("eventRegistrations", eventRegistrations);
 // [Sprint 5] F SCRUM-49 Alpine.data: insert directly below this line.
 Alpine.start();

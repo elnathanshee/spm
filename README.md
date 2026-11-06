@@ -17,6 +17,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
 - **Equipment (SCRUM-40 to 44, SCRUM-65):** Technical Support keep a catalogue of equipment, record units that are unavailable, reserve what's available for an event, and update each equipment request's status and note. The event's Coordinator is told about each update.
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
+- **Attendee registration (SCRUM-45, 46, 47, 48, 52, 65):** Attendees see open events, register, check their status and withdraw. The Organiser and assigned Coordinator switch registration on and see who registered. Registered Attendees are told when the event changes or is cancelled.
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
 
@@ -245,6 +246,17 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - `POST /equipment-requests/{id}/status` with a status (requested, reserved, arranged or unavailable) and an optional note. History is kept, and equipment request responses show `latest_status` and `latest_note`.
 
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
+## Attendee Registration (SCRUM-45, 46, 47, 48, 52, 65)
+
+An event is **open** when its registration setting is on and its status is Confirmed. The setting can be switched on earlier, but nobody can register until the Safety Officer's approval makes the event Confirmed.
+
+- **Organiser or assigned Coordinator:** switch registration on or off, and see the list, in the Registrations panel of the event detail dialog (`GET` and `PUT /events/{id}/registration-settings`, `GET /events/{id}/registrations`). The Lead can read both through the API but can't switch it.
+- **Attendee:** uses the Event directory screen. `GET /registrations/events` lists open events, `POST /registrations/events/{id}` registers, `POST /registrations/events/{id}/withdraw` withdraws and `GET /registrations/mine` shows my status. An Attendee sees only the title, description, date and time, venue names and locations, places left and their own status.
+- **Capacity:** the lower of the expected attendance and the capacity of the event's Confirmed venues. With several venues the smallest decides. With neither number known, nobody can register yet and the screen says "Places to be confirmed". A full event refuses with a sentence, and withdrawing frees a place.
+- **Past dates:** a Confirmed event whose date has passed stays open until someone changes its status, for example the Coordinator marking it Completed. No status changes on its own in this app.
+- **History:** a withdrawn registration, or one on a cancelled event, stays as a record. Registering again reuses the same row, so there are never duplicates.
+- **Notices (in-app):** registered Attendees are told when the event is cancelled, when an important change is approved, when a routine edit changes the title or description, and when a booking is approved or a Confirmed booking is cancelled, because that changes the venue and the places. An edit to a field they can't see sends nothing, and an Attendee who withdrew gets nothing. Once they withdraw, their earlier notices about that event leave their list too.
+
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
 

@@ -457,5 +457,40 @@ class EquipmentReservation(Base):
 
 
 # [Sprint 5] E SCRUM-45 models: insert directly below this line.
+# [SCRUM-65] NEW: whether registration is switched on for an event. No row means
+# off. A new table because create_all() never alters existing ones. The row is
+# also what registering locks while it counts places (SCRUM-46).
+class EventRegistrationSetting(Base):
+    __tablename__ = "event_registration_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, unique=True, index=True)
+    enabled = Column(Boolean, default=False, nullable=False)
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships. The backref gives event.registration_setting without changing Event.
+    event = relationship("Event", backref=backref("registration_setting", uselist=False, cascade="all, delete-orphan"))
+    updated_by = relationship("User")
+
+
+# [SCRUM-46] NEW: one row per Attendee per event, status "registered" or "withdrawn".
+# Registering again reuses the withdrawn row, so the unique constraint makes a
+# duplicate impossible, even in a race. A withdrawn row stays as history.
+class EventRegistration(Base):
+    __tablename__ = "event_registrations"
+    __table_args__ = (UniqueConstraint("event_id", "attendee_id", name="uq_event_registration_attendee"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    attendee_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="registered")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    withdrawn_at = Column(DateTime, nullable=True)
+
+    # Relationships. The backref gives event.registrations without changing Event.
+    event = relationship("Event", backref=backref("registrations", cascade="all, delete-orphan"))
+    attendee = relationship("User")
+
 
 # [Sprint 5] F SCRUM-49 models: insert directly below this line.

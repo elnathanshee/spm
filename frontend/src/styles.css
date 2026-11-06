@@ -498,6 +498,11 @@
 .equipment-cell-arrangements{min-width:0}
 @media(max-width:640px){.equipment-period-grid{grid-template-columns:1fr}}
 /* [Sprint 5] E SCRUM-45 styles: insert directly below this line. */
+.registration-section { margin-top: var(--space-5); }
+.registration-description { margin: var(--space-1) 0; color: var(--text-muted); font-size: var(--text-sm); }
+.registration-confirm { flex: 1 1 100%; }
+.registration-switch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.registration-switch p { flex: 1 1 14rem; margin: 0; }
 /* [Sprint 5] F SCRUM-49 styles: insert directly below this line. */
 /* [Sprint 5] G SCRUM-85 styles: insert directly below this line. */
 /* [Sprint 5] H SCRUM-99 styles: insert directly below this line. */

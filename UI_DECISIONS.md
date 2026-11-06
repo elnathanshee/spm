@@ -165,7 +165,7 @@ workflow order. On phones the search and sort stack, and the chips scroll in one
 | Lead: Assignment oversight | Title, organiser, coordinator, #ID | All, Needs assignment (no Coordinator yet), Assigned | "Needs attention" (default); "Earliest submitted" (the backend's order); "Earliest proposed date" | A table, not sections, so rows keep their status badge. |
 | Venue Staff: Booking requests | Event, venue, booking #ID | All, Pending, Confirmed, Rejected, Expired | "Earliest booking date"; "Soonest hold expiry" | Placed inside the booking panel (`.list-controls-inset`). Then split into Needs a decision, Upcoming confirmed, Past and closed; sorting is within each. |
 | Technical Support: Equipment worklist | Event, equipment, technical requirements, recorded by, event #ID | **None**: filters are by date section, not by status (each line shows its own status since SCRUM-40), so there is only one meaningful option | "Earliest event date" (the backend's order); "Recently recorded" (sorts events and the lines within each) | Lines stay grouped by event, and events by date section; sorting is within each section. |
-| Attendee: Event directory | **None** | **None** | **None** | No list exists: the backend has no attendee event list (`BACKEND_ISSUES.md` #1). The page is an empty state only (see "Attendee: event directory"). |
+| Attendee: Event directory | **None** | **None** | **None** | Since SCRUM-45 the page lists open events and my registrations. Both are short lists, soonest or newest first, so it has no controls yet (see "Attendee: event directory"). |
 | Venue Staff: Venue catalogue | **None** | **None** | **None** | A short reference list of active venues on the same page; controls wouldn't help. |
 
 **⚠ Confirm:** Coordinator "All" as the default (it was "Active") and counts before search (they followed the search)
@@ -335,6 +335,10 @@ opens from a request's title (backend `equipment.py`).
   `styles.css` "Equipment section". Guarded by TC-10011 to TC-10014.
 
 ### Attendee: event directory
+
+**Replaced in Sprint 5 (SCRUM-45, 46, 47):** the page now lists open events and my registrations, and an Attendee can
+register and withdraw (`frontend/src/attendee-registration.js`). The notes below describe the earlier placeholder and
+are kept as history.
 
 From `backend/events.py` and `status_rules.py`: an Attendee can't list events (`GET /events` → 403), and can read
 one event (`GET /events/{id}`: name, description, date, time, venue) only if it's Confirmed. Nothing moves an event

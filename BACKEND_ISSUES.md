@@ -3,7 +3,10 @@
 Frontend work that is blocked on a backend change. The frontend does not work
 around these; each entry has the evidence.
 
-## 1. Attendees have no way to list events
+## 1. Attendees have no way to list events (resolved in Sprint 5, SCRUM-45)
+
+**Resolved:** `GET /registrations/events` now lists open events for Attendees, and the placeholder is gone. See
+`README.md`, "Attendee Registration". The notes below are kept as history.
 
 - **Screen:** Attendee workspace (`/attendee`, "Event directory"), currently a placeholder.
 - **Evidence:**
