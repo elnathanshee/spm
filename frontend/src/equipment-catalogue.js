@@ -115,7 +115,12 @@ export function equipmentCatalogue() {
       await this.loadPeriods();
     },
 
-    closeCataloguePeriods() { this.catalogue.periods = null; },
+    closeCataloguePeriods() {
+      const itemId = this.catalogue.periods.item.id;
+      this.catalogue.periods = null;
+      // The Close button has gone, so hand the focus back to the button that opened this.
+      this.$nextTick?.(() => this.$root?.querySelector(`[data-periods-item="${itemId}"]`)?.focus());
+    },
 
     async loadPeriods() {
       const periods = this.catalogue.periods;
@@ -175,6 +180,8 @@ export function equipmentCatalogue() {
       }
       periods.message = "Unavailable period removed.";
       await this.loadPeriods();
+      // The Remove button has gone, so move the focus to the section's heading.
+      this.$nextTick?.(() => this.$refs?.periodsHeading?.focus());
     },
   };
 }

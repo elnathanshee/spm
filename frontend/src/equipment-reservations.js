@@ -83,6 +83,13 @@ export function equipmentRequestActions() {
       return line ? this.availabilityLabel(line) : "";
     },
 
+    // A reservation follows its event, so moving an event can leave more held than exists.
+    overCommittedLines() { return this.arrangement.availability.filter(line => line.over_committed); },
+
+    overCommittedLabel(line) {
+      return `${line.name}: ${line.reserved + line.unavailable} units are reserved or unavailable for this event's date and time, but there are only ${line.total_quantity}. Release some or find more.`;
+    },
+
     // ---- [SCRUM-44] Reserve and release
     heldLabel(held) {
       return `${held.quantity} of ${held.item_name}${held.released_at ? " (released)" : ""}`;
@@ -125,11 +132,13 @@ export function equipmentRequestActions() {
       Object.assign(view, { reserveError: "", message: "", reserveBusy: true });
       const response = await this.apiRequest(`/events/${item.event_id}/equipment-reservations/${reservation.id}`, { method: "DELETE", inlineErrors: true });
       view.reserveBusy = false;
-      if (!response.ok) {
-        if (response.status !== 401) view.reserveError = this.dialogErrorMessage(response);
-        return;
-      }
+      if (!response.ok && response.status === 401) return;
+      // Reloaded either way: another line on this event may have released it first.
+      const refusal = response.ok ? "" : this.dialogErrorMessage(response);
       await this.loadReserveData(item);
+      // The Release button has gone, so hand the focus to the row's Reserve button.
+      this.$nextTick?.(() => this.$refs?.reserveToggle?.focus());
+      if (refusal) { view.reserveError = refusal; return; }
       view.message = `Released ${reservation.quantity} of ${reservation.item_name}.`;
     },
   };

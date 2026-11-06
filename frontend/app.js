@@ -379,6 +379,7 @@ document.addEventListener("alpine:init", () => {
         reassigned_away: "Event reassigned",
         coordinator_changed: "Coordinator changed",
         coordinator_assigned: "Coordinator assigned",
+        equipment_request_updated: "Equipment request updated",
       }[notification?.kind] || "Workspace update";
     },
     notificationTone(notification) {
