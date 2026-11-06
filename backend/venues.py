@@ -20,6 +20,7 @@ from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-95]
+from .booking_rules import unavailability_overlaps, unavailable_reason  # [SCRUM-82]
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
@@ -229,7 +230,14 @@ def check_venue_availability(
 
     [SCRUM-38 part 2] exclude_booking_id leaves one booking out, so an existing
     booking can be checked against the venue's other bookings (at approval).
+
+    [SCRUM-82] An unavailability period blocks the slot too, and is named first:
+    no change to the other bookings would free the venue.
     """
+    periods = unavailability_overlaps(venue, start_time, end_time)
+    if periods:
+        return False, unavailable_reason(periods[0])
+
     conflicts = find_conflicts(db, venue, start_time, end_time, exclude_booking_id=exclude_booking_id)
     if not conflicts:
         return True, None
