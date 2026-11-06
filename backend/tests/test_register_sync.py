@@ -44,12 +44,23 @@ def repeated(ids):
     return [row_id for row_id, count in Counter(ids).items() if count > 1]
 
 
-def test_tc9903_both_files_hold_the_same_ids_in_the_same_order():
-    md_ids = [row[0] for row in markdown_rows()]
-    csv_ids = [row[0] for row in csv_rows() if row]
+def ids_by_story(rows):
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row[1], []).append(row[0])
+    return grouped
+
+
+def test_tc9903_both_files_hold_the_same_ids_in_the_same_order_within_each_story():
+    # The register helper groups the Markdown by story but writes the CSV in rows-file order.
+    # So a rows file with mixed stories orders the stories differently, and that is not a mismatch.
+    md_rows = markdown_rows()
+    rows = [row for row in csv_rows() if row]
+    md_ids = [row[0] for row in md_rows]
+    csv_ids = [row[0] for row in rows]
     assert sorted(set(md_ids) - set(csv_ids)) == []
     assert sorted(set(csv_ids) - set(md_ids)) == []
-    assert md_ids == csv_ids
+    assert ids_by_story(md_rows) == ids_by_story(rows)
 
 
 def test_tc9928_order_is_compared_story_by_story():
