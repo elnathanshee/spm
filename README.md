@@ -1,7 +1,10 @@
-# spm
 # ConnectSphere
 
 Event Planning & Venue Booking System, built for **IS212 Software Project Management** (SMU, AY2026/27 Term 1).
+
+- **Repository:** https://github.com/elnathanshee/spm
+- **Live app:** https://spm-dusky-six.vercel.app
+- **Release:** [v1.0.0](https://github.com/elnathanshee/spm/releases/tag/v1.0.0), the end of Sprint 4 (5 Nov 2026)
 
 ## Team — Machu Picchu
 
@@ -17,7 +20,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 
 > ConnectSphere staff and clients can take an event from request through to a confirmed, resourced, open-for-registration event, entirely in the system, with changes handled without arrangements silently going stale.
 
-## Current Sprint — Sprint 4
+## Final sprint: Sprint 4 (24 Oct to 4 Nov 2026)
 
 > **Sprint Goal:** Make the core ConnectSphere workflow usable end-to-end through the UI. A coordinator is able to capture an event request, find an available venue, and request it. Reviewers and venue and tech staff can then act on that request and booking from their own screens. All of this ships on a CI-checked frontend. Ensure every backend has a corresponding frontend.
 
@@ -29,10 +32,10 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 | Backend | Python (FastAPI) | Agreed |
 | Database | SQLite (Dev) / PostgreSQL (Neon / Prod) via SQLAlchemy | Agreed |
 | Authentication | Local Session Cookie (`connectsphere_session`) with bcrypt | Agreed |
-| Testing framework | Pytest + FastAPI TestClient | Agreed |
+| Testing framework | Pytest + FastAPI TestClient (backend); Node.js test runner (frontend) | In use |
 | Version control | GitHub | Agreed |
-| Hosting | Vercel (auto-deploys from GitHub on push) | Agreed |
-| CI | GitHub Actions | Open |
+| Hosting | Vercel: one project with a frontend and a backend service on one domain, deployed from `main` | In use |
+| CI | GitHub Actions: backend tests with branch coverage; frontend tests and build | In use |
 
 *(Update this table as decisions are made in sprint planning — keep it as the single source of truth for the stack.)*
 
@@ -47,8 +50,8 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 ### Setup
 
 ```bash
-git clone https://github.com/<org-or-user>/<repo-name>.git
-cd <repo-name>
+git clone https://github.com/elnathanshee/spm.git
+cd spm
 
 # backend
 python -m venv venv
@@ -72,7 +75,7 @@ cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173`. Vite proxies `/auth`, `/events`, and
+Open `http://localhost:5173`. Vite proxies `/auth`, `/events`, `/venues`, `/equipment-requests`, and
 `/coordinator`, `/lead`, and `/notifications` to `http://localhost:8000`, preserving same-origin cookie
 behavior during development.
 
@@ -102,12 +105,23 @@ development-account initialization and the six-role RBAC verification guide.
 
 ## Deployment
 
-Every push to `main` auto-deploys via Vercel. No manual deployment step should be needed.
+The app is live at **https://spm-dusky-six.vercel.app**.
 
-Configure Vercel with the project root set to `frontend/`, Build Command set to
-`npm run build`, and Output Directory set to `dist`. The deployed frontend
-must use a backend URL whose CORS policy allows the Vercel origin with
-credentials enabled.
+It runs on Vercel as one project with two services, defined in [`vercel.json`](vercel.json):
+
+| Service | What it runs | Public paths |
+|---|---|---|
+| `frontend` | The Vite build of `frontend/` | `/` and every path not listed for the backend |
+| `backend` | The FastAPI app `backend.main:app`, from the repository root with `requirements.txt` | `/auth`, `/events`, `/venues`, `/coordinator`, `/lead`, `/notifications`, `/equipment-requests` |
+
+Both services share one domain. The browser calls the API with relative paths, so the `SameSite=Lax` session cookie works as it does locally, and the backend paths are the same ones the Vite dev proxy forwards. On Vercel the session cookie is also marked `Secure`.
+
+- **Deploys:** every push to `main` deploys production. Each pull request gets a preview deployment, which only members of the Vercel project can open.
+- **Environment variable:** set `DATABASE_URL`, the Neon PostgreSQL connection string, in the Vercel project's Environment Variables for Production and Preview. On Vercel the backend stops with a clear error if it is missing, instead of falling back to a SQLite file. Leave `VITE_API_BASE_URL` unset.
+- **Accounts:** users are created with `backend/seed_users.py`, which takes the test-account password from the `CONNECTSPHERE_DEV_PASSWORD` environment variable.
+- **Existing databases:** before pointing a deployment at one, run the read-only `--check` of `backend/migrate_scrum64.py` and `backend/migrate_scrum95.py` against it ([SCRUM-64](docs/SCRUM-64-MIGRATION.md), [SCRUM-95](docs/SCRUM-95-UTC-MIGRATION.md)).
+
+To deploy a copy: import the repository on Vercel as one project with Services (root directory `./`), add `DATABASE_URL`, then deploy.
 
 ## Venue booking workflow
 
@@ -172,7 +186,7 @@ To maintain code quality, TDD commit traceability, and trunk stability, all team
 
 - **[Developer SOP & TDD Guide](docs/DEVELOPER_SOP.md):** Team coding standards, branching, and TDD commit rules.
 - **[Test Case Register](docs/TEST_CASES.md):** Complete log of automated test cases, scenarios, and results across all sprints.
-- **[C4 Architecture DSL](docs/connectsphere.dsl):** Structurizr DSL architecture models for System Context and Container views.
+- **[C4 model](docs/connectsphere.dsl):** Structurizr DSL for the C1 System Context and C2 Container views and the production deployment. Rendered PNGs are in [docs/c4/](docs/c4/).
 - **[Sequence Diagrams](docs/diagrams/):** Mermaid sequence diagrams and high-res exports for core event lifecycles.
 
 ## Project Management
@@ -182,7 +196,7 @@ To maintain code quality, TDD commit traceability, and trunk stability, all team
 
 ## Repository Access
 
-Both course instructors have been granted collaborator access to this repository.
+Repository: https://github.com/elnathanshee/spm. It moved from `reneelui/spm` in November 2026, and the old address redirects. The repository is public, and both course instructors (cposkitt and kokkhinglee) were invited as collaborators on 6 Nov 2026.
 
 ## License
 
