@@ -400,8 +400,98 @@ class SafetyCheck(Base):
 
 
 # [Sprint 5] D SCRUM-41 models: insert directly below this line.
+# [Sprint 5 | SCRUM-41] NEW: one kind of equipment Technical Support hold, and how
+# many units exist. A new table because create_all() never alters existing ones.
+class EquipmentItem(Base):
+    __tablename__ = "equipment_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    equipment_type = Column(String(100), nullable=False)
+    name = Column(String(255), nullable=False)
+    total_quantity = Column(Integer, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# [Sprint 5 | SCRUM-42] NEW: a number of an item's units that can't be used for a
+# period. Times are naive UTC, like bookings. A new table for the same reason.
+class EquipmentItemUnavailability(Base):
+    __tablename__ = "equipment_item_unavailability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("equipment_items.id"), nullable=False, index=True)
+    units = Column(Integer, nullable=False)
+    start_at = Column(DateTime, nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    reason = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    item = relationship("EquipmentItem", backref=backref("unavailable_periods", cascade="all, delete-orphan"))
+    created_by = relationship("User")
+
+
+# [Sprint 5 | SCRUM-43, SCRUM-44] NEW: units of an item held for an event. It has no
+# window of its own: arrangements.event_window(event) gives it live, so it follows the
+# event's bookings. Releasing sets released_at and keeps the row. A new table for the
+# same reason.
+class EquipmentReservation(Base):
+    __tablename__ = "equipment_reservations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("equipment_items.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    quantity = Column(Integer, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    released_at = Column(DateTime, nullable=True)
+    released_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Relationships. The backrefs give event.equipment_reservations and
+    # item.reservations without changing those classes' tables.
+    item = relationship("EquipmentItem", backref=backref("reservations", cascade="all, delete-orphan"))
+    event = relationship("Event", backref=backref("equipment_reservations", cascade="all, delete-orphan"))
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    released_by = relationship("User", foreign_keys=[released_by_id])
+
 
 # [Sprint 5] E SCRUM-45 models: insert directly below this line.
+# [SCRUM-65] NEW: whether registration is switched on for an event. No row means
+# off. A new table because create_all() never alters existing ones. The row is
+# also what registering locks while it counts places (SCRUM-46).
+class EventRegistrationSetting(Base):
+    __tablename__ = "event_registration_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, unique=True, index=True)
+    enabled = Column(Boolean, default=False, nullable=False)
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships. The backref gives event.registration_setting without changing Event.
+    event = relationship("Event", backref=backref("registration_setting", uselist=False, cascade="all, delete-orphan"))
+    updated_by = relationship("User")
+
+
+# [SCRUM-46] NEW: one row per Attendee per event, status "registered" or "withdrawn".
+# Registering again reuses the withdrawn row, so the unique constraint makes a
+# duplicate impossible, even in a race. A withdrawn row stays as history.
+class EventRegistration(Base):
+    __tablename__ = "event_registrations"
+    __table_args__ = (UniqueConstraint("event_id", "attendee_id", name="uq_event_registration_attendee"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    attendee_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="registered")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    withdrawn_at = Column(DateTime, nullable=True)
+
+    # Relationships. The backref gives event.registrations without changing Event.
+    event = relationship("Event", backref=backref("registrations", cascade="all, delete-orphan"))
+    attendee = relationship("User")
+
 
 # [Sprint 5] F SCRUM-49 models: insert directly below this line.
 from sqlalchemy import Index, text  # [SCRUM-49] Imported here so the shared import block stays free of conflicts.

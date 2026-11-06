@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
+from .registrations import tell_attendees_venue_changed  # [SCRUM-52]
 from .status import CANCELLED, COMPLETED
 from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
@@ -777,6 +778,8 @@ def _decide_booking(
     try:
         db.flush()  # The unique decision constraint also arbitrates concurrent decisions.
         notify_booking(db, booking, KIND_BOOKING_APPROVED if decision == "Approved" else KIND_BOOKING_REJECTED)
+        if approving:
+            tell_attendees_venue_changed(db, booking.event)  # [SCRUM-52]
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -852,6 +855,9 @@ def cancel_booking(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"This booking no longer holds the venue, so it can't be cancelled (status: {shown_status}).",
         )
+    # [SCRUM-52] Only a Confirmed booking was ever shown to Attendees.
+    if booking.status == "Confirmed":
+        tell_attendees_venue_changed(db, booking.event)
     booking.status = "Cancelled"
     db.commit()
     db.refresh(booking)

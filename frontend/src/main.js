@@ -9,7 +9,11 @@ import { eventLifecycle } from "./event-lifecycle.js";
 import { reviewFlags } from "./review-flags.js";
 import { safetyWorkspace } from "./safety-workspace.js";
 // [Sprint 5] D SCRUM-41 component import: insert directly below this line.
+import { equipmentCatalogue } from "./equipment-catalogue.js";
+import { equipmentRequestActions, eventReservations } from "./equipment-reservations.js";
 // [Sprint 5] E SCRUM-45 component import: insert directly below this line.
+import { attendeeRegistration } from "./attendee-registration.js";
+import { eventRegistrations } from "./event-registrations.js";
 // [Sprint 5] F SCRUM-49 component import: insert directly below this line.
 import { changeRequests } from "./change-requests.js";
 
@@ -22,7 +26,12 @@ Alpine.data("eventLifecycle", eventLifecycle);
 Alpine.data("reviewFlags", reviewFlags);
 Alpine.data("safetyWorkspace", safetyWorkspace);
 // [Sprint 5] D SCRUM-41 Alpine.data: insert directly below this line.
+Alpine.data("equipmentCatalogue", equipmentCatalogue);
+Alpine.data("equipmentRequestActions", equipmentRequestActions);
+Alpine.data("eventReservations", eventReservations);
 // [Sprint 5] E SCRUM-45 Alpine.data: insert directly below this line.
+Alpine.data("attendeeRegistration", attendeeRegistration);
+Alpine.data("eventRegistrations", eventRegistrations);
 // [Sprint 5] F SCRUM-49 Alpine.data: insert directly below this line.
 Alpine.data("changeRequests", changeRequests);
 Alpine.start();

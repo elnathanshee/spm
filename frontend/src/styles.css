@@ -483,7 +483,26 @@
 .safety-section h3{margin:0}
 .safety-warning{color:var(--danger);font-weight:600}
 /* [Sprint 5] D SCRUM-41 styles: insert directly below this line. */
+.equipment-catalogue{margin-bottom:var(--space-6)}
+.equipment-catalogue-body{display:grid;gap:var(--space-4);min-width:0;padding:var(--space-4)}
+.equipment-periods{display:grid;gap:var(--space-4);min-width:0;border-top:1px solid var(--border);padding-top:var(--space-4)}
+.equipment-period-grid{display:grid;grid-template-columns:minmax(5rem,1fr) minmax(0,2fr) minmax(0,2fr);gap:var(--space-4)}
+.equipment-period-list{display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none}
+.equipment-period-list li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2);overflow-wrap:anywhere}
+.equipment-period-list small{color:var(--text-muted);font-size:var(--text-xs)}
+.equipment-arrangement{display:grid;gap:var(--space-2);min-width:0}
+.equipment-latest{margin:0;overflow-wrap:anywhere}
+.equipment-status-form fieldset,.equipment-reserve fieldset{display:grid;gap:var(--space-2);min-width:0;border:0;margin:0;padding:0}
+.equipment-reserve{display:grid;gap:var(--space-2);min-width:0;border-top:1px solid var(--border);padding-top:var(--space-2)}
+.equipment-reserve select,.equipment-status-form select{width:100%;min-width:0}
+.equipment-cell-arrangements{min-width:0}
+@media(max-width:640px){.equipment-period-grid{grid-template-columns:1fr}}
 /* [Sprint 5] E SCRUM-45 styles: insert directly below this line. */
+.registration-section { margin-top: var(--space-5); }
+.registration-description { margin: var(--space-1) 0; color: var(--text-muted); font-size: var(--text-sm); }
+.registration-confirm { flex: 1 1 100%; }
+.registration-switch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.registration-switch p { flex: 1 1 14rem; margin: 0; }
 /* [Sprint 5] F SCRUM-49 styles: insert directly below this line. */
 .change-request-form fieldset{display:grid;gap:var(--space-4);min-width:0;border:0;margin:0;padding:0}
 .change-request-form legend{padding:0}

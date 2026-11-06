@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from .arrangements import EQUIPMENT_REQUESTED
 from .auth import get_current_user
 from .database import get_db
 from .models import EquipmentRequest, Event, User
@@ -119,6 +120,8 @@ def equipment_request_to_dict(request: EquipmentRequest) -> Dict[str, Any]:
     """AC3: every line carries its event and when that event is due."""
     event = request.event
     proposed_start = event.proposed_start if event else None
+    # [SCRUM-40] The latest update is the status; no updates yet means requested.
+    latest = max(request.status_updates, key=lambda update: update.id, default=None)
     return {
         "id": request.id,
         "event_id": request.event_id,
@@ -129,6 +132,8 @@ def equipment_request_to_dict(request: EquipmentRequest) -> Dict[str, Any]:
         "technical_requirements": request.technical_requirements,
         "requested_by": request.requested_by.username if request.requested_by else None,
         "created_at": request.created_at.isoformat() if request.created_at else None,
+        "latest_status": latest.status if latest else EQUIPMENT_REQUESTED,
+        "latest_note": latest.note if latest else None,
     }
 
 

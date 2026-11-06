@@ -3,7 +3,10 @@
 Frontend work that is blocked on a backend change. The frontend does not work
 around these; each entry has the evidence.
 
-## 1. Attendees have no way to list events
+## 1. Attendees have no way to list events (resolved in Sprint 5, SCRUM-45)
+
+**Resolved:** `GET /registrations/events` now lists open events for Attendees, and the placeholder is gone. See
+`README.md`, "Attendee Registration". The notes below are kept as history.
 
 - **Screen:** Attendee workspace (`/attendee`, "Event directory"), currently a placeholder.
 - **Evidence:**
@@ -194,6 +197,8 @@ around these; each entry has the evidence.
     `POST /events/{id}/equipment-requests`), with the Organiser's text shown beside it for reference.
   - `EquipmentRequestCreate` doesn't limit `equipment_type`, but the column is `String(100)`, so a longer type would
     fail in the database rather than with a 422. The frontend stops at 100 characters.
+- **Update (Sprint 5, SCRUM-40 and SCRUM-44):** each line now has a status and note form and a reserve action, so the
+  next sentence describes the page before that.
 - **Frontend:** the worklist is read only, with no buttons. It's grouped by event date ("Today and the next 7
   days", "Later", "Date not set", "Past events"), the only sign of urgency in the data. Rows have no title link,
   because there's nothing the role can open.

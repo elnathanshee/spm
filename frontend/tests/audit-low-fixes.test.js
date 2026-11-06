@@ -48,14 +48,16 @@ test("TC-10112 (F5) event detail leaves out the id, the status and the raw user 
   assert.match(html, /x-for="\[key, value\] in eventDetailEntries\(eventDetail.detail\)"/);
 });
 
-// Changed on purpose (Attendee redesign): the page is its own screen with a plain empty state, as asked.
-// F7's point stands in the docs: the page makes no request, because no route lists events for Attendees.
+// Changed on purpose (SCRUM-45): the placeholder is gone. The page now lists open events
+// from GET /registrations/events, so it has buttons and a different empty state.
+// F7's point stands: it is the Attendee's own screen, with no role note.
 test("TC-10113 (F7) the Attendee page is its own screen with a plain empty state and no role note", () => {
   assert.equal(resolveRolePath("/attendee", "Attendee").unbuiltRole, false);
-  const page = html.slice(html.indexOf("currentPath === '/attendee' && user.role === 'Attendee'"), html.indexOf("</section></template>", html.indexOf("currentPath === '/attendee'")));
-  assert.match(page, /<h2>No events are available yet<\/h2><p>Please check back later\.<\/p>/);
+  const start = html.indexOf("currentPath === '/attendee' && user.role === 'Attendee'");
+  const page = html.slice(start, html.indexOf("<!-- [Sprint 5] SCRUM-86", start));
+  assert.match(page, /<h2>No events are open for registration<\/h2><p>Please check back later\.<\/p>/);
   assert.doesNotMatch(html, /Role-based access is active|Your focused workspace is ready|no attendee events/);
-  assert.doesNotMatch(page, /list-controls|<button/, "nothing to search, sort or act on");
+  assert.doesNotMatch(page, /list-controls/, "nothing to search or sort");
 });
 
 test("TC-10114 (F8) Venue Staff booking rows show when a hold expires or expired", () => {
