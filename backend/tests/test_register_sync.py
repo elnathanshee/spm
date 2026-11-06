@@ -52,6 +52,15 @@ def test_tc9903_both_files_hold_the_same_ids_in_the_same_order():
     assert md_ids == csv_ids
 
 
+def test_tc9928_order_is_compared_story_by_story():
+    """TC-9928 | Workflow Variation | A rows file with mixed stories must not fail; a swap inside a story must."""
+    markdown = [["TC-1", "SCRUM-1"], ["TC-2", "SCRUM-1"], ["TC-3", "SCRUM-2"]]
+    stories_mixed = [["TC-1", "SCRUM-1"], ["TC-3", "SCRUM-2"], ["TC-2", "SCRUM-1"]]
+    swapped_inside_a_story = [["TC-2", "SCRUM-1"], ["TC-1", "SCRUM-1"], ["TC-3", "SCRUM-2"]]
+    assert ids_by_story(stories_mixed) == ids_by_story(markdown)
+    assert ids_by_story(swapped_inside_a_story) != ids_by_story(markdown)
+
+
 def test_tc9904_every_csv_row_has_fifteen_columns():
     wrong = [(row[0] if row else "(blank line)", len(row)) for row in csv_rows() if len(row) != COLUMNS]
     assert wrong == []
