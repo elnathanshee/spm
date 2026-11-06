@@ -10,9 +10,9 @@ occupies the venue: start minus setup time to end plus turnaround time
 on every day its occupied window touches, so a booking over midnight appears
 on both days.
 
-AC3: the operating hours are the venue's recorded unavailability today (it is
-unavailable outside them). unavailable_periods is empty, ready for the
-closures Week 7 Change 2 will let Venue Staff record.
+AC3: the operating hours are the venue's recorded unavailability (it is
+unavailable outside them). [SCRUM-82] unavailable_periods lists the closures
+Venue Staff record (Week 7 Change 2), and each day lists its own in "unavailable".
 """
 
 from datetime import date, datetime, time, timedelta
@@ -22,8 +22,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from .booking_rules import BLOCKING_STATUSES, is_blocking, occupied_window, windows_overlap  # [SCRUM-38]
+from .booking_rules import SINGAPORE, to_naive_utc  # [SCRUM-82]
 from .database import get_db
 from .models import User, Venue, VenueBooking
+from .venue_unavailability import period_to_dict  # [SCRUM-82]
 from .venues import require_venue_searcher
 
 router = APIRouter(prefix="/venues", tags=["venue calendar"])
@@ -41,6 +43,19 @@ def busy_block(booking: VenueBooking, occupied_start: datetime, occupied_end: da
         "occupied_start": occupied_start.isoformat(),
         "occupied_end": occupied_end.isoformat(),
     }
+
+
+def singapore_midnight(day: date) -> datetime:
+    """[SCRUM-82] The start of a Singapore day, as naive UTC like a period's times."""
+    return to_naive_utc(datetime.combine(day, time.min, tzinfo=SINGAPORE))
+
+
+def periods_between(venue: Venue, first_day: date, last_day: date) -> list:
+    """[SCRUM-82] The venue's periods overlapping these Singapore days, earliest first."""
+    range_start = singapore_midnight(first_day)
+    range_end = singapore_midnight(last_day + timedelta(days=1))
+    periods = [p for p in venue.unavailable_periods if windows_overlap(p.start_at, p.end_at, range_start, range_end)]
+    return [period_to_dict(p) for p in sorted(periods, key=lambda p: (p.start_at, p.id))]
 
 
 @router.get("/{venue_id}/calendar")
@@ -100,6 +115,7 @@ def venue_calendar(
                 "date": d.isoformat(),
                 "operating_hours": venue.operating_hours,
                 "busy": [block for start, end, block in blocks if windows_overlap(start, end, day_start, day_end)],
+                "unavailable": periods_between(venue, d, d),  # [SCRUM-82]
             }
         )
 
@@ -111,6 +127,6 @@ def venue_calendar(
         "turnaround_time_mins": venue.turnaround_time_mins,
         "from": from_date.isoformat(),
         "to": to_date.isoformat(),
-        "unavailable_periods": [],
+        "unavailable_periods": periods_between(venue, from_date, to_date),  # [SCRUM-82]
         "days": days,
     }

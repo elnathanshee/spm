@@ -458,6 +458,21 @@
 .equipment-form-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(7rem,1fr);gap:var(--space-4)}
 @media(max-width:640px){.equipment-form-grid{grid-template-columns:1fr}}
 /* [Sprint 5] B SCRUM-82 styles: insert directly below this line. */
+.venue-unavailability{flex:1 1 100%;min-width:0}
+.venue-unavailability summary{cursor:pointer;font-size:var(--text-sm);font-weight:var(--weight-bold)}
+.venue-unavailability>*+*{margin-top:var(--space-3)}
+.unavailability-form{display:grid;gap:var(--space-3);justify-items:start}
+.unavailability-form>*{width:100%}
+.unavailability-form>button{width:auto}
+.booking-list .booking-flag{grid-column:1/-1;display:grid;gap:var(--space-2);justify-items:start}
+.calendar-unavailable{margin-bottom:var(--space-4)}
+.calendar-unavailable h3{margin:0 0 var(--space-2);font-size:var(--text-md)}
+.retired-venues{margin-top:var(--space-5)}
+.retired-venue-list{display:grid;gap:var(--space-4);margin:0;padding:var(--space-4) var(--space-5);list-style:none}
+.retired-venue-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.retired-venue-heading p{margin:var(--space-1) 0 0;color:var(--text-muted);font-size:var(--text-sm)}
+.retired-venue-list .booking-list{margin-top:var(--space-2)}
+@media(max-width:640px){.retired-venue-list{padding:var(--space-4)}}
 /* [Sprint 5] C SCRUM-102 styles: insert directly below this line. */
 /* [Sprint 5] D SCRUM-41 styles: insert directly below this line. */
 .equipment-catalogue{margin-bottom:var(--space-6)}

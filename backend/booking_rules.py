@@ -215,3 +215,27 @@ def conflicts_among(
         if windows_overlap(requested_start, requested_end, booked_start, booked_end):
             conflicts.append(booking)
     return conflicts
+
+
+def unavailability_overlaps(venue: Venue, start: datetime, end: datetime) -> List[Any]:
+    """[SCRUM-82] The venue's unavailability periods that overlap the window a
+    booking from start to end would occupy (setup and turnaround included),
+    earliest first. A period that only touches that window doesn't count."""
+    occupied_start, occupied_end = occupied_window(start, end, venue)
+    overlaps = [
+        period for period in venue.unavailable_periods
+        if windows_overlap(occupied_start, occupied_end, period.start_at, period.end_at)
+    ]
+    return sorted(overlaps, key=lambda period: (period.start_at, period.id))
+
+
+def period_text(period: Any) -> str:
+    """[SCRUM-82] A period's times as the users read them (stored in UTC)."""
+    start = singapore_time(period.start_at).strftime("%Y-%m-%d %H:%M")
+    end = singapore_time(period.end_at).strftime("%Y-%m-%d %H:%M")
+    return f"{start} to {end} Singapore time"
+
+
+def unavailable_reason(period: Any) -> str:
+    """[SCRUM-82] One sentence for every place that refuses or flags a booking."""
+    return f"Venue unavailable ({period.reason}) from {period_text(period)}"
