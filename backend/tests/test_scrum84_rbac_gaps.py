@@ -32,6 +32,7 @@ from backend.status import APPROVED
 
 SECRET_TITLE = "Confidential planning event"
 EXTERNAL_ROLES = ["venue1", "technical1", "attendee1"]
+NON_COORDINATORS = ["organiser1", "organiser2", "lead1"] + EXTERNAL_ROLES
 
 # A fixed list on purpose: other streams add routes that may be public by design.
 PROTECTED_ROUTES = [
@@ -119,7 +120,7 @@ def world(db_session):
         "coord1": "coordinator",
         "coord2": "coordinator",
         "lead1": "lead",
-        "venue1": "venue staff",
+        "venue1": "venue_staff",
         "technical1": "technical support",
         "attendee1": "attendee",
     }
@@ -220,16 +221,26 @@ def test_tc8403_external_roles_cannot_edit_or_reassign_a_later_event(client, db_
     assert event.assigned_coordinator_id != world["coord2"]
 
 
-@pytest.mark.parametrize("username", EXTERNAL_ROLES)
-def test_tc8404_a_review_call_on_a_later_event_changes_nothing(client, db_session, world, username):
-    # Asserts the outcome only. The refusal is a 400 rather than a 403 here: reported on SCRUM-84.
+@pytest.mark.parametrize("username", NON_COORDINATORS)
+def test_tc8404_only_a_coordinator_can_call_review_on_a_later_event(client, db_session, world, username):
     login(client, username)
 
     response = client.post(f"/events/{world['event']}/review")
 
-    assert response.status_code >= 400
+    # A 403 by role. A 400 here would tell them the event's status.
+    assert response.status_code == 403
+    assert APPROVED not in response.text
     assert event_row(db_session, world["event"]).status == APPROVED
     assert db_session.query(EventStatusHistory).count() == 0
+
+
+@pytest.mark.parametrize("username", NON_COORDINATORS)
+def test_tc8413_review_does_not_reveal_which_events_exist(client, world, username):
+    login(client, username)
+
+    response = client.post("/events/999999/review")
+
+    assert response.status_code == 403
 
 
 def internal_reads(world):

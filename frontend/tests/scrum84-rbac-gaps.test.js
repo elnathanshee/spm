@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 // [SCRUM-84] What scrum17-rbac.test.js doesn't check: that the page itself is gated, and that requests carry their number.
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
-// The roles PR #18 delivered. A fixed list on purpose: later stories add workspaces with their own gates.
+// The eight workspaces at the Sprint 5 foundation. PR 18 delivered four of them; later stories added the rest.
+// A fixed list on purpose: other streams add workspaces with their own gates.
 const WORKSPACE_GATES = [
   "currentPath === '/events' && user.role === 'Organiser'",
   "currentPath === '/events/new' && user.role === 'Organiser'",
@@ -24,6 +25,17 @@ test("TC-8410 each role's workspace is gated by that role, not by its path alone
 test("TC-8411 the access-denied page exists and follows the accessDenied state", () => {
   assert.match(html, /x-(if|show)="accessDenied[^"]*"/);
   assert.match(html, /Access denied/);
+});
+
+test("TC-8414 the Organiser and Coordinator lists are built the same way", () => {
+  const organiser = html.slice(html.indexOf("currentPath === '/events' && user.role === 'Organiser'"), html.indexOf("currentPath === '/events/new'"));
+  const assigned = html.slice(html.indexOf("currentPath === '/coordinator/events' && user.role === 'Coordinator'"));
+  const section = '<section class="queue-panel request-group" :class="[`request-group-${group.key}`, group.attention ?';
+  const list = '<ul class="request-list"><template x-for="event in group.events" :key="event.id"><li class="request-row">';
+  for (const part of [section, list]) {
+    assert.ok(organiser.includes(part), `the Organiser's list: ${part}`);
+    assert.ok(assigned.includes(part), `the Coordinator's list: ${part}`);
+  }
 });
 
 test("TC-8412 the Organiser and Coordinator lists both show each request's number", () => {
