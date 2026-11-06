@@ -404,7 +404,7 @@
       </section>
       <!-- [Sprint 5] SCRUM-44 equipment reservations panel: insert directly below this line. -->
       <!-- [Sprint 5] SCRUM-48 registrations panel: insert directly below this line. -->
-      <section class="dialog-section" x-data="eventRegistrations()" x-show="canManageRegistrations()" aria-labelledby="event-registrations-title">
+      <section class="dialog-section" x-data="eventRegistrations()" x-init="$watch('eventDetail?.detail?.status', () => refreshRegistrations())" x-show="canManageRegistrations()" aria-labelledby="event-registrations-title">
         <div class="dialog-section-heading"><div><h3 id="event-registrations-title">Registrations</h3><p>Attendees can register while this is on and the event is Confirmed.</p></div></div>
         <div class="inline-state" x-show="regLoading && !regLoaded" role="status"><span class="spinner dark" aria-hidden="true"></span> Loading registrations…</div>
         <div class="inline-state error request-load-error" x-show="regError" role="alert"><span x-text="regError"></span><button type="button" class="button button-secondary button-compact" x-show="!regLoaded" :disabled="regLoading" @click="loadEventRegistrations()">Try again</button></div>

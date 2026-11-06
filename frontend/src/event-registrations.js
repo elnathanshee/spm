@@ -16,6 +16,12 @@ export function eventRegistrations() {
     regError: "",
 
     init() {
+      return this.refreshRegistrations();
+    },
+
+    // [SCRUM-48] Also runs when the status changes in this dialog: a cancel closes
+    // registration and releases the venue, so the sentence and the places change.
+    refreshRegistrations() {
       if (!this.canManageRegistrations()) return undefined;
       return this.loadEventRegistrations();
     },
