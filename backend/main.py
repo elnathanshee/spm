@@ -23,6 +23,7 @@ from .equipment_catalogue import router as equipment_catalogue_router
 # [Sprint 5] E SCRUM-45 router import: insert directly below this line.
 from .registrations import router as registrations_router
 # [Sprint 5] F SCRUM-49 router import: insert directly below this line.
+from .change_requests import router as change_requests_router  # [SCRUM-49]
 
 # [SCRUM-81] Hold expiry needs no timer: the check that sends hold warnings and
 # expiry notices, and stores "Expired", runs at the start of every request on
@@ -67,6 +68,7 @@ app.include_router(equipment_catalogue_router)
 # [Sprint 5] E SCRUM-45 include_router: insert directly below this line.
 app.include_router(registrations_router)
 # [Sprint 5] F SCRUM-49 include_router: insert directly below this line.
+app.include_router(change_requests_router, dependencies=HOLD_CHECKS)  # [SCRUM-49]
 
 
 @app.get("/")

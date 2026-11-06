@@ -19,6 +19,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
 - **Attendee registration (SCRUM-45, 46, 47, 48, 52, 65):** Attendees see open events, register, check their status and withdraw. The Organiser and assigned Coordinator switch registration on and see who registered. Registered Attendees are told when the event changes or is cancelled.
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
+- **Change requests:** after submission, the Organiser asks for a change with a reason, and the assigned Coordinator approves or rejects it. An approved important change flags the event's venue bookings and equipment for another look. See [Change requests](#change-requests-sprint-5).
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
 
 ## Team — Machu Picchu
@@ -258,6 +259,15 @@ An event is **open** when its registration setting is on and its status is Confi
 - **Notices (in-app):** registered Attendees are told when the event is cancelled, when an important change is approved, when a routine edit changes the title or description, and when a booking is approved or a Confirmed booking is cancelled, because that changes the venue and the places. An edit to a field they can't see sends nothing, and an Attendee who withdrew gets nothing. Once they withdraw, their earlier notices about that event leave their list too.
 
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
+### Change requests (Sprint 5)
+
+- **Organiser:** opens the event's detail dialog and uses the Change requests panel. They can ask to change the date and time, expected attendance, venue requirements, equipment requirements or description, with a reason. They can ask when the event is Submitted, Under Review, Approved, Planning, Safety Review or Confirmed, and a Coordinator is assigned. One request can be pending per event. The event doesn't change until the request is decided.
+- **Assigned Coordinator:** sees the pending request in the same panel, and approves or rejects it with a reason. Rejecting changes nothing on the event. Approving applies the fields and writes the event's history. The event's status stays as it is, even when it's Confirmed.
+- **Routine or important:** date and time, attendance, and venue and equipment requirements are important (`SIGNIFICANT_FIELDS` in `backend/events.py`). Everything else is routine. An important change flags the event's venue bookings and equipment for another look, and nothing is cancelled or deleted. A routine change flags nothing.
+- **Other ways to edit:** `PATCH /events/{id}` takes routine fields only, and its refusal points to a change request. `POST /events/{id}/amend` reports `change_type` (`routine` or `important`) and `arrangements_flagged`. `POST /venues/{id}/bookings` can carry new venue requirements: that's an important change too, and it reports `arrangements_flagged`.
+- **Notices:** the assigned Coordinator is told when a request is amended and when a change request is raised, with the fields. The Organiser and the Coordinator are both told the outcome, with the reason.
+- **Endpoints:** `POST` and `GET /events/{id}/change-requests`, and `POST /events/{id}/change-requests/{change_request_id}/decision` with `decision` (`approve` or `reject`) and `reason`. The decision's response includes `arrangements_flagged` (new flags) and `arrangements_active` (flags still waiting for another look).
+
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
 
 ## Developer Standards & SOP

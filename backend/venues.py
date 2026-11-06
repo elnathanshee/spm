@@ -26,6 +26,7 @@ from .booking_rules import unavailability_overlaps, unavailable_reason  # [SCRUM
 from . import booking_rules  # [SCRUM-83] for booking_rules.utc_now(), so tests can set the clock in one place
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
+from .events import apply_booking_requirements  # [SCRUM-29]
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
 
 router = APIRouter(prefix="/venues", tags=["venues"])
@@ -621,8 +622,8 @@ def submit_venue_booking_request(
             detail=reason or f"Venue '{venue.name}' is unavailable for the requested time slot",
         )
 
-    if payload.venue_requirements:
-        event.venue_requirements = payload.venue_requirements
+    # [SCRUM-29] Not a plain write: new requirements are an important change.
+    arrangements_flagged = apply_booking_requirements(db, event, current_user, payload.venue_requirements)
 
     booking = VenueBooking(
         venue_id=venue.id,
@@ -642,6 +643,7 @@ def submit_venue_booking_request(
     return {
         "message": "Venue booking request submitted successfully",
         "booking": booking_detail_dict(booking),
+        "arrangements_flagged": arrangements_flagged,  # [SCRUM-29]
     }
 
 

@@ -504,5 +504,17 @@
 .registration-switch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
 .registration-switch p { flex: 1 1 14rem; margin: 0; }
 /* [Sprint 5] F SCRUM-49 styles: insert directly below this line. */
+.change-request-form fieldset{display:grid;gap:var(--space-4);min-width:0;border:0;margin:0;padding:0}
+.change-request-form legend{padding:0}
+.change-request-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4)}
+.change-request-list{display:grid;gap:var(--space-3);margin:0;padding:0;list-style:none}
+.change-request-item{display:grid;gap:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4);overflow-wrap:anywhere}
+.change-request-item p{margin:0}
+.change-request-title{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);color:var(--text-muted);font-size:var(--text-sm)}
+.change-request-lines{display:grid;gap:var(--space-2);margin:0}
+.change-request-lines dt{color:var(--text-muted);font-size:var(--text-sm)}
+.change-request-lines dd{margin:0}
+#change-requests-title:focus{outline:none}
+@media(max-width:640px){.change-request-grid{grid-template-columns:1fr}}
 /* [Sprint 5] G SCRUM-85 styles: insert directly below this line. */
 /* [Sprint 5] H SCRUM-99 styles: insert directly below this line. */
