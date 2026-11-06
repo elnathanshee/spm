@@ -9,6 +9,7 @@ until the Coordinator approves (SCRUM-50).
 
 import json
 from datetime import datetime, timedelta
+from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,9 +18,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from backend import change_requests
+from backend.booking_rules import singapore_time, utc_now
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, EventChangeRequest, LoginSession, User
+from backend.models import Event, EventChangeRequest, LoginSession, Notification, User
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -200,6 +203,18 @@ def test_tc4908_the_database_itself_refuses_a_second_pending_row(client, world, 
     db_session.rollback()
 
 
+def test_tc4908_two_requests_at_once_get_a_sentence_not_a_crash(client, world, db_session):
+    """TC-4908: when a second request races past the check, the route answers 409 and only the first is kept."""
+    login(client, "org")
+    assert raise_request(client, world["event"]).status_code == 201
+    with mock.patch.object(change_requests, "_has_pending_request", return_value=False):
+        second = raise_request(client, world["event"], {"description": "Something else"})
+    assert second.status_code == 409
+    assert "pending" in second.json()["detail"]
+    assert len(stored_requests(db_session)) == 1
+    assert db_session.query(Notification).filter_by(kind=change_requests.KIND_CHANGE_REQUESTED).count() == 1
+
+
 @pytest.mark.parametrize("changes,code", [
     ({"expected_attendance": 0}, 400),
     ({"expected_attendance": -5}, 400),
@@ -290,3 +305,20 @@ def test_tc4913_a_time_with_a_zone_becomes_singapore_wall_time(client, world):
     res = raise_request(client, world["event"], {"proposed_start": "2099-05-01T02:00:00Z"})
     assert res.status_code == 201
     assert res.json()["changes"]["proposed_start"] == "2099-05-01T10:00:00"
+
+
+def test_tc4921_a_start_hours_ago_in_singapore_is_in_the_past(client, world, db_session):
+    """TC-4921: proposed_start is Singapore time, so three hours ago is refused even though it's ahead of UTC."""
+    hours_ago = singapore_time(utc_now()) - timedelta(hours=3)
+    login(client, "org")
+    res = raise_request(client, world["event"], {"proposed_start": hours_ago.isoformat()})
+    assert res.status_code == 400
+    assert "past" in res.json()["detail"]
+    assert stored_requests(db_session) == []
+
+
+def test_tc4921_a_start_later_today_in_singapore_is_accepted(client, world):
+    """TC-4921: the other side of the boundary: an hour ahead on the Singapore clock is fine."""
+    soon = singapore_time(utc_now()) + timedelta(hours=1)
+    login(client, "org")
+    assert raise_request(client, world["event"], {"proposed_start": soon.isoformat()}).status_code == 201
