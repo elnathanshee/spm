@@ -103,8 +103,28 @@ test("TC-8319 The booking history has the Cancel booking action with an in-page 
   assert.match(history, /x-if="canCancelBooking\(booking\)"/);
   assert.match(history, /@click="askCancelBooking\(booking\)"/);
   assert.match(history, /`Cancel the booking at \$\{booking\.venue_name\}`/);
+  assert.match(history, /x-if="bookingDialog\.cancelAsk === booking\.id"/);
   assert.match(history, /keepBooking\(\)/);
   assert.match(history, /confirmCancelBooking\(booking\)/);
   assert.match(history, /role="alert" x-show="bookingDialog\.cancelError"/);
   assert.doesNotMatch(source, /window\.confirm/, "never a browser dialog");
+});
+
+test("TC-8323 The confirm step warns when cancelling would leave a Confirmed event with no confirmed venue", async () => {
+  const { state } = await dialog();
+  const last = { id: 2, status: "Confirmed", ...FUTURE };
+  state.bookingDialog.event.status = "Confirmed";
+  state.bookingDialog.bookings = [{ id: 1, status: "Pending", ...FUTURE }, last];
+  assert.equal(state.cancelLeavesNoVenue(last), true, "the only Confirmed booking on a Confirmed event");
+  assert.equal(state.cancelLeavesNoVenue({ id: 1, status: "Pending", ...FUTURE }), false, "a Pending booking never was the venue attendees see");
+
+  state.bookingDialog.bookings = [{ id: 1, status: "Confirmed", ...FUTURE }, last];
+  assert.equal(state.cancelLeavesNoVenue(last), false, "another Confirmed booking is still there");
+
+  state.bookingDialog.bookings = [last];
+  state.bookingDialog.event.status = "Approved";
+  assert.equal(state.cancelLeavesNoVenue(last), false, "attendees only see Confirmed events");
+
+  const history = html.slice(html.indexOf('id="booking-history-title"'), html.indexOf('aria-labelledby="find-venues-title"'));
+  assert.match(history, /x-show="cancelLeavesNoVenue\(booking\)"[^>]*>This is the event's last confirmed venue\. The event stays Confirmed, and attendees will see no venue until another booking is confirmed\./);
 });

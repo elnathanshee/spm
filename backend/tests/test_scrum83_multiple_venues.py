@@ -18,10 +18,11 @@ from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from backend import booking_rules
 from backend.booking_rules import utc_now
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, LoginSession, User, Venue, VenueBooking
+from backend.models import Event, LoginSession, Notification, User, Venue, VenueBooking
 from backend.security import hash_password
 
 engine = create_engine(
@@ -59,7 +60,7 @@ def client(db_session):
 
 @pytest.fixture
 def seed(db_session):
-    """Two Coordinators and two events, both assigned to coord; two venues, no buffers."""
+    """Two Coordinators and two events, both assigned to coord; two venues with the default setup and turnaround."""
     people = {}
     for username, role in [
         ("coord", "coordinator"),
@@ -67,6 +68,7 @@ def seed(db_session):
         ("lead", "lead"),
         ("staff", "venue_staff"),
         ("organiser", "organiser"),
+        ("guest", "attendee"),
     ]:
         user = User(username=username, password_hash=hash_password("test-only"), role=role)
         db_session.add(user)
@@ -238,7 +240,7 @@ def test_tc8311_an_expired_hold_cannot_be_cancelled_and_stays_expired(client, se
 
 def test_tc8312_a_booking_that_has_ended_cannot_be_cancelled(client, seed, db_session):
     # A past booking no longer holds the venue, and cancelling it would rewrite the record.
-    now = datetime.utcnow().replace(microsecond=0)
+    now = utc_now().replace(microsecond=0)
     ended = VenueBooking(event_id=seed["gala"].id, venue_id=seed["hall"].id, status="Confirmed",
                          booking_start=now - timedelta(hours=3), booking_end=now - timedelta(hours=1))
     db_session.add(ended)
@@ -289,3 +291,66 @@ def test_tc8314_each_booked_venue_is_checked_for_suitability_on_its_own(client, 
     assert room_checks == {"capacity": "fail", "facilities": "pass"}
     # An unsuitable venue's booking does not change the other booking, or its own request.
     assert _statuses(client, seed["gala"]) == {"Grand Hall": "Pending", "Room B": "Pending"}
+
+
+def test_tc8320_cancelling_a_confirmed_events_last_confirmed_booking_leaves_it_with_no_venue(client, seed, db_session):
+    # This pins what happens today. The confirm step warns about it, and the PO decides whether to refuse it instead.
+    hall, room = _both_venues(client, seed)
+    _as(client, "staff")
+    assert client.post(f"/venues/bookings/{hall}/approve").status_code == 200
+    assert client.post(f"/venues/bookings/{room}/approve").status_code == 200
+    seed["gala"].status = "Confirmed"
+    db_session.commit()
+
+    _as(client, "coord")
+    assert client.post(f"/venues/bookings/{hall}/cancel").status_code == 200
+    _as(client, "guest")
+    assert client.get(f"/events/{seed['gala'].id}").json()["venue_name"] == "Room B"
+
+    _as(client, "coord")
+    assert client.post(f"/venues/bookings/{room}/cancel").status_code == 200
+    _as(client, "guest")
+    seen = client.get(f"/events/{seed['gala'].id}")
+    assert seen.status_code == 200
+    assert seen.json()["venue_name"] is None
+    db_session.refresh(seed["gala"])
+    assert seed["gala"].status == "Confirmed"
+
+
+def test_tc8321_a_cancelled_hold_stays_cancelled(client, seed, db_session):
+    hall, _room = _both_venues(client, seed)
+    _as(client, "coord")
+    assert client.post(f"/venues/bookings/{hall}/cancel").status_code == 200
+
+    # Nobody can decide or change the hold any more.
+    _as(client, "staff")
+    assert client.post(f"/venues/bookings/{hall}/approve").status_code == 409
+    assert client.post(f"/venues/bookings/{hall}/reject", json={"reason": "Closed for repairs"}).status_code == 409
+    assert client.put(f"/venues/bookings/{hall}/hold", json={"expires_at": "2098-01-01T00:00:00"}).status_code == 409
+    _as(client, "coord")
+    assert client.put(f"/venues/bookings/{hall}/hold/warning", json={"warning_minutes": 60}).status_code == 409
+
+    # Its expiry passing changes nothing and sends no notice. Any request runs the hold checks.
+    booking = db_session.query(VenueBooking).filter(VenueBooking.id == hall).one()
+    booking.hold.expires_at = utc_now() - timedelta(minutes=1)
+    db_session.commit()
+
+    assert _statuses(client, seed["gala"]) == {"Grand Hall": "Cancelled", "Room B": "Pending"}
+    db_session.refresh(booking)
+    assert booking.status == "Cancelled"
+    assert db_session.query(Notification).filter(Notification.kind.like("hold\\_%", escape="\\")).count() == 0
+
+
+def test_tc8322_the_ended_check_follows_the_one_clock(client, seed, monkeypatch):
+    # booking_rules.utc_now is the clock tests set, so the cancel route has to read it there.
+    hall, _room = _both_venues(client, seed)
+    _as(client, "staff")
+    assert client.post(f"/venues/bookings/{hall}/approve").status_code == 200
+    _as(client, "coord")
+
+    # At exactly its end the booking has ended (SLOT ends 06:00 UTC).
+    monkeypatch.setattr(booking_rules, "utc_now", lambda: datetime(2099, 3, 1, 6, 0))
+    assert client.post(f"/venues/bookings/{hall}/cancel").status_code == 400
+
+    monkeypatch.setattr(booking_rules, "utc_now", lambda: datetime(2099, 3, 1, 5, 59))
+    assert client.post(f"/venues/bookings/{hall}/cancel").status_code == 200
