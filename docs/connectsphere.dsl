@@ -23,14 +23,14 @@ workspace "ConnectSphere" "Event planning and venue booking for ConnectSphere Ev
 
             webApp = container "Web Application" "Single-page app with one workspace per role. Calls the API with relative paths on the same domain and polls notifications every 15 seconds." "JavaScript, Alpine.js, Tailwind CSS, built with Vite" "Web Browser"
 
-            api = container "Backend API" "Business rules: sign-in and role checks, the event status model and reviews, the event lifecycle and safety checks, coordinator assignment, venue record, search and suitability, booking clash, setup and turnaround rules, holds and their expiry, venue unavailability, equipment requests, in-app notifications. Hold expiry is checked at the start of each request; there is no background worker." "Python, FastAPI, SQLAlchemy"
+            api = container "Backend API" "Business rules: sign-in and role checks, the event status model and reviews, the event lifecycle and safety checks, coordinator assignment, venue record, search and suitability, booking clash, setup and turnaround rules, holds and their expiry, venue unavailability, equipment requests, change requests, in-app notifications. Hold expiry is checked at the start of each request; there is no background worker." "Python, FastAPI, SQLAlchemy"
 
-            db = container "Database" "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, venue unavailability periods, conflict flags, equipment requests, safety checks, arrangement review flags and notifications." "PostgreSQL on Neon (SQLite for local development and tests)" "Database"
+            db = container "Database" "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, venue unavailability periods, conflict flags, equipment requests, change requests, safety checks, arrangement review flags and notifications." "PostgreSQL on Neon (SQLite for local development and tests)" "Database"
         }
 
         // RELATIONSHIPS: people to the system (C1) and to the web application (C2)
-        organiser -> webApp "Captures, submits and amends event requests, and follows their status using"
-        coordinator -> webApp "Reviews requests, updates routine details, searches venues, requests bookings and records equipment needs using"
+        organiser -> webApp "Captures, submits and amends event requests, requests changes after submission, and follows their status using"
+        coordinator -> webApp "Reviews requests, decides on change requests, updates routine details, searches venues, requests bookings and records equipment needs using"
         lead -> webApp "Assigns and reassigns requests using"
         venueStaff -> webApp "Manages venues, decides on bookings and manages holds using"
         techSupport -> webApp "Works through equipment requests using"
