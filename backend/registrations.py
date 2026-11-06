@@ -227,3 +227,50 @@ def withdraw_from_event(event_id: int, current_user: User = Depends(get_current_
     data = attendee_event_view(db, event, registration)
     data["message"] = f'You have withdrawn from "{event.title}".'
     return data
+
+
+def _event_for_staff(db: Session, event_id: int, user: User, allow_lead: bool = True) -> Event:
+    """[SCRUM-48] The event's Organiser, its assigned Coordinator and (for reading) the Lead.
+
+    Another Organiser gets the same 404 as GET /events/{id}, which conceals the event.
+    """
+    event = db.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    role = normalized_role(user)
+    if role == "organiser" and event.organiser_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    entitled = (
+        role == "organiser"
+        or (role == "coordinator" and event.assigned_coordinator_id == user.id)
+        or (role == "lead" and allow_lead)
+    )
+    if not entitled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the event's Organiser or assigned Coordinator can do this.",
+        )
+    return event
+
+
+@router.get("/events/{event_id}/registrations")
+def event_registrations(event_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """SCRUM-48: who registered for this event, people holding places first, then withdrawn ones as history."""
+    event = _event_for_staff(db, event_id, current_user)
+    rows = sorted(event.registrations, key=lambda r: (r.status != REGISTERED, r.created_at, r.id))
+    return {
+        "event_id": event.id,
+        "capacity": event_capacity(event),
+        "registered_count": _registered_count(db, event.id),
+        "places_left": _places_left(db, event),
+        "registrations": [
+            {
+                "id": r.id,
+                "attendee": r.attendee.username,
+                "status": r.status,
+                "registered_at": r.created_at,
+                "withdrawn_at": r.withdrawn_at,
+            }
+            for r in rows
+        ],
+    }
