@@ -397,6 +397,25 @@ class EquipmentItem(Base):
 
 
 
+# [Sprint 5 | SCRUM-42] NEW: a number of an item's units that can't be used for a
+# period. Times are naive UTC, like bookings. A new table for the same reason.
+class EquipmentItemUnavailability(Base):
+    __tablename__ = "equipment_item_unavailability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("equipment_items.id"), nullable=False, index=True)
+    units = Column(Integer, nullable=False)
+    start_at = Column(DateTime, nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    reason = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    item = relationship("EquipmentItem", backref=backref("unavailable_periods", cascade="all, delete-orphan"))
+    created_by = relationship("User")
+
+
 # [Sprint 5] E SCRUM-45 models: insert directly below this line.
 
 # [Sprint 5] F SCRUM-49 models: insert directly below this line.
