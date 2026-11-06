@@ -243,7 +243,8 @@ def test_tc8506_reassigning_keeps_bookings_equipment_and_status(client, db_sessi
     # The new Coordinator can read what the old one arranged.
     login(client, "coord_b")
     assert [row["id"] for row in client.get(f"/events/{event_id}/bookings").json()] == [booking_id]
-    assert [row["id"] for row in client.get(f"/events/{event_id}/equipment-requests").json()] == [equipment_id]
+    equipment_lines = client.get(f"/events/{event_id}/equipment-requests").json()["equipment_requests"]
+    assert [row["id"] for row in equipment_lines] == [equipment_id]
 
 
 # ---------- AC4: the existing notices ----------
