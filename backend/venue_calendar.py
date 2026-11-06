@@ -31,6 +31,9 @@ from .venues import require_venue_searcher
 router = APIRouter(prefix="/venues", tags=["venue calendar"])
 
 MAX_DAYS = 31
+# [SCRUM-99] Year 1 and year 9999 fall off the calendar when moved to UTC, which gave a 500.
+FIRST_DAY = date(2000, 1, 1)
+LAST_DAY = date(2999, 12, 31)
 
 
 def busy_block(booking: VenueBooking, occupied_start: datetime, occupied_end: datetime) -> Dict[str, Any]:
@@ -68,6 +71,11 @@ def venue_calendar(
 ):
     if to_date < from_date:
         raise HTTPException(status_code=422, detail="'to' cannot be before 'from'")
+    if from_date < FIRST_DAY or to_date > LAST_DAY:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The calendar covers {FIRST_DAY} to {LAST_DAY}. Choose dates in that range.",
+        )
     day_count = (to_date - from_date).days + 1
     if day_count > MAX_DAYS:
         raise HTTPException(
@@ -81,8 +89,8 @@ def venue_calendar(
 
     setup = timedelta(minutes=venue.setup_time_mins)
     turnaround = timedelta(minutes=venue.turnaround_time_mins)
-    range_start = datetime.combine(from_date, time.min)
-    range_end = datetime.combine(to_date + timedelta(days=1), time.min)
+    range_start = singapore_midnight(from_date)
+    range_end = singapore_midnight(to_date + timedelta(days=1))
 
     # A booking is in range when its occupied window overlaps the range:
     # start - setup < range_end and end + turnaround > range_start. The buffers
@@ -108,7 +116,7 @@ def venue_calendar(
     days = []
     for i in range(day_count):
         d = from_date + timedelta(days=i)
-        day_start = datetime.combine(d, time.min)
+        day_start = singapore_midnight(d)
         day_end = day_start + timedelta(days=1)
         days.append(
             {

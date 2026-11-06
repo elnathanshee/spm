@@ -38,7 +38,7 @@ workspace "ConnectSphere" "Event planning and venue booking for ConnectSphere Ev
         attendee -> webApp "Finds open events, registers and withdraws using"
 
         // RELATIONSHIPS: inside ConnectSphere
-        webApp -> api "Calls /auth, /events, /venues, /coordinator, /lead, /notifications, /equipment-requests, /safety and /registrations, with an HttpOnly session cookie" "JSON over HTTPS"
+        webApp -> api "Calls /auth, /events, /venues, /coordinator, /lead, /notifications, /equipment, /equipment-requests, /safety and /registrations, with an HttpOnly session cookie" "JSON over HTTPS"
         api -> db "Reads from and writes to" "SQLAlchemy over TLS"
 
         // DEPLOYMENT: production, as configured in vercel.json (one Vercel project, two services, one domain)

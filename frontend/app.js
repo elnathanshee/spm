@@ -23,6 +23,16 @@ const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TI
 const TIME_FORMAT = new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true });
 const DAY_KEY_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
 const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
+// [SCRUM-99] The button that opened the calendar. Kept out of Alpine's state so a DOM element isn't made reactive.
+let venueCalendarOpener = null;
+
+// [SCRUM-99] Only a developer on their own machine can start the backend, so only they see that hint.
+function backendUnreachableMessage() {
+  const hostname = window.location.hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1"
+    ? "Cannot reach the backend service. Start FastAPI on port 8000 and try again."
+    : "Cannot reach the backend service. Check your connection and try again.";
+}
 
 // One badge tone per backend status (event statuses: backend/status.py; booking
 // statuses: booking_rules and venues). The label is always the status itself.
@@ -241,7 +251,7 @@ document.addEventListener("alpine:init", () => {
       try {
         response = await fetch(`${API_BASE}${path}`, request);
       } catch {
-        const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
+        const data = { detail: backendUnreachableMessage() };
         handleError(0, data);
         return { ok: false, status: 0, data };
       }
@@ -253,7 +263,7 @@ document.addEventListener("alpine:init", () => {
 
     handleHttpError(status, data, path) {
       if (status === 0 || status === 503) {
-        this.showAlert(data.detail || "Cannot reach the backend service. Start FastAPI on port 8000 and try again.");
+        this.showAlert(data.detail || backendUnreachableMessage());
         return;
       }
       if (status === 401) {
@@ -1608,17 +1618,15 @@ document.addEventListener("alpine:init", () => {
       return ["Coordinator", "Event Coordinator Lead", "Venue Staff"].includes(this.normalizeRole(this.user?.role));
     },
 
-    calendarDateValue(date) {
-      const pad = number => String(number).padStart(2, "0");
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-    },
+    // [SCRUM-99] Calendar days are Singapore days, whatever zone the browser is in.
+    calendarDateValue(date) { return DAY_KEY_FORMAT.format(date); },
 
     async openVenueCalendar(venue) {
       if (!this.canViewVenueCalendar() || !venue) return;
+      venueCalendarOpener = document.activeElement;
       // AC1: a week from today, which is the span a planner usually wants.
       const first = new Date();
-      const last = new Date(first);
-      last.setDate(last.getDate() + 6);
+      const last = new Date(first.getTime() + 6 * 86400e3);
       this.venueCalendar = {
         venue,
         from: this.calendarDateValue(first),
@@ -1658,7 +1666,13 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    closeVenueCalendar() { this.venueCalendar = null; },
+    closeVenueCalendar() {
+      this.venueCalendar = null;
+      const opener = venueCalendarOpener;
+      venueCalendarOpener = null;
+      // [SCRUM-99] A keyboard user carries on from where they were. The button may have gone if the list changed.
+      if (opener?.isConnected && typeof this.$nextTick === "function") this.$nextTick(() => opener.focus());
+    },
 
     // [SCRUM-82] A day with an unavailable period isn't free, even with no bookings.
     calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length) && !day?.unavailable?.length; },
@@ -1670,10 +1684,11 @@ document.addEventListener("alpine:init", () => {
 
     calendarDayLabel(date) {
       if (!date) return "Not set";
-      const parsed = new Date(`${date}T00:00:00`);
+      // [SCRUM-99] Day first, and read in Singapore time so it names the day asked for.
+      const parsed = new Date(`${date}T00:00:00${DISPLAY_OFFSET}`);
       return Number.isNaN(parsed.getTime())
         ? date
-        : new Intl.DateTimeFormat("en", { weekday: "short", day: "numeric", month: "short" }).format(parsed);
+        : new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TIME_ZONE, weekday: "short", day: "numeric", month: "short" }).format(parsed);
     },
 
     calendarBufferNote() {
@@ -1952,6 +1967,7 @@ document.addEventListener("alpine:init", () => {
       const quantity = String(form.quantity ?? "").trim();
       if (!quantity) errors.quantity = "Enter how many are needed";
       else if (!/^\d+$/.test(quantity) || Number(quantity) < 1) errors.quantity = "Enter a whole number, 1 or more";
+      else if (Number(quantity) > 2147483647) errors.quantity = "Enter a quantity of 2,147,483,647 or fewer"; // [SCRUM-99] the same limit as the API
       return errors;
     },
     async addEquipment() {

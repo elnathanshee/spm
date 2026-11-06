@@ -166,8 +166,8 @@ test("TC-8249 the panel sits in the venue record, labelled, with a live status, 
   }
   assert.match(HTML, /aria-live="polite"[^>]*x-text="message\?\.text"/);
   assert.match(HTML, /@click="remove\(period\)"/);
-  assert.match(MAIN, /B SCRUM-82 component import: insert directly below this line\.\r?\nimport \{ venueUnavailability \} from "\.\/venue-unavailability\.js";/);
-  assert.match(MAIN, /B SCRUM-82 Alpine\.data: insert directly below this line\.\r?\nAlpine\.data\("venueUnavailability", venueUnavailability\);/);
+  assert.match(MAIN, /import \{ venueUnavailability \} from "\.\/venue-unavailability\.js";/);
+  assert.match(MAIN, /Alpine\.data\("venueUnavailability", venueUnavailability\);/);
 });
 
 test("TC-8250 the Coordinator's booking list shows the flag and a way to request another venue", () => {

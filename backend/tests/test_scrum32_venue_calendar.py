@@ -65,7 +65,8 @@ def day(offset):
 
 
 def at(offset, hour, minute=0):
-    return datetime.combine(day(offset), time(hour, minute))
+    # [SCRUM-99] Calendar days are Singapore days, so these are Singapore wall times, stored as naive UTC.
+    return datetime.combine(day(offset), time(hour, minute)) - timedelta(hours=8)
 
 
 @pytest.fixture(scope="function")

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#12362f">
-  <title>ConnectSphere · Event operations</title><script type="module" src="/src/main.js"></script>
+  <title>ConnectSphere · Event operations</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><script type="module" src="/src/main.js"></script>
   <style>.skip-link{position:fixed;top:-100px}.skip-link:focus{top:1rem}</style>
 </head>
 <body>
@@ -188,7 +188,7 @@
           </div></template>
         </section></template>
 
-        <!-- [Sprint 5] SCRUM-86 Safety Officer workspace: insert directly below this line. -->
+        <!-- SCRUM-86 Safety Officer workspace -->
         <template x-if="currentPath === '/safety' && user.role === 'Safety Officer'"><section class="operations-page safety-workspace" x-data="safetyWorkspace()">
           <div class="page-header"><div><p class="eyebrow">Safety Officer workspace</p><h1>Safety checks</h1><p>Events waiting for an Operational Safety Check, soonest first. An event can't be Confirmed without your approval.</p></div><button type="button" class="button button-secondary" :disabled="safety.loading" :aria-busy="safety.loading" @click="refreshSafetyEvents()">Refresh</button></div>
           <p class="form-help" role="status" x-show="safety.notice" x-text="safety.notice"></p>
@@ -216,7 +216,7 @@
               <div class="modal-actions"><button type="button" class="button button-danger-quiet" @click="submitSafetyDecision('reject')">Reject</button><button type="button" class="button button-secondary" @click="submitSafetyDecision('request_changes')">Request changes</button><button type="button" class="button button-success" :aria-busy="safety.busy" @click="submitSafetyDecision('approve')">Approve</button></div></fieldset></form>
           </section></template>
         </section></template>
-        <!-- [Sprint 5] SCRUM-41 equipment catalogue workspace: insert directly below this line. -->
+        <!-- SCRUM-41 equipment catalogue workspace -->
         <template x-if="currentPath === '/technical' && user.role === 'Technical Support'"><section class="queue-panel equipment-catalogue" x-data="equipmentCatalogue()" aria-labelledby="equipment-catalogue-title">
           <div class="queue-heading"><div><h2 id="equipment-catalogue-title">Equipment catalogue</h2><p>What you hold and how many. Events reserve from this list.</p></div><button type="button" class="button button-primary button-compact" x-ref="catalogueAdd" x-show="catalogue.loaded && !catalogue.form" @click="startCatalogueAdd()">Add item</button></div>
           <div class="equipment-catalogue-body">
@@ -435,13 +435,13 @@
         <template x-if="eventDetail.equipment.loaded && !eventDetail.equipment.denied && canRecordEquipment(eventDetail.detail)"><form class="equipment-form" @submit.prevent="addEquipment()" novalidate><fieldset :disabled="eventDetail.equipment.busy"><legend class="venue-search-heading">Add equipment</legend>
           <p class="form-message error" role="alert" x-show="eventDetail.equipment.errors.form" x-text="eventDetail.equipment.errors.form"></p>
           <div class="equipment-form-grid"><div class="field-group"><label for="equipment-type">Equipment type</label><input id="equipment-type" maxlength="100" x-model="eventDetail.equipment.form.equipment_type" placeholder="e.g. Wireless microphone" :aria-invalid="!!eventDetail.equipment.errors.equipment_type" aria-describedby="equipment-type-error"><small id="equipment-type-error" class="field-error" x-text="eventDetail.equipment.errors.equipment_type"></small></div>
-          <div class="field-group"><label for="equipment-quantity">Quantity</label><input id="equipment-quantity" type="number" min="1" step="1" inputmode="numeric" x-model="eventDetail.equipment.form.quantity" placeholder="e.g. 2" :aria-invalid="!!eventDetail.equipment.errors.quantity" aria-describedby="equipment-quantity-error"><small id="equipment-quantity-error" class="field-error" x-text="eventDetail.equipment.errors.quantity"></small></div></div>
+          <div class="field-group"><label for="equipment-quantity">Quantity</label><input id="equipment-quantity" type="number" min="1" max="2147483647" step="1" inputmode="numeric" x-model="eventDetail.equipment.form.quantity" placeholder="e.g. 2" :aria-invalid="!!eventDetail.equipment.errors.quantity" aria-describedby="equipment-quantity-error"><small id="equipment-quantity-error" class="field-error" x-text="eventDetail.equipment.errors.quantity"></small></div></div>
           <div class="field-group"><label for="equipment-notes">Technical requirements <em>Optional</em></label><textarea id="equipment-notes" rows="2" x-model="eventDetail.equipment.form.technical_requirements" placeholder="e.g. HDMI input, spare batteries"></textarea></div>
           <div class="dialog-form-actions dialog-form-actions-end"><button type="submit" class="button button-primary" :aria-busy="eventDetail.equipment.busy"><span class="spinner" x-show="eventDetail.equipment.busy" aria-hidden="true"></span><span x-text="eventDetail.equipment.busy ? 'Adding…' : 'Add equipment'"></span></button></div>
         </fieldset></form></template>
         <template x-if="eventDetail.equipment.loaded && !eventDetail.equipment.denied && !canRecordEquipment(eventDetail.detail)"><p class="form-help">Only the assigned Coordinator or a Lead can add equipment to this event.</p></template>
       </section></template>
-      <!-- [Sprint 5] SCRUM-102 lifecycle actions panel: insert directly below this line. -->
+      <!-- SCRUM-102 lifecycle actions panel -->
       <section class="dialog-section lifecycle-panel" x-data="eventLifecycle()" aria-labelledby="lifecycle-title">
         <div class="dialog-section-heading"><div><h3 id="lifecycle-title">Event progress</h3><p>What you can do next with this event.</p></div></div>
         <p class="form-help" role="status" x-show="lifecycle.notice" x-text="lifecycle.notice"></p>
@@ -451,7 +451,7 @@
         <ul class="lifecycle-why" x-show="lifecycleUnavailableReasons().length"><template x-for="item in lifecycleUnavailableReasons()" :key="item.action"><li class="form-help"><strong x-text="`${item.label}: `"></strong><span x-text="item.why"></span></li></template></ul>
         <template x-if="lifecycle.cancelling"><form class="lifecycle-cancel-form" @submit.prevent="submitLifecycleCancel()" novalidate><fieldset :disabled="lifecycle.busy"><div class="field-group"><label for="lifecycle-cancel-reason">Why is this event being cancelled? <em>Required</em></label><textarea id="lifecycle-cancel-reason" rows="3" x-init="$nextTick(() => $el.focus())" x-model="lifecycle.reason" :aria-invalid="!!lifecycle.reasonError" aria-describedby="lifecycle-cancel-reason-error" placeholder="The Organiser and the Coordinator will see this."></textarea><small id="lifecycle-cancel-reason-error" class="field-error" x-text="lifecycle.reasonError"></small></div><p class="form-help">Cancelling releases the event's venue holds and bookings. Their records are kept.</p><div class="modal-actions"><button type="button" class="button button-secondary" @click="closeLifecycleCancel()">Keep the event</button><button type="submit" class="button button-danger" :aria-busy="lifecycle.busy">Cancel the event</button></div></fieldset></form></template>
       </section>
-      <!-- [Sprint 5] SCRUM-87 arrangement review flags panel: insert directly below this line. -->
+      <!-- SCRUM-87 arrangement review flags panel -->
       <section class="dialog-section review-flags-panel" x-data="reviewFlags()" x-init="$watch('eventDetail?.detail?.status', () => loadReviewFlags())" x-show="flags.items.length || flags.error || flags.notice" aria-labelledby="review-flags-title">
         <div class="dialog-section-heading"><div><h3 id="review-flags-title">Arrangements to review</h3><p>These were marked for another look. Nothing has been cancelled.</p></div></div>
         <p class="form-help" role="status" x-show="flags.notice" x-text="flags.notice"></p>
@@ -459,7 +459,7 @@
         <ul class="review-flag-list"><template x-for="flag in flags.items" :key="flag.id"><li><strong x-text="`${flagKindLabel(flag)}: ${flag.label}`"></strong><p class="form-help"><span x-text="`${flagSourceLabel(flag)}: `"></span><span x-text="flag.reason"></span></p><small x-text="`Marked by ${flag.created_by || 'Unknown'}, ${formatUtc(flag.created_at)}`"></small></li></template></ul>
         <div class="queue-actions" x-show="canClearFlags() && flags.items.length"><button type="button" class="button button-secondary" :disabled="flags.busy" :aria-busy="flags.busy" @click="clearReviewFlags()">Mark as looked at</button></div>
       </section>
-      <!-- [Sprint 5] SCRUM-44 equipment reservations panel: insert directly below this line. -->
+      <!-- SCRUM-44 equipment reservations panel -->
       <template x-if="eventDetail.detail && canRecordEquipment(eventDetail.detail)"><section class="dialog-section equipment-panel" x-data="eventReservations()" aria-labelledby="event-reservations-title">
         <div class="dialog-section-heading"><div><h3 id="event-reservations-title">Equipment arrangements</h3><p>What Technical Support have arranged for this event. Read only: Technical Support make these changes.</p></div></div>
         <div class="inline-state error request-load-error" x-show="reservationPanel.error" role="alert"><span x-text="reservationPanel.error"></span></div>
@@ -468,7 +468,7 @@
         <template x-if="reservationPanel.rows.length"><div class="table-container equipment-list"><table class="data-table"><thead><tr><th scope="col">Reserved item</th><th scope="col" class="cell-number">Quantity</th><th scope="col">State</th></tr></thead>
           <tbody><template x-for="held in reservationPanel.rows" :key="held.id"><tr><td data-label="Reserved item" class="equipment-cell-type" x-text="`${held.item_name} (${held.equipment_type})`"></td><td data-label="Quantity" class="cell-number" x-text="held.quantity"></td><td data-label="State" x-text="reservationState(held)"></td></tr></template></tbody></table></div></template>
       </section></template>
-      <!-- [Sprint 5] SCRUM-48 registrations panel: insert directly below this line. -->
+      <!-- SCRUM-48 registrations panel -->
       <section class="dialog-section" x-data="eventRegistrations()" x-init="$watch('eventDetail?.detail?.status', () => refreshRegistrations())" x-show="canManageRegistrations()" aria-labelledby="event-registrations-title">
         <div class="dialog-section-heading"><div><h3 id="event-registrations-title">Registrations</h3><p>Attendees can register while this is on and the event is Confirmed.</p></div></div>
         <div class="inline-state" x-show="regLoading && !regLoaded" role="status"><span class="spinner dark" aria-hidden="true"></span> Loading registrations…</div>
@@ -481,7 +481,7 @@
             <tbody><template x-for="row in regList.registrations" :key="row.id"><tr><td data-label="Attendee" x-text="row.attendee"></td><td data-label="Status"><span class="status-badge" :class="regRowClass(row)" x-text="regRowStatus(row)"></span></td><td data-label="When" x-text="regRowTime(row)"></td></tr></template></tbody></table></div></template>
         </div></template>
       </section>
-      <!-- [Sprint 5] SCRUM-49 change requests panel: insert directly below this line. -->
+      <!-- SCRUM-49 change requests panel -->
       <section class="dialog-section change-requests" x-data="changeRequests()" x-show="panelShown()" aria-labelledby="change-requests-title">
         <div class="dialog-section-heading"><div><h3 id="change-requests-title" tabindex="-1">Change requests</h3><p>After submission, date, attendance and requirement changes go through the assigned Coordinator. The event stays as it is until they decide.</p></div></div>
         <p class="form-help" role="status" x-show="changeNotice" x-text="changeNotice"></p>

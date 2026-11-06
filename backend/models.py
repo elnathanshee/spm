@@ -380,7 +380,6 @@ class VenueUnavailability(Base):
     venue = relationship("Venue", backref=backref("unavailable_periods", cascade="all, delete-orphan"))
     created_by = relationship("User")
 
-# [Sprint 5] C SCRUM-102 models: insert directly below this line.
 # [SCRUM-86] NEW: one row per Safety Officer decision: who, when, which decision
 # (approve, reject or request_changes) and why. An event can be checked several
 # times, so each round adds a row. A new table for the same reason as above.
@@ -399,7 +398,6 @@ class SafetyCheck(Base):
     decided_by = relationship("User")
 
 
-# [Sprint 5] D SCRUM-41 models: insert directly below this line.
 # [Sprint 5 | SCRUM-41] NEW: one kind of equipment Technical Support hold, and how
 # many units exist. A new table because create_all() never alters existing ones.
 class EquipmentItem(Base):
@@ -456,7 +454,6 @@ class EquipmentReservation(Base):
     released_by = relationship("User", foreign_keys=[released_by_id])
 
 
-# [Sprint 5] E SCRUM-45 models: insert directly below this line.
 # [SCRUM-65] NEW: whether registration is switched on for an event. No row means
 # off. A new table because create_all() never alters existing ones. The row is
 # also what registering locks while it counts places (SCRUM-46).
@@ -493,7 +490,6 @@ class EventRegistration(Base):
     attendee = relationship("User")
 
 
-# [Sprint 5] F SCRUM-49 models: insert directly below this line.
 from sqlalchemy import Index, text  # [SCRUM-49] Imported here so the shared import block stays free of conflicts.
 
 
