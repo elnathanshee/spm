@@ -270,8 +270,9 @@ def test_tc213_refused_change_records_nothing(db_session, people, make_event):
 def test_tc214_allowed_next_statuses(db_session):
     """TC-214: the rulebook can be asked what may happen next, which the
     coordinator's screen uses to decide which actions to offer."""
-    assert allowed_next_statuses(DRAFT) == [SUBMITTED]
+    # [SCRUM-102] Cancelled and Planning are real moves now.
+    assert allowed_next_statuses(DRAFT) == ["Cancelled", SUBMITTED]
     assert allowed_next_statuses(SUBMITTED) == sorted(
-        [APPROVED, REJECTED, RETURNED, UNDER_REVIEW]
+        [APPROVED, "Cancelled", REJECTED, RETURNED, UNDER_REVIEW]
     )
-    assert allowed_next_statuses(APPROVED) == []
+    assert allowed_next_statuses(APPROVED) == ["Cancelled", "Planning"]

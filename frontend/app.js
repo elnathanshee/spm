@@ -101,8 +101,8 @@ const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 const byAsc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(a[field] || "").localeCompare(String(b[field] || ""));
 const byDesc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(b[field] || "").localeCompare(String(a[field] || ""));
 const keepOrder = () => 0;
-// Technical Support worklist sections, by when the event happens (Singapore days). The worklist has no
-// status and no action for this role (equipment.py), so the event date is the only sign of urgency.
+// Technical Support worklist sections, by when the event happens (Singapore days). A line's status and
+// reserve action are its own component (src/equipment-reservations.js); sections go by the event date.
 const TECHNICAL_WINDOW_DAYS = 7;
 const TECHNICAL_GROUPS = [
   { key: "soon", label: "Today and the next 7 days", description: "Prepare these first.", attention: true },
@@ -370,20 +370,29 @@ document.addEventListener("alpine:init", () => {
         hold_warning: "Hold expiry warning",
         hold_expired: "Hold expired",
         hold_expiry_set: "Hold expiry updated",
+        // [SCRUM-52] Sent to registered Attendees (backend/registrations.py).
+        registered_event_cancelled: "Event cancelled",
+        registered_event_changed: "Event changed",
+        registered_details_changed: "Event details updated",
+        registered_venue_changed: "Event venue updated",
         submitted: "Event request submitted",
         returned: "Clarification requested",
         approved: "Event request approved",
         rejected: "Event request rejected",
+        event_confirmed: "Event confirmed", // [SCRUM-66]
+        event_cancelled: "Event cancelled",
+        safety_returned: "Safety check returned",
         assigned_to_you: "Event assigned to you",
         reassigned_to_you: "Event reassigned to you",
         reassigned_away: "Event reassigned",
         coordinator_changed: "Coordinator changed",
         coordinator_assigned: "Coordinator assigned",
+        equipment_request_updated: "Equipment request updated",
       }[notification?.kind] || "Workspace update";
     },
     notificationTone(notification) {
-      if (["booking_approved", "approved"].includes(notification?.kind)) return "success";
-      if (["booking_rejected", "rejected", "returned", "hold_expired"].includes(notification?.kind)) return "warning";
+      if (["booking_approved", "approved", "event_confirmed"].includes(notification?.kind)) return "success";
+      if (["booking_rejected", "rejected", "returned", "hold_expired", "event_cancelled", "safety_returned"].includes(notification?.kind)) return "warning";
       if (["booking_submitted", "assigned_to_you", "reassigned_to_you", "hold_warning"].includes(notification?.kind)) return "action";
       return "info";
     },
@@ -702,6 +711,7 @@ document.addEventListener("alpine:init", () => {
       this.fieldErrors = {};
       const payload = this.amendPayload(data);
       const changed = Object.keys(payload).length > 0;
+      let flagged = 0;
       if (!changed && !resubmit) {
         this.showAlert("No changes to save.", "info");
         return;
@@ -714,6 +724,7 @@ document.addEventListener("alpine:init", () => {
         if (changed) {
           const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
           if (!response.ok) { this.focusFirstError(".amend-dialog"); return; }
+          flagged = response.data?.arrangements_flagged || 0; // [SCRUM-29]
           // Saved: later diffs start from the values just stored.
           this.amendOriginal = { ...this.amendOriginal, ...this.amendFormFrom({ ...this.amendOriginal, ...payload }) };
         }
@@ -727,7 +738,8 @@ document.addEventListener("alpine:init", () => {
         }
         this.closeModal();
         await this.fetchEvents();
-        this.showAlert(resubmit ? "Request resubmitted" : "Changes saved", "success");
+        const flaggedNote = flagged ? `. ${flagged} ${flagged === 1 ? "arrangement" : "arrangements"} flagged for another look.` : ""; // [SCRUM-29]
+        this.showAlert(`${resubmit ? "Request resubmitted" : "Changes saved"}${flaggedNote}`, "success");
       } finally {
         this.decisionBusy = false;
         if (modal) modal.action = "";
@@ -914,9 +926,9 @@ document.addEventListener("alpine:init", () => {
       if (this.currentPath === "/technical") await this.fetchTechnicalWorklist();
     },
 
-    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the read-only
-    // worklist across every event, soonest event first. Technical Support records
-    // nothing, and no route amends a line (BACKEND_ISSUES.md #2), so there are no actions.
+    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the worklist
+    // across every event, soonest event first. Each line's status and reserve action
+    // are in src/equipment-reservations.js (SCRUM-40, SCRUM-44).
     async fetchTechnicalWorklist() {
       if (this.normalizeRole(this.user?.role) !== "Technical Support") return;
       if (!this.technicalWorklist) this.technicalWorklist = { items: [], busy: false, loaded: false, error: "", denied: false };
@@ -1330,6 +1342,8 @@ document.addEventListener("alpine:init", () => {
 
     canBookEvent(event) {
       if (!event) return false;
+      // [SCRUM-102] The backend refuses bookings on a closed event, so don't offer one.
+      if (event.status === "Cancelled" || event.status === "Completed") return false;
       const role = this.normalizeRole(this.user?.role);
       if (role === "Event Coordinator Lead") return true;
       if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
@@ -2036,9 +2050,9 @@ document.addEventListener("alpine:init", () => {
     },
     // [SCRUM-94 | Renee] Update routine information during planning (PATCH /events/{id}, SCRUM-28).
     // AC1, AC4: only the event's Organiser or its assigned Coordinator, and only while it is
-    // Approved, Planning or Confirmed (the backend's PLANNING_STATUSES).
+    // Approved, Planning, Safety Review or Confirmed (the backend's PLANNING_STATUSES).
     canEditRoutine(event) {
-      if (!event || !["Approved", "Planning", "Confirmed"].includes(event.status)) return false;
+      if (!event || !["Approved", "Planning", "Safety Review", "Confirmed"].includes(event.status)) return false;
       const role = this.normalizeRole(this.user?.role);
       const me = Number(this.user?.user_id);
       return (role === "Organiser" && Number(event.organiser_id) === me)

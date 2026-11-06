@@ -19,9 +19,11 @@ Team decisions recorded here, so they can be explained later:
     the existing SCRUM-21, SCRUM-25 and SCRUM-26 flows working unchanged.
   * No status changes on its own. The customer confirmed this three times, so
     every move here is the result of a person performing an action.
-  * Sprint 1 ends at "Approved" or "Rejected". "Planning", "Confirmed",
-    "Completed" and "Cancelled" exist as vocabulary but nothing moves into them
-    yet; those transitions arrive with their own stories in later sprints.
+  * [SCRUM-102] After approval: Approved -> Planning -> Safety Review ->
+    Confirmed -> Completed. Safety Review -> Confirmed is the only route into
+    Confirmed, so no event gets there without a Safety Officer's approval.
+  * [SCRUM-102] Cancelled is reachable from every stage before Completed, and
+    several roles may do it, so those entries hold a tuple of roles.
 """
 
 from typing import List, Optional
@@ -31,19 +33,27 @@ from sqlalchemy.orm import Session
 from .models import Event, EventStatusHistory, User
 from .status import (
     APPROVED,
+    CANCELLED,
+    COMPLETED,
+    CONFIRMED,
     DRAFT,
+    PLANNING,
     REJECTED,
     RETURNED,
+    SAFETY_REVIEW,
     SUBMITTED,
     UNDER_REVIEW,
 )
 
 ORGANISER = "organiser"
 COORDINATOR = "coordinator"
+LEAD = "lead"  # [SCRUM-102]
+SAFETY_OFFICER = "safety_officer"  # [SCRUM-86]
 
 
 # The rulebook. Each entry is (from status, to status) -> the role allowed to
-# make that move. A pair that is absent from this table is not a legal move.
+# make that move, or a tuple of roles when several may. A pair that is absent
+# from this table is not a legal move.
 #
 # Organiser moves are additionally restricted to the organiser who owns the
 # request; coordinator moves to the coordinator assigned to it. Those two extra
@@ -58,6 +68,23 @@ TRANSITIONS = {
     (UNDER_REVIEW, APPROVED): COORDINATOR,
     (UNDER_REVIEW, REJECTED): COORDINATOR,
     (UNDER_REVIEW, RETURNED): COORDINATOR,
+    # [SCRUM-102] Planning through to completion.
+    (APPROVED, PLANNING): COORDINATOR,
+    (PLANNING, SAFETY_REVIEW): COORDINATOR,
+    (CONFIRMED, COMPLETED): COORDINATOR,
+    # [SCRUM-86] Only the Safety Officer decides a safety check.
+    (SAFETY_REVIEW, CONFIRMED): SAFETY_OFFICER,
+    (SAFETY_REVIEW, PLANNING): SAFETY_OFFICER,
+    # [SCRUM-102] Before approval the owning Organiser may cancel too. Rejected,
+    # Completed and Cancelled are absent: those events can't be cancelled.
+    (DRAFT, CANCELLED): (ORGANISER, COORDINATOR, LEAD),
+    (SUBMITTED, CANCELLED): (ORGANISER, COORDINATOR, LEAD),
+    (UNDER_REVIEW, CANCELLED): (ORGANISER, COORDINATOR, LEAD),
+    (RETURNED, CANCELLED): (ORGANISER, COORDINATOR, LEAD),
+    (APPROVED, CANCELLED): (COORDINATOR, LEAD),
+    (PLANNING, CANCELLED): (COORDINATOR, LEAD),
+    (SAFETY_REVIEW, CANCELLED): (COORDINATOR, LEAD),
+    (CONFIRMED, CANCELLED): (COORDINATOR, LEAD),
 }
 
 
@@ -84,7 +111,8 @@ class NotPermitted(StatusChangeError):
 
 
 def _role_of(user: User) -> str:
-    return (user.role or "").strip().lower()
+    # [SCRUM-86] A space and an underscore are the same role (auth.py takes both).
+    return (user.role or "").strip().lower().replace(" ", "_")
 
 
 def allowed_next_statuses(current_status: str) -> List[str]:
@@ -113,18 +141,22 @@ def check_transition(event: Event, new_status: str, actor: User) -> None:
             f"'{new_status}'. Allowed from here: {options}."
         )
 
-    if _role_of(actor) != required_role:
+    # [SCRUM-102] One role, or a tuple of them.
+    allowed_roles = required_role if isinstance(required_role, tuple) else (required_role,)
+    role = _role_of(actor)
+    if role not in allowed_roles:
+        names = " or ".join(name.replace("_", " ") for name in allowed_roles)
         raise NotPermitted(
-            f"Only a {required_role} can move a request from '{current}' to "
+            f"Only a {names} can move a request from '{current}' to "
             f"'{new_status}'."
         )
 
-    if required_role == ORGANISER and event.organiser_id != actor.id:
+    if role == ORGANISER and event.organiser_id != actor.id:
         raise NotPermitted(
             "You are not the organiser of this event request."
         )
 
-    if required_role == COORDINATOR and event.assigned_coordinator_id != actor.id:
+    if role == COORDINATOR and event.assigned_coordinator_id != actor.id:
         raise NotPermitted(
             "Only the coordinator assigned to this event request can make "
             "this change."

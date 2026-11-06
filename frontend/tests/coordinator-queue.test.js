@@ -81,10 +81,11 @@ test("TC-9933 each row has at most one main action, matching what the backend al
   assert.equal(state.coordinatorPrimary({ ...row(99, "Submitted"), assigned_coordinator_id: 7 }), null);
 });
 
-test("TC-9934 Venue bookings stays available in every status, as the backend allows (BACKEND_ISSUES #5)", () => {
+test("TC-9934 Venue bookings stays available in every status the backend allows, which excludes Cancelled and Completed (BACKEND_ISSUES #5)", () => {
   const state = app();
   state.assignedEvents = statuses.map((status, index) => row(index + 1, status));
-  for (const event of state.assignedEvents) assert.equal(state.canBookEvent(event), true, event.status);
+  // [SCRUM-102] The backend now refuses a closed event's booking, so it isn't offered.
+  for (const event of state.assignedEvents) assert.equal(state.canBookEvent(event), !["Cancelled", "Completed"].includes(event.status), event.status);
   const start = html.indexOf('x-for="event in group.events"', html.indexOf("currentPath === '/coordinator/events'"));
   const rowHtml = html.slice(start, html.indexOf("</li></template>", start));
   assert.match(rowHtml, /<template x-if="canBookEvent\(event\)"><button type="button" class="button button-secondary" @click="openBookings\(event\)">/);

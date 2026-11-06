@@ -4,19 +4,24 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
-from . import event_hooks  # [Sprint 5]
+from . import arrangements, event_hooks  # [Sprint 5]
 from .auth import get_current_user
 from .booking_recheck import active_conflict_flag  # [SCRUM-82]
-from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
+from .booking_rules import hold_fields, is_blocking  # [SCRUM-81 | Elnathan]
+from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-29]
 from .database import get_db
-from .models import Event, EventStatusHistory, User, VenueBooking
-from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
+from .models import EquipmentRequest, Event, EventStatusHistory, User, VenueBooking
+from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SAFETY_REVIEW, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
-from .notifications import notify_first_assignment, notify_organiser_of_status
+from .notifications import notify, notify_first_assignment, notify_organiser_of_status
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+# [SCRUM-67] The notice to the assigned Coordinator. Kept here, next to amend,
+# because change_requests.py imports this module and not the other way round.
+KIND_REQUEST_AMENDED = "request_amended"
 
 
 class ReviewAction(BaseModel):
@@ -268,6 +273,73 @@ def submit_event(
     }
 
 
+def _has_arrangements(db: Session, event: Event) -> bool:
+    """[SCRUM-29] True when a booking holds a venue or any equipment is requested.
+
+    Not the same as "flags were created": active flags aren't repeated, but a second
+    important change to the same arrangements still has to be heard about.
+    """
+    if any(is_blocking(booking) for booking in event.venue_bookings):
+        return True
+    return db.query(EquipmentRequest.id).filter(EquipmentRequest.event_id == event.id).first() is not None
+
+
+def column_value(value: Any) -> Any:
+    """[SCRUM-29] A sent value as the column holds it, so a false change isn't taken for a real one.
+
+    Blank text means the same as an empty column. proposed_start is naive Singapore
+    wall time, so a time sent with a zone is converted.
+    """
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return singapore_time(to_naive_utc(value))
+    return value
+
+
+def differs_from_event(event: Event, field: str, value: Any) -> bool:
+    """[SCRUM-29] True when a column value really changes the field. An empty string counts as empty."""
+    return (getattr(event, field) or None) != value
+
+
+def _handle_detail_edit(db: Session, event: Event, actor: User, changed_fields: list, reason: str) -> tuple:
+    """[SCRUM-29] Tell a routine edit from an important one, and do what each needs.
+
+    Returns (change_type, how many arrangements were flagged). Nothing here commits.
+    """
+    if not any(field in SIGNIFICANT_FIELDS for field in changed_fields):
+        if changed_fields:
+            event_hooks.details_changed(db, event, actor, changed_fields)
+        return "routine", 0
+    if not _has_arrangements(db, event):
+        return "important", 0
+    flags = arrangements.flag_event_arrangements(db, event, arrangements.SOURCE_IMPORTANT_CHANGE, reason, actor)
+    event_hooks.important_change(db, event, actor, changed_fields, reason)
+    return "important", len(flags)
+
+
+def apply_booking_requirements(db: Session, event: Event, actor: User, requirements: Optional[str]) -> int:
+    """[SCRUM-29] A booking request can bring new venue requirements, an important field.
+
+    Called before the new booking is added, because that booking is made for the new
+    requirements. Blank means none were sent. Returns how many arrangements were flagged.
+    """
+    value = column_value(requirements)
+    if value is None or not differs_from_event(event, "venue_requirements", value):
+        return 0
+    event.venue_requirements = value
+    reason = "Venue booking request changed the requirements. Fields changed: venue_requirements"
+    db.add(EventStatusHistory(
+        event_id=event.id,
+        previous_status=event.status,
+        new_status=event.status,
+        actor_id=actor.id,
+        reason=reason,
+    ))
+    _, flagged = _handle_detail_edit(db, event, actor, ["venue_requirements"], reason)
+    return flagged
+
+
 # [SCRUM-21 | Elnathan] Organiser amends own event request
 @router.post("/{event_id}/amend")
 def amend_event(
@@ -347,8 +419,9 @@ def amend_event(
     )
 
     changed_fields = []
-    for field_name, new_value in changes.items():
-        if getattr(event, field_name) != new_value:
+    for field_name, sent_value in changes.items():
+        new_value = column_value(sent_value)  # [SCRUM-29]
+        if differs_from_event(event, field_name, new_value):
             setattr(event, field_name, new_value)
             changed_fields.append(field_name)
 
@@ -368,6 +441,16 @@ def amend_event(
         reason=reason_text,
     )
     db.add(status_history)
+    change_type, arrangements_flagged = _handle_detail_edit(db, event, current_user, changed_fields, reason_text)  # [SCRUM-29]
+    # [SCRUM-67] Only a real change, and only when there is a Coordinator to tell.
+    if changed_fields and event.assigned_coordinator_id is not None:
+        notify(
+            db,
+            event.assigned_coordinator or db.get(User, event.assigned_coordinator_id),
+            event,
+            KIND_REQUEST_AMENDED,
+            f'The Organiser amended "{event.title}". Fields changed: {", ".join(field.replace("_", " ") for field in changed_fields)}',
+        )
     db.commit()
     db.refresh(event)
 
@@ -388,6 +471,8 @@ def amend_event(
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "amended_fields": changed_fields,
         "changed_fields": changed_fields,
+        "change_type": change_type,  # [SCRUM-29] "routine" or "important"
+        "arrangements_flagged": arrangements_flagged,  # [SCRUM-29]
     }
 
 
@@ -736,10 +821,11 @@ def get_event_bookings(
 
 # "During planning" = after approval. Before approval the Organiser uses
 # POST /events/{id}/amend (SCRUM-21).
-PLANNING_STATUSES = (APPROVED, PLANNING, CONFIRMED)
+PLANNING_STATUSES = (APPROVED, PLANNING, SAFETY_REVIEW, CONFIRMED)  # [SCRUM-102] a routine edit doesn't touch arrangements
 
 # Routine fields can be edited directly (AC2). Significant fields affect
-# arrangements already made and belong to SCRUM-29, so they are refused here.
+# arrangements already made, so they are refused here. [SCRUM-29] This is the one
+# list of important fields: amend and change requests read it too.
 ROUTINE_FIELDS = ("title", "purpose", "description", "accessibility_needs", "registration_needs")
 SIGNIFICANT_FIELDS = ("proposed_start", "expected_attendance", "venue_requirements", "equipment_requirements")
 
@@ -818,8 +904,8 @@ def update_event_routine_info(
     """SCRUM-28 AC2, AC3: update routine information during planning.
 
     Significant fields (date/time, attendance, venue or equipment requirements)
-    are refused with 422; they are handled by SCRUM-29. Every update is recorded
-    in the event's history: who changed which fields.
+    are refused with 422; they need a change request (SCRUM-29). Every update is
+    recorded in the event's history: who changed which fields.
     """
     event = _get_entitled_event(event_id, current_user, db)
 
@@ -828,7 +914,11 @@ def update_event_routine_info(
     if significant:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"{', '.join(significant)} cannot be changed here: this is a significant change (SCRUM-29)",
+            # [SCRUM-29] The message tells the user the way forward, not a story number.
+            detail=(
+                f"{', '.join(significant)} cannot be changed here because this is an important change. "
+                f"The Organiser can raise a change request for the assigned Coordinator to decide."
+            ),
         )
 
     if event.status not in PLANNING_STATUSES:

@@ -118,6 +118,17 @@ return 401/403 (§0) and 422 (bad body).
 
 No route amends or removes an equipment request (module docstring: SCRUM-40). Logged in `BACKEND_ISSUES.md` #2.
 
+### 1.9a Attendee registration — `backend/registrations.py` (SCRUM-45, 46, 47, 48, 52, 65)
+
+| Endpoint | Who | Notes |
+| :--- | :--- | :--- |
+| `GET /registrations/events` | Attendee | Open events (setting on and Confirmed), whitelisted fields only. `places_left` is null when the number of places is unknown. |
+| `POST /registrations/events/{id}` | Attendee | Register. 404 if not open, 409 if full, unknown capacity or duplicate. |
+| `POST /registrations/events/{id}/withdraw` | Attendee | Withdraw. 409 on a Cancelled or Completed event. |
+| `GET /registrations/mine` | Attendee | My registrations, newest first. |
+| `GET /events/{id}/registrations` | Organiser (own), assigned Coordinator, Lead | Who registered. Another Organiser and Attendees get 404. |
+| `GET` / `PUT /events/{id}/registration-settings` | Organiser (own), assigned Coordinator; Lead can only read | Switch registration on or off. Another Organiser and Attendees get 404. |
+
 ### 1.10 Notifications — `backend/notifications.py`
 
 | Method & path | Roles | Request | Response | Errors | Used by UI |
@@ -239,9 +250,9 @@ Every one of these writes an `EventStatusHistory` row.
 | Rule | Source |
 |---|---|
 | An Attendee may read one event only when its status is `Confirmed`; anything else is 404. The response is limited to `{name, description, date, time, venue_name}`, where the venue is the earliest Confirmed booking. | `events.get_visible_event` |
-| Attendees can't list events (`GET /events` → 403) and have no other event route. | `events.list_my_events` |
+| `GET /events` is still 403 for Attendees. Since SCRUM-45 they list open events with `GET /registrations/events` (§1.9a). | `events.list_my_events`, `registrations.list_open_events` |
 | Nothing moves an event to `Confirmed` (§2), so in practice an Attendee can see no event. | `status_rules.TRANSITIONS` |
-| Attendees receive no event notifications. | `notifications.can_see_event` |
+| Since SCRUM-52 an Attendee receives notices only about events they hold a place on. | `notifications.can_see_event` |
 
 ### 4.6 Other visibility rules
 
@@ -297,13 +308,13 @@ Every one of these writes an `EventStatusHistory` row.
 
 | Screen | Data | Actions in the UI | Backend allows, not in the UI |
 |---|---|---|---|
-| Equipment worklist | `GET /equipment-requests` | Search, sort, Refresh (read only) | Per-event list `GET /events/{id}/equipment-requests` (same data). No status or assignment exists (`BACKEND_ISSUES.md` #14). |
+| Equipment worklist | `GET /equipment-requests` | Search, sort, Refresh; per line: update status (`POST /equipment-requests/{id}/status`), reserve and release (`/events/{id}/equipment-reservations`) | Per-event list `GET /events/{id}/equipment-requests` (same data). Availability is `GET /equipment/availability?event_id=...` (SCRUM-40, 43, 44). |
 
 ### Attendee — `/attendee`
 
 | Screen | Data | Actions in the UI | Backend allows, not in the UI |
 |---|---|---|---|
-| Event directory: an empty state ("No events are available yet") | none | none | `GET /events/{id}` for a Confirmed event, but there is no list route and no event can reach Confirmed (§4.5). `BACKEND_ISSUES.md` #1. |
+| Event directory: open events and my registrations (SCRUM-45, 46, 47) | Register, Withdraw | none | The routes in §1.9a. |
 
 ---
 
