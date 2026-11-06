@@ -702,6 +702,7 @@ document.addEventListener("alpine:init", () => {
       this.fieldErrors = {};
       const payload = this.amendPayload(data);
       const changed = Object.keys(payload).length > 0;
+      let flagged = 0;
       if (!changed && !resubmit) {
         this.showAlert("No changes to save.", "info");
         return;
@@ -714,6 +715,7 @@ document.addEventListener("alpine:init", () => {
         if (changed) {
           const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
           if (!response.ok) { this.focusFirstError(".amend-dialog"); return; }
+          flagged = response.data?.arrangements_flagged || 0; // [SCRUM-29]
           // Saved: later diffs start from the values just stored.
           this.amendOriginal = { ...this.amendOriginal, ...this.amendFormFrom({ ...this.amendOriginal, ...payload }) };
         }
@@ -727,7 +729,8 @@ document.addEventListener("alpine:init", () => {
         }
         this.closeModal();
         await this.fetchEvents();
-        this.showAlert(resubmit ? "Request resubmitted" : "Changes saved", "success");
+        const flaggedNote = flagged ? `. ${flagged} ${flagged === 1 ? "arrangement" : "arrangements"} flagged for another look.` : ""; // [SCRUM-29]
+        this.showAlert(`${resubmit ? "Request resubmitted" : "Changes saved"}${flaggedNote}`, "success");
       } finally {
         this.decisionBusy = false;
         if (modal) modal.action = "";
