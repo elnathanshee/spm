@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from backend import arrangements, booking_rules, event_hooks, seed_users, status_rules
-from backend.models import ArrangementReviewFlag, EventStatusHistory, SafetyCheck, User, VenueBooking, VenueUnavailability
+from backend.models import ArrangementReviewFlag, Event, EventStatusHistory, SafetyCheck, User, VenueBooking, VenueUnavailability
 from backend.security import hash_password
 from backend.tests.lifecycle_world import END, START, TestSession, engine, world  # noqa: F401
 
@@ -410,3 +410,24 @@ def test_tc6605_only_approval_sends_the_confirmed_notice(world):
     _decide(world, event, "reject", "Exits blocked")
     kinds = [n.kind for name in ["organiser1", "coord1"] for n in world.notices(name, event)]
     assert "event_confirmed" not in kinds
+
+
+def test_tc8630_approval_is_refused_while_the_gate_is_no_longer_met(world):
+    """TC-8630: equipment added during the check blocks approval with 409; request changes still works."""
+    event = world.event("Planning")
+    world.booking(event)
+    coordinator = world.login("coord1")
+    assert coordinator.post(f"/events/{event.id}/submit-safety").status_code == 200
+    assert coordinator.post(f"/events/{event.id}/equipment-requests", json={"equipment_type": "Mic", "quantity": 1}).status_code == 201
+
+    officer = world.login("safety1")
+    refused = officer.post(f"/safety/events/{event.id}/decision", json={"decision": "approve"})
+    assert refused.status_code == 409
+    assert "Mic" in refused.json()["detail"]
+    world.db.expire_all()
+    assert world.db.get(Event, event.id).status == "Safety Review"
+    assert world.db.query(SafetyCheck).filter_by(event_id=event.id).count() == 0
+
+    back = officer.post(f"/safety/events/{event.id}/decision", json={"decision": "request_changes", "reason": "Arrange the Mic first"})
+    assert back.status_code == 200
+    assert back.json()["status"] == "Planning"

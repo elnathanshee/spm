@@ -10,7 +10,7 @@ from datetime import timedelta
 import pytest
 
 from backend import arrangements, booking_rules, event_hooks, lifecycle, status_rules
-from backend.models import ArrangementReviewFlag, Event, EventStatusHistory, User, VenueBooking, VenueHold
+from backend.models import ArrangementReviewFlag, EquipmentRequest, Event, EventStatusHistory, User, VenueBooking, VenueHold
 from backend.tests.lifecycle_world import END, START, world  # noqa: F401
 from backend.venue_holds import run_hold_checks
 
@@ -479,3 +479,54 @@ def test_tc6603_nobody_else_is_told_and_a_refused_cancel_tells_nobody(world):
     assert world.notices("organiser1", event) == [] and world.notices("coord1", event) == []
     assert world.login("coord1").post(f"/events/{event.id}/cancel", json={"reason": "Budget cut"}).status_code == 200
     assert world.notices("coord2") == [] and world.notices("organiser2") == []
+
+
+# --- Review findings ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("user", ["safety1", "coord1"])
+def test_tc10251_start_planning_cannot_pull_an_event_out_of_safety_review(world, user):
+    """TC-10251: the only way back to Planning is a safety decision, which records a reason and a check."""
+    event = world.event("Safety Review")
+    world.booking(event)
+    response = world.login(user).post(f"/events/{event.id}/start-planning")
+    assert response.status_code == 400
+    world.db.expire_all()
+    assert world.db.get(Event, event.id).status == "Safety Review"
+    assert world.db.query(EventStatusHistory).filter_by(event_id=event.id).count() == 0
+
+
+@pytest.mark.parametrize("stage", ["Cancelled", "Completed"])
+def test_tc10252_a_closed_event_cannot_take_a_venue_again(world, stage):
+    """TC-10252: a booking request on a closed event gets 409 and leaves the slot free for another event."""
+    closed = world.event(stage, title="Closed")
+    other = world.event("Planning", title="Other")
+    slot = {"booking_start": "2099-05-01T02:00:00", "booking_end": "2099-05-01T04:00:00"}
+    client = world.login("coord1")
+    refused = client.post(f"/venues/{world.hall.id}/bookings", json={"event_id": closed.id, **slot})
+    assert refused.status_code == 409
+    assert world.db.query(VenueBooking).filter_by(event_id=closed.id).count() == 0
+    assert client.post(f"/venues/{world.hall.id}/bookings", json={"event_id": other.id, **slot}).status_code == 201
+
+
+@pytest.mark.parametrize("stage", ["Cancelled", "Completed"])
+def test_tc10253_a_closed_event_takes_no_new_equipment_lines(world, stage):
+    """TC-10253: recording equipment on a closed event gets 409 and adds no line."""
+    event = world.event(stage)
+    response = world.login("coord1").post(f"/events/{event.id}/equipment-requests", json={"equipment_type": "Mic", "quantity": 1})
+    assert response.status_code == 409
+    assert world.db.query(EquipmentRequest).filter_by(event_id=event.id).count() == 0
+
+
+def test_tc10254_cancelling_clears_active_review_flags_and_keeps_the_rows(world):
+    """TC-10254: a cancelled event has nothing left to review, and the flag rows stay as history."""
+    event = world.event("Planning")
+    world.booking(event)
+    arrangements.flag_event_arrangements(world.db, event, arrangements.SOURCE_SAFETY_REVIEW, "Move the stage", world.users["safety1"])
+    world.db.commit()
+    assert world.db.query(ArrangementReviewFlag).filter_by(event_id=event.id).count() == 1
+    client = world.login("coord1")
+    assert client.post(f"/events/{event.id}/cancel", json={"reason": "Budget cut"}).status_code == 200
+    assert client.get(f"/events/{event.id}/review-flags").json() == []
+    world.db.expire_all()
+    assert world.db.query(ArrangementReviewFlag).filter_by(event_id=event.id).count() == 1

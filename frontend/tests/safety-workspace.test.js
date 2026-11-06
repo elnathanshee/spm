@@ -149,3 +149,21 @@ test("TC-8629 the markup: the workspace sits at its fixed place behind its role,
   assert.match(main, /import \{ safetyWorkspace \} from "\.\/safety-workspace\.js";/);
   assert.match(main, /Alpine\.data\("safetyWorkspace", safetyWorkspace\);/);
 });
+
+
+test("TC-8631 Refresh reads the list again, so a new event appears and a cancelled one goes", async () => {
+  let items = [row];
+  const state = workspace({ [LIST]: () => ok(items) });
+  await state.init();
+  assert.equal(state.safety.items.length, 1);
+  items = [{ ...row, id: 6, title: "Spring Fair" }];
+  await state.refreshSafetyEvents();
+  assert.deepEqual(state.safety.items.map(item => item.id), [6]);
+  assert.match(html, /<button type="button"[^>]*:disabled="safety\.loading"[^>]*@click="refreshSafetyEvents\(\)"[^>]*>[\s\S]{0,80}Refresh<\/button>/);
+
+  const failing = workspace({ [LIST]: () => ok([row]) });
+  await failing.init();
+  failing.safety.error = "Old failure";
+  await failing.refreshSafetyEvents();
+  assert.equal(failing.safety.error, "");
+});

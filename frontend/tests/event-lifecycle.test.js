@@ -265,3 +265,28 @@ test("TC-8715 the markup: the flags panel sits at its fixed place, shows only wh
   assert.match(panel, /x-show="canClearFlags\(\) && flags\.items\.length"/);
   assert.match(main, /Alpine\.data\("reviewFlags", reviewFlags\);/);
 });
+
+
+test("TC-10255 a Coordinator on All Events sees the new status after a lifecycle action", async () => {
+  const state = withParent(eventLifecycle());
+  state.currentPath = "/coordinator/all-events";
+  state.fetchAllCoordinatorEvents = async () => state.refreshed.push("all");
+  await state.refreshListsAfterLifecycle();
+  assert.deepEqual([...state.refreshed].sort(), ["all", "assigned"]);
+
+  const elsewhere = withParent(eventLifecycle());
+  elsewhere.currentPath = "/coordinator/assigned-events";
+  elsewhere.fetchAllCoordinatorEvents = async () => elsewhere.refreshed.push("all");
+  await elsewhere.refreshListsAfterLifecycle();
+  assert.deepEqual(elsewhere.refreshed, ["assigned"]);
+});
+
+test("TC-10256 a closed event offers no venue bookings to the Lead or its Coordinator", () => {
+  for (const role of ["Coordinator", "Event Coordinator Lead"]) {
+    const state = appState(role);
+    state.assignedEvents = [{ id: 5 }];
+    assert.equal(state.canBookEvent({ id: 5, status: "Planning" }), true, role);
+    assert.equal(state.canBookEvent({ id: 5, status: "Cancelled" }), false, role);
+    assert.equal(state.canBookEvent({ id: 5, status: "Completed" }), false, role);
+  }
+});
