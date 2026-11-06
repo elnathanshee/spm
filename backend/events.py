@@ -454,6 +454,13 @@ def start_review(
     helper, this calls change_status, so the Submitted -> Under Review guard,
     the assigned-coordinator check and the history row all come from one place.
     """
+    # [SCRUM-84] Role first, as /approve does. Otherwise any role learns the event's status.
+    if current_user.role.lower() != "coordinator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only coordinators can start a review",
+        )
+
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(
