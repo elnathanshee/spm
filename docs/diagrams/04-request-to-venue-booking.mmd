@@ -1,0 +1,62 @@
+---
+title: "Sequence 4 - Coordinator requests a venue and Venue Staff decides (SCRUM-33/35/38/81/89/91)"
+---
+sequenceDiagram
+    autonumber
+    actor Co as Event Coordinator
+    actor VS as Venue Staff
+    participant API as venues.py<br/>/venues API
+    participant Rules as booking_rules.py<br/>check_venue_availability
+    participant Holds as venue_holds.py<br/>hold & expiry
+    participant N as notifications.py
+    participant DB as Database
+
+    Co->>API: GET /venues/search?capacity=...&facilities=...
+    API->>DB: query active venues matching filters
+    API-->>Co: 200 list of candidate venues
+
+    Co->>API: GET /events/{id}/venue-suitability
+    API->>Rules: evaluate attendance vs capacity, facilities, layout
+    API-->>Co: 200 suitability assessment & clash warnings
+
+    Co->>API: POST /venues/{venue_id}/bookings (event_id, start, end, requirements)
+    API->>API: verify caller is assigned Coordinator or Lead (else 403)
+    API->>Rules: check_venue_availability(venue, start, end)
+    Note over Rules: Includes setup_time_mins & turnaround_time_mins buffers
+    alt time slot overlaps existing hold or confirmed booking
+        Rules-->>API: Conflict detected
+        API-->>Co: 409 Conflict (with clash details)
+    end
+
+    API->>Holds: calculate default 48h hold expiry (capped at booking start)
+    API->>DB: insert VenueBooking (status='Pending', hold_expiry)
+    API->>N: notify_booking(Pending)
+    N->>DB: add Notification -> Venue Staff
+    API->>DB: commit
+    API-->>Co: 201 Created {booking_id, status: Pending, hold_expiry}
+
+    VS->>API: GET /venues/{id}/bookings?status=Pending
+    API->>DB: load booking requests with event context & clash status
+    API-->>VS: 200 list of pending requests
+
+    VS->>API: POST /venues/bookings/{booking_id}/approve (or reject with reason)
+    API->>API: verify role == venue_staff (else 403)
+    API->>Holds: expired_hold_refusal(booking)?
+    alt hold has already expired
+        Holds-->>API: Hold expired
+        API-->>VS: 409 Conflict ("Hold has expired and cannot be approved")
+    end
+
+    API->>DB: lock Venue row (FOR UPDATE)
+    API->>Rules: re-check clashes with setup & turnaround buffers
+    alt another approval claimed the slot
+        Rules-->>API: Clash detected upon recheck
+        API-->>VS: 409 Conflict
+    end
+
+    API->>DB: update booking.status = 'Confirmed' (or 'Rejected')
+    API->>DB: insert VenueBookingDecision (decision='Approved', decided_by_id)
+    API->>N: notify_booking(Approved / Rejected)
+    N->>DB: add Notification -> Event Coordinator
+    API->>DB: commit
+    API-->>VS: 200 {message: "Booking request approved", booking}
