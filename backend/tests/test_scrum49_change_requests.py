@@ -19,8 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, EventChangeRequest, User
-from backend.security import hash_password
+from backend.models import Event, EventChangeRequest, LoginSession, User
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -49,7 +48,7 @@ def client(db_session):
 @pytest.fixture
 def world(db_session):
     users = {
-        name: User(username=name, password_hash=hash_password("pass123"), role=role, is_active_coordinator=role == "coordinator")
+        name: User(username=name, password_hash="x", role=role, is_active_coordinator=role == "coordinator")
         for name, role in [
             ("org", "organiser"), ("other_org", "organiser"),
             ("coord", "coordinator"), ("other_coord", "coordinator"), ("lead", "lead"),
@@ -57,6 +56,8 @@ def world(db_session):
     }
     db_session.add_all(users.values())
     db_session.flush()
+    # A preset session for each user: signing in hashes a password, which is slow.
+    db_session.add_all(LoginSession(user_id=user.id, token=f"token_{name}", valid=True) for name, user in users.items())
     event = Event(
         title="Annual Gala", status="Planning", organiser_id=users["org"].id,
         assigned_coordinator_id=users["coord"].id, proposed_start=datetime(2099, 3, 10, 14, 0),
@@ -69,7 +70,7 @@ def world(db_session):
 
 
 def login(client, username):
-    assert client.post("/auth/login", json={"username": username, "password": "pass123"}).status_code == 200
+    client.cookies.set("connectsphere_session", f"token_{username}")
 
 
 def raise_request(client, event, changes=None, reason="The speaker moved her flight"):
