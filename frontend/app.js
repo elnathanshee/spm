@@ -374,6 +374,9 @@ document.addEventListener("alpine:init", () => {
         returned: "Clarification requested",
         approved: "Event request approved",
         rejected: "Event request rejected",
+        event_confirmed: "Event confirmed", // [SCRUM-66]
+        event_cancelled: "Event cancelled",
+        safety_returned: "Safety check returned",
         assigned_to_you: "Event assigned to you",
         reassigned_to_you: "Event reassigned to you",
         reassigned_away: "Event reassigned",
@@ -382,8 +385,8 @@ document.addEventListener("alpine:init", () => {
       }[notification?.kind] || "Workspace update";
     },
     notificationTone(notification) {
-      if (["booking_approved", "approved"].includes(notification?.kind)) return "success";
-      if (["booking_rejected", "rejected", "returned", "hold_expired"].includes(notification?.kind)) return "warning";
+      if (["booking_approved", "approved", "event_confirmed"].includes(notification?.kind)) return "success";
+      if (["booking_rejected", "rejected", "returned", "hold_expired", "event_cancelled", "safety_returned"].includes(notification?.kind)) return "warning";
       if (["booking_submitted", "assigned_to_you", "reassigned_to_you", "hold_warning"].includes(notification?.kind)) return "action";
       return "info";
     },
@@ -1942,9 +1945,9 @@ document.addEventListener("alpine:init", () => {
     },
     // [SCRUM-94 | Renee] Update routine information during planning (PATCH /events/{id}, SCRUM-28).
     // AC1, AC4: only the event's Organiser or its assigned Coordinator, and only while it is
-    // Approved, Planning or Confirmed (the backend's PLANNING_STATUSES).
+    // Approved, Planning, Safety Review or Confirmed (the backend's PLANNING_STATUSES).
     canEditRoutine(event) {
-      if (!event || !["Approved", "Planning", "Confirmed"].includes(event.status)) return false;
+      if (!event || !["Approved", "Planning", "Safety Review", "Confirmed"].includes(event.status)) return false;
       const role = this.normalizeRole(this.user?.role);
       const me = Number(this.user?.user_id);
       return (role === "Organiser" && Number(event.organiser_id) === me)

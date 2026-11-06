@@ -150,6 +150,24 @@ test("TC-10248 the markup: the panel sits at its fixed place, with labels and a 
   assert.match(main, /Alpine\.data\("eventLifecycle", eventLifecycle\);/);
 });
 
+test("TC-10250 closing the dialog while a change is saving still refreshes the list and breaks nothing", async () => {
+  const state = withParent(eventLifecycle(), { replies: { [ACTIONS]: offered(action("start-planning", "Start planning")) } });
+  await state.init();
+  const realRequest = state.apiRequest;
+  state.apiRequest = async (path, options = {}) => {
+    if (options.method !== "POST") return realRequest(path, options);
+    state.eventDetail = null;
+    return { ok: true, status: 200, data: { status: "Planning", message: "Planning started" } };
+  };
+  await state.runLifecycleAction(state.lifecycle.actions[0]);
+  assert.ok(state.refreshed.includes("assigned"));
+  assert.equal(state.lifecycle.busy, false);
+  const flags = withParent(reviewFlags());
+  flags.eventDetail = null;
+  await flags.loadReviewFlags();
+  assert.equal(flags.sent.length, 0);
+});
+
 test("TC-10249 Safety Review events can have their routine details edited", () => {
   assert.equal(appState("organiser").canEditRoutine({ status: "Safety Review", organiser_id: 7 }), true);
   assert.equal(appState("coordinator").canEditRoutine({ status: "Safety Review", assigned_coordinator_id: 7 }), true);
@@ -242,7 +260,7 @@ test("TC-8715 the markup: the flags panel sits at its fixed place, shows only wh
   const panelAt = html.indexOf("SCRUM-87 arrangement review flags panel");
   const panel = html.slice(panelAt, html.indexOf("SCRUM-44 equipment reservations panel"));
   assert.match(panel, /x-data="reviewFlags\(\)"/);
-  assert.match(panel, /\$watch\('eventDetail\.detail\.status'/);
+  assert.match(panel, /\$watch\('eventDetail\?\.detail\?\.status'/);
   assert.match(panel, /x-show="flags\.items\.length \|\| flags\.error \|\| flags\.notice"/);
   assert.match(panel, /x-show="canClearFlags\(\) && flags\.items\.length"/);
   assert.match(main, /Alpine\.data\("reviewFlags", reviewFlags\);/);

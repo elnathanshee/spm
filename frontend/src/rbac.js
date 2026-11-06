@@ -6,6 +6,7 @@ export const NAVIGATION = [
   { path: "/lead/events", label: "Assignment oversight", role: "Event Coordinator Lead", icon: "people" },
   { path: "/venue", label: "Venue operations", role: "Venue Staff", icon: "building" },
   { path: "/technical", label: "Technical support", role: "Technical Support", icon: "equipment" },
+  { path: "/safety", label: "Safety checks", role: "Safety Officer", icon: "check" },
   { path: "/attendee", label: "Event directory", role: "Attendee", icon: "ticket" },
 ];
 
@@ -17,6 +18,8 @@ const NORMALIZED_ROLES = {
   venue_staff: "Venue Staff",
   "technical support": "Technical Support",
   technical_support: "Technical Support",
+  "safety officer": "Safety Officer",
+  safety_officer: "Safety Officer",
   attendee: "Attendee",
 };
 
@@ -26,6 +29,7 @@ const ROLE_PATHS = {
   "Event Coordinator Lead": "/lead/events",
   "Venue Staff": "/venue",
   "Technical Support": "/technical",
+  "Safety Officer": "/safety",
   Attendee: "/attendee",
 };
 
