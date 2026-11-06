@@ -149,7 +149,7 @@ document.addEventListener("alpine:init", () => {
     allCoordinatorEvents: [],
     assignedView: { ...listView(), scope: "all", sort: "queue" },
     allEventsView: { ...listView(), status: "all", sort: "submitted" },
-    leadView: { query: "", filter: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" },
+    leadView: { query: "", filter: "all", status: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" },
     assignmentState: {},
     picker: { eventId: null, query: "", active: 0 },
     bookingView: { query: "", sort: "start" },
@@ -798,15 +798,43 @@ document.addEventListener("alpine:init", () => {
 
     // Lead: needs assignment (no Coordinator yet) or assigned, in the backend's order (oldest submission first).
     leadFilterChips() {
-      const count = filter => this.leadEvents.filter(event => this.leadInFilter(event, filter)).length;
+      const count = filter => this.leadEvents.filter(event => this.leadInFilter(event, filter) && this.leadInStatus(event, this.leadView.status)).length;
       return [{ key: "all", label: "All", count: count("all") }, { key: "unassigned", label: "Needs assignment", count: count("unassigned") }, { key: "assigned", label: "Assigned", count: count("assigned") }];
     },
     leadInFilter(event, filter) { return filter === "all" || (filter === "unassigned") === !event.assigned_coordinator_id; },
+    leadInStatus(event, status) { return status === "all" || event.status === status; },
+    // [SCRUM-85] One chip per status in the list, in workflow order. The chosen one stays, so a refresh can't strand the Lead on an empty list with nothing selected.
+    leadStatusChips() {
+      const view = this.leadView;
+      const inFilter = this.leadEvents.filter(event => this.leadInFilter(event, view.filter));
+      const present = [...new Set(this.leadEvents.map(event => event.status))];
+      if (view.status !== "all" && !present.includes(view.status)) present.push(view.status);
+      const statuses = [...EVENT_STATUS_ORDER.filter(status => present.includes(status)), ...present.filter(status => !EVENT_STATUS_ORDER.includes(status))];
+      return [{ key: "all", label: "All statuses", count: inFilter.length }, ...statuses.map(status => ({ key: status, label: status, count: inFilter.filter(event => event.status === status).length }))];
+    },
+    leadEmptyMessage() {
+      if (this.leadView.status !== "all") return `No ${this.leadView.status} requests in this view`;
+      return this.leadView.filter === "unassigned" ? "Every request has a Coordinator" : "No requests are assigned yet";
+    },
     filteredLeadEvents() {
       const view = this.leadView;
       const sorts = { attention: (a, b) => this.leadAttentionRank(a) - this.leadAttentionRank(b), start: byAsc("proposed_start"), submitted: keepOrder };
-      return this.leadEvents.filter(event => this.leadInFilter(event, view.filter) && this.coordinatorMatches(event, view.query))
+      return this.leadEvents.filter(event => this.leadInFilter(event, view.filter) && this.leadInStatus(event, view.status) && this.coordinatorMatches(event, view.query))
         .sort(sorts[view.sort] || keepOrder);
+    },
+    // [SCRUM-85] Each Coordinator's active events. It starts from the active Coordinators so those with none still show,
+    // then adds anyone who has left but still holds an event. Unassigned events come last.
+    coordinatorAssignments() {
+      const holders = new Map(this.coordinators.map(coordinator => [String(coordinator.id), { key: `coordinator-${coordinator.id}`, name: this.coordinatorName(coordinator), inactive: false, events: [] }]));
+      const unassigned = [];
+      for (const event of this.leadEvents.filter(event => this.coordinatorGroupOf(event).active)) {
+        if (!event.assigned_coordinator_id) { unassigned.push(event); continue; }
+        const id = String(event.assigned_coordinator_id);
+        if (!holders.has(id)) holders.set(id, { key: `coordinator-${id}`, name: event.assigned_coordinator, inactive: event.assigned_coordinator_active === false, events: [] });
+        holders.get(id).events.push(event);
+      }
+      const groups = [...holders.values()].sort((a, b) => a.name.localeCompare(b.name));
+      return unassigned.length ? [...groups, { key: "unassigned", name: "Not assigned", inactive: false, events: unassigned }] : groups;
     },
 
     // Technical Support: events grouped as before; search covers the event and each line, and
@@ -1687,8 +1715,12 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    // The statuses POST /events/{id}/assign and /reassign accept (backend lead.py assignable_statuses).
-    canAssignEvent(event) { return ["Submitted", "Under Review", "Returned"].includes(event?.status); },
+    // [SCRUM-85] The statuses POST /events/{id}/assign (no Coordinator yet) and /reassign accept (backend lead.py).
+    canAssignEvent(event) {
+      const firstAssignment = ["Submitted", "Under Review", "Returned"];
+      const reassignment = [...firstAssignment, "Approved", "Planning", "Safety Review", "Confirmed"];
+      return (event?.assigned_coordinator_id ? reassignment : firstAssignment).includes(event?.status);
+    },
 
     // Unsaved means a Coordinator is chosen and it isn't the one already assigned (the backend refuses a same-Coordinator reassignment).
     assignmentChanged(event) {
@@ -1762,7 +1794,11 @@ document.addEventListener("alpine:init", () => {
     pickerOptionLabel(coordinator) { return `${coordinator.name} (${this.openRequestsLabel(coordinator.open)})`; },
     pickerChoiceLabel(event) {
       const chosen = this.coordinators.find(coordinator => String(coordinator.id) === String(event.selectedCoordinatorId));
-      return chosen ? this.coordinatorName(chosen) : "Select coordinator";
+      if (chosen) return this.coordinatorName(chosen);
+      // [SCRUM-85] The picker lists active Coordinators only, so someone who has left is named from the row.
+      const stillHeld = event.assigned_coordinator && String(event.selectedCoordinatorId) === String(event.assigned_coordinator_id);
+      if (!stillHeld) return "Select coordinator";
+      return event.assigned_coordinator_active === false ? `${event.assigned_coordinator} (no longer active)` : event.assigned_coordinator;
     },
     choosePickerOption(event, coordinator) {
       event.selectedCoordinatorId = coordinator.id;
