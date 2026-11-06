@@ -97,3 +97,47 @@ test("TC-9914 a calendar day's label is day-first and names the date asked for, 
   assert.equal(app().calendarDayLabel("not a date"), "not a date", "an unreadable date is shown as sent");
   assert.equal(app().calendarDayLabel(""), "Not set");
 });
+
+// ---------------------------------------------------------- focus after closing
+
+const fakeButton = () => {
+  const button = { isConnected: true, focused: 0, focus() { this.focused += 1; } };
+  return button;
+};
+
+test("TC-9915 closing the calendar returns focus to the button that opened it, and that button stays out of reactive state", async () => {
+  const opener = fakeButton();
+  const page = { activeElement: opener };
+  const state = app({ document: page });
+  state.$nextTick = callback => callback();
+  // Alpine wraps state in a proxy, so a DOM element kept on it would be wrapped and watched.
+  await state.openVenueCalendar({ id: 3, name: "Grand Hall" });
+  assert.equal(Object.values(state).includes(opener), false);
+  assert.equal(Object.values(state.venueCalendar).includes(opener), false);
+  assert.equal(opener.focused, 0, "focus moves only on closing");
+  state.closeVenueCalendar();
+  assert.equal(state.venueCalendar, null);
+  assert.equal(opener.focused, 1);
+});
+
+test("TC-9916 closing the calendar leaves focus alone when the opening button has gone from the page", async () => {
+  const opener = fakeButton();
+  const state = app({ document: { activeElement: opener } });
+  state.$nextTick = callback => callback();
+  await state.openVenueCalendar({ id: 3, name: "Grand Hall" });
+  opener.isConnected = false; // for example, the search results changed behind the calendar
+  state.closeVenueCalendar();
+  assert.equal(state.venueCalendar, null);
+  assert.equal(opener.focused, 0);
+});
+
+test("TC-9917 a role that can't open the calendar doesn't take focus when closing", async () => {
+  const opener = fakeButton();
+  const state = app({ document: { activeElement: opener } });
+  state.$nextTick = callback => callback();
+  state.user = { user_id: 1, username: "org1", role: "Organiser" };
+  await state.openVenueCalendar({ id: 3, name: "Grand Hall" });
+  assert.equal(state.venueCalendar, null);
+  state.closeVenueCalendar();
+  assert.equal(opener.focused, 0);
+});
