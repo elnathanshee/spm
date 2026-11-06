@@ -6,13 +6,14 @@ This register documents all automated test cases across **Sprint 1**, **Sprint 2
 
 ## Summary Statistics
 
-- **Total Test Cases:** 626 rows in this file, recounted on 5 Nov 2026 (SCRUM-98; +13 SCRUM-89; +24 SCRUM-92; +5 SCRUM-91; +16 SCRUM-88; +5 SCRUM-90; +10 GitHub #29; +2 SCRUM-97; +14 SCRUM-94; +24 SCRUM-95, +16 SCRUM-96 and +18 SCRUM-93, added earlier without a recount; +2 Vercel deployment; +2 SCRUM-96, TC-9617 and TC-9618, in the PR 47 merge; +93 for PR 47's tests and its follow-up fixes) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
+- **Total Test Cases:** 656 rows in this file, recounted on 6 Nov 2026 (SCRUM-98; +13 SCRUM-89; +24 SCRUM-92; +5 SCRUM-91; +16 SCRUM-88; +5 SCRUM-90; +10 GitHub #29; +2 SCRUM-97; +14 SCRUM-94; +24 SCRUM-95, +16 SCRUM-96 and +18 SCRUM-93, added earlier without a recount; +2 Vercel deployment; +2 SCRUM-96, TC-9617 and TC-9618, in the PR 47 merge; +93 for PR 47's tests and its follow-up fixes; +7 SCRUM-102 and +23 SCRUM-83 for Sprint 5) by the Build / Sprint column (includes 10 preserved historical workbook entries without current test implementations)
 - **Sprint 1:** 40 Test Cases (SCRUM-16: 6, SCRUM-22 & 27: 7, SCRUM-21: 15, SCRUM-24: 11, SCRUM-24 & 27: 1; the 12 SCRUM-24 rows were registered in Sprint 4)
 - **Sprint 2:** 121 Test Cases (SCRUM-51: 15, SCRUM-23: 18, SCRUM-63: 8, SCRUM-30: 10, SCRUM-33: 13, SCRUM-31: 21, SCRUM-32: 16, SCRUM-34: 20)
 - **Sprint 3:** 219 Test Cases (SCRUM-35: 23, SCRUM-18: 11, SCRUM-36: 13, SCRUM-37: 9, SCRUM-38: 27, SCRUM-28: 14, SCRUM-80: 12, SCRUM-81: 36, SCRUM-64: 36, SCRUM-39: 23, SCRUM-30: 1; 14 rows shared across venue stories or unmapped)
 - **Sprint 4:** 246 Test Cases (SCRUM-98: 2, SCRUM-89: 13, SCRUM-92: 24, SCRUM-91: 5, SCRUM-88: 16, SCRUM-90: 8, SCRUM-80 / GitHub #29: 10, SCRUM-97: 2, SCRUM-94: 15, SCRUM-95: 24, SCRUM-96: 18, SCRUM-93: 21, Vercel deployment: 2, PR 47 UI redesign: 85, SCRUM-64: 1)
-- **CSV:** `TEST_CASES.csv` holds 512 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
-- **Current PR verification (PR 47 follow-up):** frontend 283/283 on a CI-like checkout (LF line endings, TZ=UTC) and the build passes, on 5 Nov 2026. The backend is unchanged from main, where the full suite passed (575). Historical statuses are preserved; they are not new execution claims.
+- **Sprint 5:** 30 Test Cases (SCRUM-102: 7, SCRUM-83: 23)
+- **CSV:** `TEST_CASES.csv` holds 542 of these rows. The 80 SCRUM-31, SCRUM-32, SCRUM-34 and SCRUM-39 rows are only in this file, each block pasted onto a single line (follow-up).
+- **Current PR verification:** frontend 289/289 passing and Vite build clean; backend 601/601 passing in ~22s (with test password hashing optimization in `conftest.py`) on 6 Nov 2026. Historical statuses are preserved; they are not new execution claims.
 - **Automation:** `pytest` and Node test runner; see per-case execution evidence.
 
 ---
