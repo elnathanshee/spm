@@ -194,7 +194,7 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 
 The Event Coordinator Lead works from **Assignment oversight** (`/lead/events`).
 
-- **Reassign:** allowed in Submitted, Under Review, Returned, Approved, Planning, Safety Review and Confirmed. It is refused in Draft, Rejected, Completed and Cancelled. Bookings, equipment and status stay as they are. The old Coordinator, the new Coordinator and the Organiser are each told.
+- **Reassign:** allowed in Submitted, Under Review, Returned, Approved, Planning, Safety Review and Confirmed. It is refused in Draft, Rejected, Completed and Cancelled. Bookings, equipment and status stay as they are. The old Coordinator, the new Coordinator and the Organiser are each told. An old Coordinator who has since changed role can no longer see the event, so they aren't told.
 - **First assignment:** still only in Submitted, Under Review or Returned.
 - **See everything:** the list has every event past Draft with its Coordinator, and status chips filter it. **Assignments by Coordinator** shows each Coordinator's active events, including anyone no longer active who still holds one.
 
