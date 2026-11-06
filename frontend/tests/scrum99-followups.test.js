@@ -154,3 +154,52 @@ test("TC-9920 the equipment form accepts the largest quantity and refuses one ab
   assert.match(check("99999999999999999999999999"), /2,147,483,647 or fewer/);
   assert.match(html, /id="equipment-quantity" type="number" min="1" max="2147483647"/);
 });
+
+// ---------------------------------------------------------- network message
+
+// app() replaces apiRequest with a stub, so read the real one from a fresh copy of the source.
+const realApiRequest = hostname => {
+  let factory;
+  vm.runInNewContext(
+    source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""),
+    {
+      NAVIGATION,
+      normalizeRoleName: normalizeRole,
+      resolveRolePath,
+      resetSignedOutState,
+      requestedFrontendPath: () => null,
+      document: { addEventListener: (_, fn) => fn() },
+      Alpine: { data: (_, fn) => (factory = fn) },
+      window: { location: { hostname }, setInterval: () => 0 },
+      fetch: async () => { throw new TypeError("Failed to fetch"); },
+    },
+  );
+  return factory();
+};
+
+test("TC-9924 on the developer's machine a failed call says to start FastAPI", async () => {
+  for (const hostname of ["localhost", "127.0.0.1"]) {
+    const response = await realApiRequest(hostname).apiRequest("/events", { inlineErrors: true });
+    assert.equal(response.status, 0);
+    assert.match(response.data.detail, /Start FastAPI on port 8000/, hostname);
+  }
+});
+
+test("TC-9925 on a deployed site a failed call gives advice the user can act on, with no mention of FastAPI", async () => {
+  const response = await realApiRequest("connectsphere.vercel.app").apiRequest("/events", { inlineErrors: true });
+  assert.equal(response.status, 0);
+  assert.doesNotMatch(response.data.detail, /FastAPI|port 8000/);
+  assert.match(response.data.detail, /Check your connection and try again/);
+});
+
+test("TC-9926 the page alert for a 503 without a message follows the same rule", () => {
+  const shown = hostname => {
+    const state = realApiRequest(hostname);
+    const alerts = [];
+    state.showAlert = message => alerts.push(message);
+    state.handleHttpError(503, {}, "/events");
+    return alerts[0];
+  };
+  assert.match(shown("localhost"), /Start FastAPI/);
+  assert.doesNotMatch(shown("connectsphere.vercel.app"), /FastAPI/);
+});
