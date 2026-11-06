@@ -13,7 +13,7 @@ This register documents all automated test cases across **Sprint 1**, **Sprint 2
 - **Sprint 4:** 243 Test Cases (SCRUM-98: 2, SCRUM-89: 13, SCRUM-92: 24, SCRUM-91: 5, SCRUM-88: 16, SCRUM-90: 8, SCRUM-80 / GitHub #29: 10, SCRUM-97: 2, SCRUM-94: 15, SCRUM-95: 24, SCRUM-96: 18, SCRUM-93: 21, Vercel deployment: 2, PR 47 UI redesign: 82, SCRUM-64: 1)
 - **Sprint 5:** 572 Test Cases (PR 47 UI redesign: 3, SCRUM-102: 63, SCRUM-83: 23, SCRUM-82: 55, SCRUM-100: 10, SCRUM-101: 6, SCRUM-66: 6, SCRUM-86: 33, SCRUM-87: 15, SCRUM-41: 15, SCRUM-42: 23, SCRUM-43: 20, SCRUM-44: 31, SCRUM-40: 11, SCRUM-65: 22, SCRUM-45: 16, SCRUM-46: 22, SCRUM-47: 21, SCRUM-48: 16, SCRUM-52: 19, SCRUM-49: 21, SCRUM-50: 26, SCRUM-29: 17, SCRUM-67: 7, SCRUM-85: 32, SCRUM-84: 14, SCRUM-99: 25)
 - **CSV:** `TEST_CASES.csv` holds all 1195 rows, in the same order as this file (SCRUM-99). `backend/tests/test_register_sync.py` checks that they match.
-- **Current verification (Sprint 5):** PLACEHOLDER_VERIFICATION. Historical statuses are preserved; they are not new execution claims.
+- **Current verification (Sprint 5):** backend 1389 passed and 1 skipped (TC-6442 skips in CI), with 96% branch coverage, and frontend 461/461, in CI on 6 Nov 2026. Historical statuses are preserved; they are not new execution claims.
 - **Automation:** `pytest` and Node test runner; see per-case execution evidence.
 
 ---

@@ -35,7 +35,7 @@ CONTAINERS = [
     ("db", "Database", "PostgreSQL on Neon (SQLite for local development and tests)", "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, venue unavailability periods, conflict flags, equipment requests, equipment items, unavailable units, reservations, request status history, change requests, safety checks, arrangement review flags, registrations, registration settings and notifications.", "cylinder"),
 ]
 INTERNAL = [
-    ("webApp", "api", "Calls /auth, /events, /venues, /coordinator, /lead, /notifications, /equipment-requests, /safety and /registrations, with an HttpOnly session cookie", "JSON over HTTPS"),
+    ("webApp", "api", "Calls /auth, /events, /venues, /coordinator, /lead, /notifications, /equipment, /equipment-requests, /safety and /registrations, with an HttpOnly session cookie", "JSON over HTTPS"),
     ("api", "db", "Reads from and writes to", "SQLAlchemy over TLS"),
 ]
 
