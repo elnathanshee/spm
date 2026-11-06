@@ -855,6 +855,32 @@ def test_tc5214_a_rejected_booking_tells_nobody_registered(client, db, users):
     assert notices_for(db, users["att_1"]) == []
 
 
+def test_tc5215_a_confirmed_booking_cancelled_through_the_api_tells_everyone_registered(client, db, users):
+    """TC-5215: the real path: cancelling a Confirmed booking removes the venue an Attendee saw and changes the places, so they are told."""
+    event = make_event(db, users, attendance=100)
+    booking = book(db, event, make_venue(db, capacity=5))
+    add_registration(db, event, users["att_1"])
+    login(client, "lead")
+    assert client.post(f"/venues/bookings/{booking.id}/cancel").status_code == 200
+    notices = notices_for(db, users["att_1"])
+    assert [n.kind for n in notices] == [registrations.KIND_VENUE_CHANGED]
+    assert_message_is_for_attendees(notices[0])
+    login(client, "att_1")
+    row = mine(client)[0]
+    assert row["venues"] == []
+    assert row["places_left"] == 99
+
+
+def test_tc5216_a_pending_booking_cancelled_tells_nobody_registered(client, db, users):
+    """TC-5216: a Pending booking was never shown to an Attendee, so cancelling it changes nothing they can see."""
+    event = make_event(db, users, attendance=100)
+    booking = book(db, event, make_venue(db, capacity=5), status="Pending")
+    add_registration(db, event, users["att_1"])
+    login(client, "lead")
+    assert client.post(f"/venues/bookings/{booking.id}/cancel").status_code == 200
+    assert notices_for(db, users["att_1"]) == []
+
+
 # --- SCRUM-65 (registration half): registration is switched on per event ------
 
 
