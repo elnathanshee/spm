@@ -222,3 +222,19 @@ test("TC-4228 the unavailable units markup has labels and says the times are Sin
   assert.match(panel, /formatUtc\(row\.start_at\)/);
   assert.match(panel, /@click="removePeriod\(row\)"/);
 });
+
+test("TC-4127 closing the form returns focus to Add item, so keyboard users don't lose their place", async () => {
+  const { state } = component();
+  await state.init();
+  let focused = 0;
+  state.$nextTick = callback => callback();
+  state.$refs = { catalogueAdd: { focus: () => { focused += 1; } } };
+  state.startCatalogueAdd();
+  state.cancelCatalogueForm();
+  assert.equal(focused, 1);
+  state.startCatalogueAdd();
+  Object.assign(state.catalogue.form, { equipment_type: "Audio", name: "Mic", total_quantity: "2" });
+  await state.saveCatalogueItem();
+  assert.equal(focused, 2);
+  assert.match(panel, /x-ref="catalogueAdd"/);
+});
