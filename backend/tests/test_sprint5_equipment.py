@@ -913,3 +913,16 @@ def test_tc6504_only_the_assigned_coordinator_is_told(client, db, users):
     for username in ["coord_other", "lead", "org", "venue", "tech"]:
         login(client, username)
         assert client.get("/notifications").json() == [], username
+
+
+@pytest.mark.parametrize("closed", ["Cancelled", "Rejected", "Completed"])
+def test_tc4315_a_closed_event_holds_no_units_even_if_its_reservation_was_never_released(client, db, users, closed):
+    # Only cancelling runs the hook that releases, and an event can also be rejected.
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    other = make_event(db, users, title="Other", proposed_start=PROPOSED_START)
+    hold_units(db, users, item, other, 4)
+    assert availability(client, event)["items"][0]["reserved"] == 4
+    other.status = closed
+    db.commit()
+    assert availability(client, event)["items"][0]["reserved"] == 0
