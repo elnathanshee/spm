@@ -15,6 +15,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
+- **Lead oversight (SCRUM-85):** the Lead can reassign an event until it is finished, filter by status, and see each Coordinator's assignments.
 
 ## Team — Machu Picchu
 
@@ -189,6 +190,20 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
+## Lead oversight (SCRUM-85)
+
+The Event Coordinator Lead works from **Assignment oversight** (`/lead/events`).
+
+- **Reassign:** allowed in Submitted, Under Review, Returned, Approved, Planning, Safety Review and Confirmed. It is refused in Draft, Rejected, Completed and Cancelled. Bookings, equipment and status stay as they are. The old Coordinator, the new Coordinator and the Organiser are each told.
+- **First assignment:** still only in Submitted, Under Review or Returned.
+- **See everything:** the list has every event past Draft with its Coordinator, and status chips filter it. **Assignments by Coordinator** shows each Coordinator's active events, including anyone no longer active who still holds one.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /lead/events` | The Lead's list. Optional filters: `status` and `coordinator_id`. An unknown status gets a 400. |
+| `POST /events/{id}/assign` | First assignment. |
+| `POST /events/{id}/reassign` | Moves the event to another active Coordinator. |
+
 
 ## Developer Standards & SOP
 
