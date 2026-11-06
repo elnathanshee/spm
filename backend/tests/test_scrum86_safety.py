@@ -5,14 +5,9 @@ from datetime import datetime, timedelta
 import pytest
 
 from backend import arrangements, booking_rules, event_hooks, seed_users, status_rules
-from backend.models import ArrangementReviewFlag, EventStatusHistory, User, VenueBooking, VenueUnavailability
+from backend.models import ArrangementReviewFlag, EventStatusHistory, SafetyCheck, User, VenueBooking, VenueUnavailability
 from backend.security import hash_password
 from backend.tests.lifecycle_world import END, START, TestSession, engine, world  # noqa: F401
-
-try:
-    from backend.models import SafetyCheck
-except ImportError:  # the table arrives with the feature commit
-    SafetyCheck = None
 
 
 def _in_review(world, title="Annual Gala"):

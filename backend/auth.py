@@ -24,6 +24,8 @@ SUPPORTED_APPLICATION_ROLES = frozenset({
     "venue_staff",
     "technical support",
     "technical_support",
+    "safety officer",  # [SCRUM-86]
+    "safety_officer",
     "attendee",
 })
 
@@ -120,6 +122,8 @@ def login(form: LoginForm, response: Response, db: Session = Depends(get_db)):
         "venue_staff": "/venue",
         "technical support": "/technical",
         "technical_support": "/technical",
+        "safety officer": "/safety",  # [SCRUM-86]
+        "safety_officer": "/safety",
         "attendee": "/attendee",
     }
     redirect_url = role_redirects[normalized_role(user)]

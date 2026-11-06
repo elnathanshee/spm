@@ -21,7 +21,7 @@ from . import arrangements, booking_rules, event_hooks
 from .auth import get_current_user
 from .database import get_db
 from .events import event_to_dict
-from .models import EquipmentRequest, Event, User
+from .models import ArrangementReviewFlag, EquipmentRequest, Event, User, VenueBooking
 from .notifications import can_see_event, notify
 from .status import CANCELLED, COMPLETED, PLANNING, SAFETY_REVIEW
 from .status_rules import StatusChangeError, change_status, check_transition
@@ -198,3 +198,75 @@ def cancel_event(
     db.commit()
     db.refresh(event)
     return _result(event, "Event cancelled")
+
+
+# --- [SCRUM-87] Review flags --------------------------------------------------------
+
+
+def _role_of(user: User) -> str:
+    return (user.role or "").strip().lower()
+
+
+def _can_view_flags(user: User, event: Event) -> bool:
+    role = _role_of(user)
+    if role == "organiser":
+        return event.organiser_id == user.id
+    return _can_clear_flags(user, event)
+
+
+def _can_clear_flags(user: User, event: Event) -> bool:
+    role = _role_of(user)
+    return role == "lead" or (role == "coordinator" and event.assigned_coordinator_id == user.id)
+
+
+def _flag_to_dict(db: Session, flag: ArrangementReviewFlag) -> dict:
+    """One flag, naming the arrangement it marks."""
+    if flag.booking_id is not None:
+        booking = db.get(VenueBooking, flag.booking_id)
+        kind, label = "venue", booking.venue.name
+    else:
+        request = db.get(EquipmentRequest, flag.equipment_request_id)
+        kind, label = "equipment", f"{request.equipment_type} (quantity {request.quantity})"
+    creator = db.get(User, flag.created_by_id)
+    return {
+        "id": flag.id,
+        "kind": kind,
+        "label": label,
+        "booking_id": flag.booking_id,
+        "equipment_request_id": flag.equipment_request_id,
+        "source": flag.source,
+        "reason": flag.reason,
+        "created_by": creator.username if creator else None,
+        "created_at": flag.created_at,
+    }
+
+
+@router.get("/{event_id}/review-flags")
+def list_review_flags(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The arrangements marked for another look: for the event's Organiser, its assigned Coordinator and the Lead."""
+    event = get_event_or_404(event_id, db)
+    if not _can_view_flags(current_user, event):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can't view this event's review flags")
+    return [_flag_to_dict(db, flag) for flag in arrangements.active_review_flags(db, event)]
+
+
+@router.post("/{event_id}/review-flags/clear")
+def clear_event_review_flags(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The assigned Coordinator or the Lead says the flags have been looked at. The rows stay."""
+    event = get_event_or_404(event_id, db)
+    if not _can_clear_flags(current_user, event):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the event's assigned Coordinator or a Lead can clear its review flags",
+        )
+    cleared = arrangements.clear_review_flags(db, event, current_user)
+    db.commit()
+    return {"message": "Review flags cleared", "cleared": cleared}

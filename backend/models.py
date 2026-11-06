@@ -381,6 +381,23 @@ class VenueUnavailability(Base):
     created_by = relationship("User")
 
 # [Sprint 5] C SCRUM-102 models: insert directly below this line.
+# [SCRUM-86] NEW: one row per Safety Officer decision: who, when, which decision
+# (approve, reject or request_changes) and why. An event can be checked several
+# times, so each round adds a row. A new table for the same reason as above.
+class SafetyCheck(Base):
+    __tablename__ = "safety_checks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    decision = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=True)
+    decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    event = relationship("Event", backref=backref("safety_checks", cascade="all, delete-orphan"))
+    decided_by = relationship("User")
+
 
 # [Sprint 5] D SCRUM-41 models: insert directly below this line.
 
