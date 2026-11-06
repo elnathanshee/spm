@@ -196,7 +196,7 @@ To maintain code quality, TDD commit traceability, and trunk stability, all team
 
 ## Repository Access
 
-Repository: https://github.com/elnathanshee/spm. It moved from `reneelui/spm` in November 2026, and the old address redirects. Both course instructors have collaborator access to this repository.
+Repository: https://github.com/elnathanshee/spm. It moved from `reneelui/spm` in November 2026, and the old address redirects. The repository is public, and both course instructors (cposkitt and kokkhinglee) were invited as collaborators on 6 Nov 2026.
 
 ## License
 
