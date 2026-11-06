@@ -11,11 +11,12 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Query, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from backend import equipment_catalogue, event_hooks
 from backend.database import Base, get_db
 from backend.main import app
 from backend.models import Event, EquipmentReservation, LoginSession, User, Venue, VenueBooking
@@ -527,3 +528,234 @@ def test_tc4314_an_unknown_event_is_a_404_but_only_for_those_who_could_read_it(c
     assert client.get("/equipment/availability?event_id=999").status_code == 403
     login(client, None)
     assert client.get("/equipment/availability?event_id=999").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-44: reserve available equipment for an event
+# ---------------------------------------------------------------------------
+
+
+def reserve(client, event_id, item_id, quantity=1, username="tech"):
+    login(client, username)
+    return client.post(f"/events/{event_id}/equipment-reservations", json={"item_id": item_id, "quantity": quantity})
+
+
+def test_tc4401_technical_support_reserves_and_it_stays_linked_to_the_event(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    response = reserve(client, event.id, item["id"], 4)
+    assert response.status_code == 201
+    reservation = response.json()["reservation"]
+    assert (reservation["event_id"], reservation["item_id"], reservation["quantity"]) == (event.id, item["id"], 4)
+    assert reservation["item_name"] == "Wireless microphone"
+    assert reservation["created_by"] == "tech"
+    assert reservation["released_at"] is None
+    listed = client.get(f"/events/{event.id}/equipment-reservations")
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()["reservations"]] == [reservation["id"]]
+
+
+def test_tc4402_a_reservation_reduces_what_is_available_only_for_overlapping_events(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    book(db, event)
+    overlapping = make_event(db, users, title="Overlapping")
+    book(db, overlapping, datetime(2099, 3, 1, 11, 0), datetime(2099, 3, 1, 13, 0), name="Side Hall")
+    later = make_event(db, users, title="Later")
+    book(db, later, datetime(2099, 3, 2, 11, 0), datetime(2099, 3, 2, 13, 0), name="Other Hall")
+    assert reserve(client, event.id, item["id"], 4).status_code == 201
+    assert availability(client, event)["items"][0]["available"] == 6
+    assert availability(client, overlapping)["items"][0]["available"] == 6
+    assert availability(client, later)["items"][0]["available"] == 10
+
+
+def test_tc4403_it_cannot_over_reserve_and_says_how_many_are_available(client, db, users):
+    item = add_item(client, total_quantity=5).json()["item"]
+    event = make_event(db, users)
+    too_many = reserve(client, event.id, item["id"], 6)
+    assert too_many.status_code == 409
+    assert "5" in too_many.json()["detail"]
+    assert client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"] == []
+    # Every last unit can be taken, and then not one more.
+    assert reserve(client, event.id, item["id"], 5).status_code == 201
+    none_left = reserve(client, event.id, item["id"], 1)
+    assert none_left.status_code == 409
+    assert "0" in none_left.json()["detail"]
+
+
+def test_tc4404_two_overlapping_events_cannot_both_take_the_last_unit(client, db, users):
+    item = add_item(client, total_quantity=1).json()["item"]
+    first = make_event(db, users, title="First")
+    second = make_event(db, users, title="Second")
+    assert reserve(client, first.id, item["id"], 1).status_code == 201
+    assert reserve(client, second.id, item["id"], 1).status_code == 409
+
+
+def test_tc4405_the_item_row_is_locked_before_the_units_are_counted(client, db, users, monkeypatch):
+    # SQLite ignores the lock, so this checks the request for it, not a real race.
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    calls = []
+    real_lock = Query.with_for_update
+    real_count = equipment_catalogue.available_units
+
+    def lock(query, *args, **kwargs):
+        calls.append("lock")
+        return real_lock(query, *args, **kwargs)
+
+    def count(*args, **kwargs):
+        calls.append("count")
+        return real_count(*args, **kwargs)
+
+    monkeypatch.setattr(Query, "with_for_update", lock)
+    monkeypatch.setattr(equipment_catalogue, "available_units", count)
+    assert reserve(client, event.id, item["id"], 1).status_code == 201
+    assert calls == ["lock", "count"]
+
+
+def test_tc4406_unavailable_units_reduce_what_can_be_reserved(client, db, users):
+    item = add_item(client, total_quantity=5).json()["item"]
+    event = make_event(db, users)
+    assert add_period(client, item["id"], units=3, start_at="2099-04-01T07:00:00", end_at="2099-04-01T08:00:00").status_code == 201
+    refused = reserve(client, event.id, item["id"], 3)
+    assert refused.status_code == 409
+    assert "2" in refused.json()["detail"]
+    assert reserve(client, event.id, item["id"], 2).status_code == 201
+
+
+def test_tc4407_a_second_reservation_for_the_same_event_counts_the_first(client, db, users):
+    item = add_item(client, total_quantity=5).json()["item"]
+    event = make_event(db, users)
+    assert reserve(client, event.id, item["id"], 3).status_code == 201
+    assert reserve(client, event.id, item["id"], 3).status_code == 409
+    assert reserve(client, event.id, item["id"], 2).status_code == 201
+
+
+@pytest.mark.parametrize("quantity", [0, -1, 1.5, "two", None, MAX_QUANTITY + 1, 10**30])
+def test_tc4408_a_quantity_outside_the_limits_is_a_422(client, db, users, quantity):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    assert reserve(client, event.id, item["id"], quantity).status_code == 422
+
+
+def test_tc4409_a_huge_item_id_is_a_422_and_an_unknown_one_is_a_404(client, db, users):
+    event = make_event(db, users)
+    assert reserve(client, event.id, 10**30).status_code == 422
+    assert reserve(client, event.id, 999).status_code == 404
+
+
+def test_tc4410_reserving_for_an_unknown_event_is_a_404(client, db, users):
+    item = add_item(client).json()["item"]
+    assert reserve(client, 999, item["id"]).status_code == 404
+    login(client, "tech")
+    assert client.get("/events/999/equipment-reservations").status_code == 404
+
+
+def test_tc4411_an_event_with_no_window_cannot_reserve(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users, proposed_start=None)
+    response = reserve(client, event.id, item["id"])
+    assert response.status_code == 400
+    assert "date" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("closed", ["Cancelled", "Rejected", "Completed"])
+def test_tc4412_a_closed_event_cannot_reserve(client, db, users, closed):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users, status=closed)
+    response = reserve(client, event.id, item["id"])
+    assert response.status_code == 409
+    assert closed.lower() in response.json()["detail"]
+
+
+@pytest.mark.parametrize("username", NOT_TECH)
+def test_tc4413_only_technical_support_can_reserve_or_release(client, db, users, username):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    reservation = reserve(client, event.id, item["id"], 2).json()["reservation"]
+    assert reserve(client, event.id, item["id"], 1, username).status_code == 403
+    login(client, username)
+    assert client.delete(f"/events/{event.id}/equipment-reservations/{reservation['id']}").status_code == 403
+    assert availability(client, event)["items"][0]["reserved"] == 2
+
+
+def test_tc4414_technical_support_the_assigned_coordinator_and_the_lead_can_read_reservations(client, db, users):
+    event = make_event(db, users)
+    for username in ["tech", "tech2", "coord", "lead"]:
+        login(client, username)
+        assert client.get(f"/events/{event.id}/equipment-reservations").status_code == 200, username
+
+
+@pytest.mark.parametrize("username", ["coord_other", "org", "venue", "attendee"])
+def test_tc4415_nobody_else_can_read_an_events_reservations(client, db, users, username):
+    event = make_event(db, users)
+    login(client, username)
+    assert client.get(f"/events/{event.id}/equipment-reservations").status_code == 403
+
+
+def test_tc4416_releasing_keeps_the_row_and_frees_the_units(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    reservation = reserve(client, event.id, item["id"], 4).json()["reservation"]
+    login(client, "tech2")
+    response = client.delete(f"/events/{event.id}/equipment-reservations/{reservation['id']}")
+    assert response.status_code == 200
+    released = response.json()["reservation"]
+    assert released["released_at"] is not None
+    assert released["released_by"] == "tech2"
+    assert availability(client, event)["items"][0]["available"] == 10
+    rows = client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"]
+    assert [(row["id"], row["released_by"]) for row in rows] == [(reservation["id"], "tech2")]
+
+
+def test_tc4417_a_reservation_cannot_be_released_twice_or_through_another_event(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    other = make_event(db, users, title="Other")
+    reservation = reserve(client, event.id, item["id"], 1).json()["reservation"]
+    assert client.delete(f"/events/{other.id}/equipment-reservations/{reservation['id']}").status_code == 404
+    assert client.delete(f"/events/{event.id}/equipment-reservations/999").status_code == 404
+    assert client.delete(f"/events/{event.id}/equipment-reservations/{reservation['id']}").status_code == 200
+    login(client, "tech2")
+    again = client.delete(f"/events/{event.id}/equipment-reservations/{reservation['id']}")
+    assert again.status_code == 409
+    assert client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"][0]["released_by"] == "tech"
+
+
+def test_tc4418_cancelling_an_event_releases_all_its_reservations_and_only_its_own(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    other = make_event(db, users, title="Other")
+    for quantity in (1, 2):
+        assert reserve(client, event.id, item["id"], quantity).status_code == 201
+    assert reserve(client, other.id, item["id"], 3).status_code == 201
+
+    event_hooks.event_cancelled(db, event, users["lead"], "Rained off")
+    db.commit()
+
+    login(client, "lead")
+    rows = client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"]
+    assert [row["released_by"] for row in rows] == ["lead", "lead"]
+    assert all(row["released_at"] for row in rows)
+    other_rows = client.get(f"/events/{other.id}/equipment-reservations").json()["reservations"]
+    assert other_rows[0]["released_at"] is None
+
+
+def test_tc4419_the_cancel_handler_leaves_committing_to_the_caller_and_keeps_earlier_releases(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    first = reserve(client, event.id, item["id"], 1).json()["reservation"]
+    assert reserve(client, event.id, item["id"], 2).status_code == 201
+    assert client.delete(f"/events/{event.id}/equipment-reservations/{first['id']}").status_code == 200
+
+    event_hooks.event_cancelled(db, event, users["lead"], "Rained off")
+    db.rollback()
+
+    rows = client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"]
+    assert [row["released_by"] for row in rows] == ["tech", None]
+
+    db.expire_all()
+    event_hooks.event_cancelled(db, event, users["lead"], "Rained off")
+    db.commit()
+    rows = client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"]
+    assert [row["released_by"] for row in rows] == ["tech", "lead"]
