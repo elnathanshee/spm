@@ -16,6 +16,7 @@ PEOPLE = [
     ("lead", "Event Coordinator Lead", "Internal staff (Week 7 change 5). Assigns submitted requests to Coordinators and reassigns them."),
     ("venueStaff", "Venue Staff", "Internal staff. Maintain the venue record, review booking requests with their event context, manage holds, and record venue unavailability."),
     ("techSupport", "Technical Support Staff", "Internal staff. Maintain the equipment catalogue, reserve equipment for events and update equipment requests in the Technical Support workspace."),
+    ("safetyOfficer", "Safety Officer", "Internal staff (Week 7 change 6). Check events in Safety Review before they are confirmed."),
     ("attendee", "Attendee", "Can sign in. Registration is not in this release, so the Attendee workspace is a placeholder."),
 ]
 USES = {
@@ -24,16 +25,17 @@ USES = {
     "lead": "Assigns and reassigns requests",
     "venueStaff": "Manages venues, decides on bookings and manages holds",
     "techSupport": "Maintains the equipment catalogue, reserves equipment and updates equipment requests",
+    "safetyOfficer": "Reviews events and approves, rejects or requests changes",
     "attendee": "Signs in to the placeholder Attendee workspace",
 }
 SYSTEM = ("ConnectSphere", "Takes an event from request through review and coordinator assignment to a booked venue, with in-app notifications at each step.")
 CONTAINERS = [
     ("webApp", "Web Application", "JavaScript, Alpine.js, Tailwind CSS, built with Vite", "Single-page app with one workspace per role. Calls the API with relative paths on the same domain and polls notifications every 15 seconds.", "box"),
-    ("api", "Backend API", "Python, FastAPI, SQLAlchemy", "Business rules: sign-in and role checks, the event status model and reviews, coordinator assignment, venue record, search and suitability, booking clash, setup and turnaround rules, holds and their expiry, venue unavailability, equipment requests, the equipment catalogue and reservations, in-app notifications. Hold expiry is checked at the start of each request; there is no background worker.", "box"),
-    ("db", "Database", "PostgreSQL on Neon (SQLite for local development and tests)", "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, venue unavailability periods, conflict flags, equipment requests, equipment items, unavailable units, reservations, request status history and notifications.", "cylinder"),
+    ("api", "Backend API", "Python, FastAPI, SQLAlchemy", "Business rules: sign-in and role checks, the event status model and reviews, the event lifecycle and safety checks, coordinator assignment, venue record, search and suitability, booking clash, setup and turnaround rules, holds and their expiry, venue unavailability, equipment requests, the equipment catalogue and reservations, in-app notifications. Hold expiry is checked at the start of each request; there is no background worker.", "box"),
+    ("db", "Database", "PostgreSQL on Neon (SQLite for local development and tests)", "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, venue unavailability periods, conflict flags, equipment requests, equipment items, unavailable units, reservations, request status history, safety checks, arrangement review flags and notifications.", "cylinder"),
 ]
 INTERNAL = [
-    ("webApp", "api", "Calls /auth, /events, /venues, /coordinator, /lead, /notifications and /equipment-requests, with an HttpOnly session cookie", "JSON over HTTPS"),
+    ("webApp", "api", "Calls /auth, /events, /venues, /coordinator, /lead, /notifications, /equipment-requests and /safety, with an HttpOnly session cookie", "JSON over HTTPS"),
     ("api", "db", "Reads from and writes to", "SQLAlchemy over TLS"),
 ]
 

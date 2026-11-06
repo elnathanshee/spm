@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from .notifications import notify_booking, KIND_BOOKING_SUBMITTED, KIND_BOOKING_APPROVED, KIND_BOOKING_REJECTED
+from .status import CANCELLED, COMPLETED
 from sqlalchemy.exc import IntegrityError
 from .auth import get_current_user
 from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck_venue_bookings  # [SCRUM-80 | Renee; GitHub #29]
@@ -599,6 +600,12 @@ def submit_venue_booking_request(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Coordinators can book venues only for events assigned to them",
+        )
+    # [SCRUM-102] A Cancelled or Completed event must not take a venue from a live one.
+    if event.status in (CANCELLED, COMPLETED):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This event is {event.status}, so it can't book a venue.",
         )
 
     # [SCRUM-95] D7: stored in UTC, like hold times, so the expiry cap at the

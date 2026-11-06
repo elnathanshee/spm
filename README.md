@@ -13,6 +13,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: one bullet directly below this line. -->
 - **Venue unavailability:** Venue Staff record when a venue can't be used. Overlapping bookings are flagged, not cancelled, and the Coordinator is told to make other arrangements. Venue Staff can also see bookings at retired venues and correct a retired venue.
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
+- **Event lifecycle and safety check:** Approved events move through Planning, a Safety Officer's check, Confirmed and Completed, and can be cancelled with a reason before Completed.
 <!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
 - **Equipment (SCRUM-40 to 44, SCRUM-65):** Technical Support keep a catalogue of equipment, record units that are unavailable, reserve what's available for an event, and update each equipment request's status and note. The event's Coordinator is told about each update.
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
@@ -204,6 +205,15 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Catalogue refresh (SCRUM-101):** a refresh asked for while another is running now runs when that one ends, so a save or retire always shows in the catalogue.
 
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: its section directly below this line. -->
+## Event lifecycle and safety check (SCRUM-102, 86, 87, 66)
+
+- **Coordinator:** starts planning, submits for the safety check once there is a Confirmed booking and all equipment is arranged, and marks a Confirmed event Completed after it ends.
+- **Safety Officer** (`safety_officer` or `safety officer`, page `/safety`): sees attendance, venue capacity and layouts, accessibility needs, equipment notes and known venue restrictions, then approves, rejects or requests changes. A reason is required unless approving. Only approval reaches Confirmed, and it is refused if the arrangements stopped meeting the submit rule during the check.
+- **Reject or request changes:** the event returns to Planning and its bookings and equipment are flagged for review. Nothing is cancelled. Resubmitting clears the flags, and the rows stay as history.
+- **Cancelling:** the assigned Coordinator or the Lead at any stage before Completed; the owning Organiser only before Approved. A reason is required. Bookings become Cancelled, review flags clear, and the rows stay. A Cancelled or Completed event can't take a new booking or equipment line.
+- **Notices:** the Organiser and the Coordinator are told when an event is confirmed or cancelled. The Coordinator is told when a check returns it.
+- **Endpoints:** `POST /events/{id}/start-planning`, `/submit-safety`, `/complete`, `/cancel`; `GET /events/{id}/lifecycle-actions`; `GET /events/{id}/review-flags`, `POST /events/{id}/review-flags/clear`; `GET /safety/events`, `GET /safety/events/{id}`, `POST /safety/events/{id}/decision`.
+
 <!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
 ## Equipment Catalogue and Reservations (SCRUM-40 to 44, SCRUM-65)
 
