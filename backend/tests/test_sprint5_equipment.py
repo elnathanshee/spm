@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, LoginSession, User
+from backend.models import Event, EquipmentReservation, LoginSession, User, Venue, VenueBooking
 from backend.security import hash_password
 
 engine = create_engine(
@@ -320,3 +320,210 @@ def test_tc4213_a_period_can_be_removed_but_only_through_its_own_item(client, us
     assert client.delete(f"/equipment/items/{first['id']}/unavailability/999").status_code == 404
     assert client.delete(f"/equipment/items/{first['id']}/unavailability/{period['id']}").status_code == 200
     assert client.get(f"/equipment/items/{first['id']}/unavailability").json()["periods"] == []
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-43: availability for an event's date and time
+# ---------------------------------------------------------------------------
+
+# 10:00-12:00 UTC at a venue with 30 minutes' setup and 45 minutes' turnaround
+# occupies 09:30-12:45 UTC.
+BOOKED_START = datetime(2099, 3, 1, 10, 0)
+BOOKED_END = datetime(2099, 3, 1, 12, 0)
+# 14:00 Singapore wall time is 06:00 UTC, and that Singapore day ends at 16:00 UTC.
+PROPOSED_START = datetime(2099, 4, 1, 14, 0)
+
+
+def make_event(db, users, proposed_start=PROPOSED_START, title="Gala", coordinator="coord", status="Approved"):
+    event = Event(
+        title=title,
+        proposed_start=proposed_start,
+        organiser_id=users["org"].id,
+        assigned_coordinator_id=users[coordinator].id if coordinator else None,
+        status=status,
+    )
+    db.add(event)
+    db.commit()
+    return event
+
+
+def book(db, event, start=BOOKED_START, end=BOOKED_END, booking_status="Confirmed", name="Main Hall"):
+    venue = Venue(name=name, location="Level 1", capacity=100, setup_time_mins=30, turnaround_time_mins=45)
+    db.add(venue)
+    db.commit()
+    db.add(VenueBooking(event_id=event.id, venue_id=venue.id, booking_start=start, booking_end=end, status=booking_status))
+    db.commit()
+
+
+def hold_units(db, users, item, event, quantity):
+    """A reservation put straight in the table, so these tests only depend on availability."""
+    db.add(EquipmentReservation(item_id=item["id"], event_id=event.id, quantity=quantity, created_by_id=users["tech"].id))
+    db.commit()
+
+
+def availability(client, event, username="tech"):
+    login(client, username)
+    response = client.get(f"/equipment/availability?event_id={event.id}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_tc4301_with_nothing_reserved_or_unavailable_everything_is_available(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    result = availability(client, event)
+    assert result["event_id"] == event.id
+    row = result["items"][0]
+    assert row["item_id"] == item["id"]
+    assert row["name"] == "Wireless microphone"
+    assert (row["total_quantity"], row["reserved"], row["unavailable"], row["available"]) == (10, 0, 0, 10)
+
+
+def test_tc4302_available_is_total_minus_reservations_minus_unavailable_units(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    other = make_event(db, users, title="Other")
+    book(db, event)
+    book(db, other, name="Side Hall")
+    hold_units(db, users, item, other, 3)
+    assert add_period(client, item["id"], units=2, start_at="2099-03-01T11:00:00", end_at="2099-03-01T13:00:00").status_code == 201
+    row = availability(client, event)["items"][0]
+    assert (row["reserved"], row["unavailable"], row["available"]) == (3, 2, 5)
+
+
+@pytest.mark.parametrize(
+    "start_at,end_at,counted",
+    [
+        ("2099-03-01T09:00:00", "2099-03-01T09:30:00", False),  # ends as setup starts
+        ("2099-03-01T09:00:00", "2099-03-01T09:31:00", True),  # one minute into setup
+        ("2099-03-01T12:44:00", "2099-03-01T13:00:00", True),  # the last minute of turnaround
+        ("2099-03-01T12:45:00", "2099-03-01T13:00:00", False),  # starts as turnaround ends
+    ],
+)
+def test_tc4303_the_window_includes_the_venues_setup_and_turnaround(client, db, users, start_at, end_at, counted):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    book(db, event)
+    assert add_period(client, item["id"], start_at=start_at, end_at=end_at).status_code == 201
+    result = availability(client, event)
+    assert result["window_start"] == "2099-03-01T09:30:00"
+    assert result["window_end"] == "2099-03-01T12:45:00"
+    assert result["items"][0]["available"] == (8 if counted else 10)
+
+
+@pytest.mark.parametrize(
+    "start_at,end_at,counted",
+    [
+        ("2099-04-01T05:00:00", "2099-04-01T06:00:00", False),
+        ("2099-04-01T05:00:00", "2099-04-01T06:01:00", True),
+        ("2099-04-01T15:59:00", "2099-04-01T17:00:00", True),
+        ("2099-04-01T16:00:00", "2099-04-01T17:00:00", False),
+    ],
+)
+def test_tc4304_without_a_booking_the_window_is_the_rest_of_the_singapore_day(client, db, users, start_at, end_at, counted):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    assert add_period(client, item["id"], start_at=start_at, end_at=end_at).status_code == 201
+    result = availability(client, event)
+    assert result["window_start"] == "2099-04-01T06:00:00"
+    assert result["window_end"] == "2099-04-01T16:00:00"
+    assert result["items"][0]["available"] == (8 if counted else 10)
+
+
+def test_tc4305_a_reservation_counts_only_when_its_events_window_overlaps(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    book(db, event)
+    before = make_event(db, users, title="Before")
+    # Its turnaround ends exactly when this event's setup starts, so they don't clash.
+    book(db, before, datetime(2099, 3, 1, 7, 0), datetime(2099, 3, 1, 8, 45), name="Side Hall")
+    hold_units(db, users, item, before, 4)
+    assert availability(client, event)["items"][0]["reserved"] == 0
+    overlapping = make_event(db, users, title="Overlapping")
+    book(db, overlapping, datetime(2099, 3, 1, 7, 0), datetime(2099, 3, 1, 8, 46), name="Other Hall")
+    hold_units(db, users, item, overlapping, 1)
+    assert availability(client, event)["items"][0]["reserved"] == 1
+
+
+def test_tc4306_a_reservation_follows_its_events_bookings_because_it_stores_no_window(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    book(db, event)
+    other = make_event(db, users, title="Other")
+    hold_units(db, users, item, other, 4)  # no booking, so on its own day in April
+    assert availability(client, event)["items"][0]["reserved"] == 0
+    book(db, other, name="Side Hall")  # now it's at the same time
+    assert availability(client, event)["items"][0]["reserved"] == 4
+
+
+def test_tc4307_released_reservations_and_other_items_do_not_count(client, db, users):
+    item = add_item(client, name="First").json()["item"]
+    second = add_item(client, name="Second").json()["item"]
+    event = make_event(db, users)
+    hold_units(db, users, item, event, 2)
+    db.add(
+        EquipmentReservation(
+            item_id=item["id"], event_id=event.id, quantity=5, created_by_id=users["tech"].id,
+            released_at=datetime(2099, 1, 1), released_by_id=users["tech"].id,
+        )
+    )
+    db.commit()
+    rows = {row["name"]: row["available"] for row in availability(client, event)["items"]}
+    assert rows == {"First": 8, "Second": 10}
+    assert second["id"] != item["id"]
+
+
+def test_tc4308_available_never_goes_below_zero(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    hold_units(db, users, item, event, 9)
+    assert add_period(client, item["id"], units=5, start_at="2099-04-01T07:00:00", end_at="2099-04-01T08:00:00").status_code == 201
+    assert availability(client, event)["items"][0]["available"] == 0
+
+
+def test_tc4309_periods_and_reservations_are_summed_even_if_they_do_not_overlap_each_other(client, db, users):
+    # The PO's formula: deliberately simple, and on the safe side.
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    for start_at, end_at in [("2099-04-01T07:00:00", "2099-04-01T08:00:00"), ("2099-04-01T09:00:00", "2099-04-01T10:00:00")]:
+        assert add_period(client, item["id"], units=3, start_at=start_at, end_at=end_at).status_code == 201
+    assert availability(client, event)["items"][0]["available"] == 4
+
+
+def test_tc4310_an_event_with_no_window_is_a_400_with_a_sentence(client, db, users):
+    event = make_event(db, users, proposed_start=None)
+    login(client, "tech")
+    response = client.get(f"/equipment/availability?event_id={event.id}")
+    assert response.status_code == 400
+    assert "date" in response.json()["detail"]
+
+
+def test_tc4311_a_reservation_whose_event_lost_its_window_does_not_count(client, db, users):
+    item = add_item(client).json()["item"]
+    event = make_event(db, users)
+    undated = make_event(db, users, proposed_start=None, title="Undated")
+    hold_units(db, users, item, undated, 4)
+    assert availability(client, event)["items"][0]["reserved"] == 0
+
+
+def test_tc4312_technical_support_the_assigned_coordinator_and_the_lead_can_read_availability(client, db, users):
+    event = make_event(db, users)
+    for username in ["tech", "tech2", "coord", "lead"]:
+        availability(client, event, username)
+
+
+@pytest.mark.parametrize("username", ["coord_other", "org", "venue", "attendee"])
+def test_tc4313_nobody_else_can_read_availability(client, db, users, username):
+    event = make_event(db, users)
+    login(client, username)
+    assert client.get(f"/equipment/availability?event_id={event.id}").status_code == 403
+
+
+def test_tc4314_an_unknown_event_is_a_404_but_only_for_those_who_could_read_it(client, db, users):
+    login(client, "tech")
+    assert client.get("/equipment/availability?event_id=999").status_code == 404
+    assert client.get("/equipment/availability").status_code == 422
+    login(client, "org")
+    assert client.get("/equipment/availability?event_id=999").status_code == 403
+    login(client, None)
+    assert client.get("/equipment/availability?event_id=999").status_code == 401
