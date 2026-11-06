@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from . import event_hooks  # [Sprint 5]
 from .auth import get_current_user
+from .booking_recheck import active_conflict_flag  # [SCRUM-82]
 from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, EventStatusHistory, User, VenueBooking
@@ -707,6 +708,7 @@ def get_event_bookings(
         .order_by(VenueBooking.booking_start.asc())
         .all()
     )
+    candidates = {}  # [SCRUM-82] each venue's bookings load once, as in the venue's list
     return [
         {
             "id": b.id,
@@ -719,6 +721,8 @@ def get_event_bookings(
             "status": b.status,
             "rejection_reason": (b.decision.reason if hasattr(b, "decision") and b.decision else None) or getattr(b, "rejection_reason", None),
             "created_at": b.created_at.isoformat() if hasattr(b, "created_at") and b.created_at else None,
+            # [SCRUM-82] AC6: the Coordinator sees the flag on the booking
+            "conflict_flag": active_conflict_flag(db, b, candidates),
             # [SCRUM-81] hold_expires_at and warning_minutes; replaces "status" with "Expired" once the hold expires
             **hold_fields(b),
         }

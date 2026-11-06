@@ -13,7 +13,7 @@ workspace "ConnectSphere" "Event planning and venue booking for ConnectSphere Ev
         organiser = person "Event Organiser" "Client representative. Captures an event request, submits it, amends it before approval, answers clarification questions and follows its status."
         coordinator = person "Event Coordinator" "Internal staff. Reviews the full request and decides on it, updates routine details, finds a suitable available venue and requests it, and records equipment needs."
         lead = person "Event Coordinator Lead" "Internal staff (Week 7 change 5). Assigns submitted requests to Coordinators and reassigns them."
-        venueStaff = person "Venue Staff" "Internal staff. Maintain the venue record, review booking requests with their event context, and manage holds."
+        venueStaff = person "Venue Staff" "Internal staff. Maintain the venue record, review booking requests with their event context, manage holds, and record venue unavailability."
         techSupport = person "Technical Support Staff" "Internal staff. Work through the equipment requests in the Technical Support workspace."
         attendee = person "Attendee" "Can sign in. Registration is not in this release, so the Attendee workspace is a placeholder."
 
@@ -22,9 +22,9 @@ workspace "ConnectSphere" "Event planning and venue booking for ConnectSphere Ev
 
             webApp = container "Web Application" "Single-page app with one workspace per role. Calls the API with relative paths on the same domain and polls notifications every 15 seconds." "JavaScript, Alpine.js, Tailwind CSS, built with Vite" "Web Browser"
 
-            api = container "Backend API" "Business rules: sign-in and role checks, the event status model and reviews, coordinator assignment, venue record, search and suitability, booking clash, setup and turnaround rules, holds and their expiry, equipment requests, in-app notifications. Hold expiry is checked at the start of each request; there is no background worker." "Python, FastAPI, SQLAlchemy"
+            api = container "Backend API" "Business rules: sign-in and role checks, the event status model and reviews, coordinator assignment, venue record, search and suitability, booking clash, setup and turnaround rules, holds and their expiry, venue unavailability, equipment requests, in-app notifications. Hold expiry is checked at the start of each request; there is no background worker." "Python, FastAPI, SQLAlchemy"
 
-            db = container "Database" "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, conflict flags, equipment requests and notifications." "PostgreSQL on Neon (SQLite for local development and tests)" "Database"
+            db = container "Database" "Users, login sessions, events and their status history, coordinator assignments, venues, bookings, holds, venue unavailability periods, conflict flags, equipment requests and notifications." "PostgreSQL on Neon (SQLite for local development and tests)" "Database"
         }
 
         // RELATIONSHIPS: people to the system (C1) and to the web application (C2)
