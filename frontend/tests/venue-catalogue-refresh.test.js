@@ -130,3 +130,22 @@ test("TC-10164 signing out during a refresh runs nothing more", async () => {
   await refresh;
   assert.equal(server.venueLists, before + 1);
 });
+
+test("TC-10165 a failed older refresh still leads to the later one", async () => {
+  const state = app();
+  const server = backend(state, [HALL]);
+  await state.fetchVenueWorkspace();
+  const plainRequest = state.apiRequest;
+  let failList;
+  state.apiRequest = (path, options = {}) => {
+    state.apiRequest = plainRequest;
+    return new Promise(resolve => { failList = () => resolve({ ok: false, status: 500, data: { detail: "Database unavailable" } }); });
+  };
+  const refresh = state.fetchVenueWorkspace();
+  server.catalogue = [ROOM];
+  await state.fetchVenueWorkspace();
+  failList();
+  await refresh;
+  assert.deepEqual(state.venueWorkspace.venues.map(venue => venue.name), ["Small Room"]);
+  assert.equal(state.venueWorkspace.busy, false);
+});
