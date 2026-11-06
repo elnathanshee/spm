@@ -112,7 +112,9 @@ test("TC-4126 the catalogue markup has labels, a live status, and a table that w
     assert.match(panel, new RegExp(`id="${id}"`), id);
   }
   assert.match(panel, /role="status"[^>]*x-text="catalogue\.message"/);
-  for (const label of ["Type", "Name", "Total", "Notes", "Actions"]) assert.match(panel, new RegExp(`<td data-label="${label}"`), label);
+  for (const label of ["Name", "Type", "Total", "Notes", "Actions"]) assert.match(panel, new RegExp(`<td data-label="${label}"`), label);
+  // On a phone the first cell is the card's title and shows no label, so the name goes first.
+  assert.match(panel, /<tr><td data-label="Name" class="equipment-cell-type" x-text="item\.name"><\/td><td data-label="Type"/);
   assert.match(panel, /No equipment in the catalogue yet/);
   assert.match(panel, /x-show="catalogue\.denied"/);
 });

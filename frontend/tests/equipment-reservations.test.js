@@ -88,6 +88,12 @@ test("TC-4321 opening reserve loads what's available for that event's window, an
   assert.deepEqual(state.arrangement.availability.map(line => line.available), [5, 0]);
   assert.equal(state.availabilityLabel(available[0]), "Microphone (Audio): 5 available of 10, 3 reserved, 2 unavailable");
   assert.match(row, /x-text="availabilityLabel\(line\)"/);
+  // A narrow row cuts the option's text off, so the chosen item's numbers are also shown in full.
+  state.arrangement.itemId = "1";
+  assert.equal(state.chosenAvailability(), "Microphone (Audio): 5 available of 10, 3 reserved, 2 unavailable");
+  state.arrangement.itemId = "";
+  assert.equal(state.chosenAvailability(), "");
+  assert.match(row, /x-text="chosenAvailability\(\)"/);
   assert.match(row, /:disabled="line\.available < 1"/);
 });
 
