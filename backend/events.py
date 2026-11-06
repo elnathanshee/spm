@@ -9,7 +9,7 @@ from .auth import get_current_user
 from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, EventStatusHistory, User, VenueBooking
-from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
+from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SAFETY_REVIEW, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
 # [SCRUM-51 | Renee] Tell the Organiser when their request is submitted, returned, approved or rejected
@@ -725,7 +725,7 @@ def get_event_bookings(
 
 # "During planning" = after approval. Before approval the Organiser uses
 # POST /events/{id}/amend (SCRUM-21).
-PLANNING_STATUSES = (APPROVED, PLANNING, CONFIRMED)
+PLANNING_STATUSES = (APPROVED, PLANNING, SAFETY_REVIEW, CONFIRMED)  # [SCRUM-102] a routine edit doesn't touch arrangements
 
 # Routine fields can be edited directly (AC2). Significant fields affect
 # arrangements already made and belong to SCRUM-29, so they are refused here.

@@ -5,11 +5,11 @@ Cancelled with a reason at any stage before Completed. The rulebook table below 
 written out by hand from the PO's words, so it checks status_rules.py rather than
 repeating it.
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
-from backend import arrangements, booking_rules, event_hooks, status_rules
+from backend import arrangements, booking_rules, event_hooks, lifecycle, status_rules
 from backend.models import ArrangementReviewFlag, Event, EventStatusHistory, User, VenueBooking, VenueHold
 from backend.tests.lifecycle_world import END, START, world  # noqa: F401
 from backend.venue_holds import run_hold_checks
@@ -61,7 +61,7 @@ def test_tc10201_every_allowed_move_is_allowed_for_its_roles():
 
 
 def test_tc10202_every_other_move_and_role_is_refused():
-    """TC-10202: every other from/to/role combination (770 in all) raises a status error."""
+    """TC-10202: every other from/to/role combination (847 are checked) raises a status error."""
     checked = 0
     for frm in ALL_STATUSES:
         for to in ALL_STATUSES:
@@ -389,17 +389,17 @@ def test_tc10229_an_expired_hold_stays_expired(world):
     assert world.reload(hold).status == "Expired"
 
 
-def test_tc10230_a_hold_past_expiry_the_check_has_not_reached_is_still_released(world, monkeypatch):
-    """TC-10230: if the hold expires between the check and the cancel it still can't later send a 'rebook' notice."""
+def test_tc10230_a_hold_past_expiry_that_no_check_has_reached_is_still_released(world):
+    """TC-10230: a hold past expiry still reads Pending until the next check; releasing it stops a later 'rebook' notice."""
     event = world.event("Planning")
     hold = world.booking(event, "Pending")
-    world.db.add(VenueHold(booking_id=hold.id, expires_at=booking_rules.utc_now() + timedelta(hours=1)))
+    world.db.add(VenueHold(booking_id=hold.id, expires_at=booking_rules.utc_now() - timedelta(hours=1)))
     world.db.commit()
-    from backend import lifecycle
     lifecycle.release_bookings(world.reload(event))
-    world.db.get(VenueHold, world.reload(hold).hold.id).expires_at = booking_rules.utc_now() - timedelta(hours=1)
     world.db.commit()
+    run_hold_checks(world.db)
     assert world.reload(hold).status == "Cancelled"
+    assert world.notices("coord1", event) == []
 
 
 def test_tc10231_cancel_runs_the_hook_in_the_transaction(world, monkeypatch):
