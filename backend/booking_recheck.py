@@ -112,7 +112,9 @@ def active_conflict_flag(
     while the flagged booking still holds the venue and still clashes with a
     booking that holds it (E1, E2). If the booking it names has stopped holding
     the venue but another real clash exists, the flag names that clash (E3).
-    The stored row is never changed or removed, so the history is kept (E5).
+    A row recording a real clash is never changed or removed, so the history is
+    kept (E5). [SCRUM-82] A row from a period names the booking itself, and the
+    next period or real clash updates it.
     Only flagged bookings are re-checked, so unflagged ones cost nothing.
 
     PR #35 review: the reason shown is rebuilt from the venue's current setup
@@ -151,10 +153,11 @@ def active_conflict_flag(
 
 
 def conflict_flag_record(booking: VenueBooking, active: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """GitHub #29 (E5): the stored flag as first raised, for auditing, marked
-    "Active" while a clash remains (active_conflict_flag's result) and
-    "Resolved" once none does. Like SCRUM-81's "Expired", the state is worked
-    out when shown, so the stored row is never changed."""
+    """GitHub #29 (E5): the stored flag, for auditing, marked "Active" while a
+    clash remains (active_conflict_flag's result) and "Resolved" once none does.
+    Like SCRUM-81's "Expired", the state is worked out when shown. A real clash's
+    row stays as first raised. [SCRUM-82] A period's row shows the latest period
+    or clash, because the next one updates it."""
     flag = booking.conflict_flag
     if flag is None:
         return None

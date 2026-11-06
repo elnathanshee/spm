@@ -62,7 +62,7 @@ test("TC-10037 the panel is in the Venue Staff workspace, offers a correction an
   assert.ok(start < HTML.indexOf('currentPath === \'/attendee\''), "before the next workspace");
   const section = HTML.slice(start, start + 2500);
   assert.match(section, /\$watch\('venueWorkspace\.outcome', \(\) => load\(\)\)/);
-  assert.match(section, /@click="openVenueEdit\(venue\)"/);
+  assert.match(section, /@click="correct\(venue\)"/);
   assert.match(section, /@click\.prevent="openStaffBooking\(booking\.id\)"/);
   assert.match(section, /aria-live="polite"/);
   assert.match(MAIN, /import \{ retiredVenues \} from "\.\/retired-venues\.js";/);

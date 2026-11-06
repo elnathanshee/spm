@@ -39,6 +39,14 @@ export function retiredVenues() {
       this.failedVenueIds = failedVenueIds;
     },
 
+    // The edit form is far above this panel, so without the focus move the press
+    // looks like it did nothing. Focusing the input also scrolls it into view.
+    async correct(venue) {
+      await this.openVenueEdit(venue);
+      if (!this.venueWorkspace?.editing) return;
+      this.$nextTick(() => document.getElementById("venue-name")?.focus());
+    },
+
     bookingsFor(venue) { return this.bookingsByVenue[venue.id] || []; },
     bookingsFailed(venue) { return this.failedVenueIds.includes(venue.id); },
   };

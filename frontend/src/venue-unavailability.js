@@ -95,6 +95,9 @@ export function venueUnavailability(venue) {
 
     async remove(period) {
       if (this.removingId !== null) return;
+      // Alpine finds a ref from the pressed button. That button leaves the page when
+      // the list reloads, so find the heading now, while the button is still there.
+      const heading = this.$refs?.unavailabilityHeading;
       this.removingId = period.id;
       this.message = null;
       this.affected = [];
@@ -108,7 +111,7 @@ export function venueUnavailability(venue) {
         await this.load();
         await this.fetchVenueWorkspace();
         // The button pressed has gone, so keep focus in the panel.
-        this.$refs?.unavailabilityHeading?.focus?.();
+        heading?.focus?.();
       } finally {
         this.removingId = null;
       }

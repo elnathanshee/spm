@@ -46,6 +46,10 @@ class UnavailabilityCreate(BaseModel):
 
     @model_validator(mode="after")
     def end_after_start(self) -> "UnavailabilityCreate":
+        # [SCRUM-82] Check the years before converting: a date at the very edge of
+        # the calendar overflows when it moves to UTC or to Singapore time.
+        if not (2000 <= self.start_at.year <= 2999 and 2000 <= self.end_at.year <= 2999):
+            raise ValueError("Dates must be between the years 2000 and 2999")
         # [SCRUM-82] Convert first: one end with an offset and one without
         # can't be compared, and that would be a crash rather than a 422.
         self.start_at = to_naive_utc(self.start_at)
