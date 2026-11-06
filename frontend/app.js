@@ -1642,6 +1642,12 @@ document.addEventListener("alpine:init", () => {
       const dialog = this.bookingDialog;
       return !!dialog && this.canBookEvent(dialog.event) && BLOCKING_BOOKING_STATUSES.includes(booking.status) && !this.bookingEnded(booking);
     },
+    // [SCRUM-83] Attendees see an event's first Confirmed booking as its venue, so the last one going leaves them none.
+    cancelLeavesNoVenue(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog || dialog.event.status !== "Confirmed" || booking.status !== "Confirmed") return false;
+      return !dialog.bookings.some(other => other.id !== booking.id && other.status === "Confirmed");
+    },
     askCancelBooking(booking) {
       const dialog = this.bookingDialog;
       if (!dialog || dialog.cancelBusy) return;

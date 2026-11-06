@@ -20,7 +20,7 @@ from .booking_recheck import active_conflict_flag, conflict_flag_record, recheck
 from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windows_overlap  # [SCRUM-38 | Elnathan]
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-95]
-from .booking_rules import utc_now  # [SCRUM-83]
+from . import booking_rules  # [SCRUM-83] for booking_rules.utc_now(), so tests can set the clock in one place
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
@@ -822,7 +822,7 @@ def cancel_booking(
             detail="Coordinators can cancel bookings only for events assigned to them",
         )
     # [SCRUM-83] Rejected, expired, cancelled and ended bookings no longer hold the venue.
-    if not is_blocking(booking) or booking.booking_end <= utc_now():
+    if not is_blocking(booking) or booking.booking_end <= booking_rules.utc_now():
         shown_status = hold_fields(booking)["status"]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
