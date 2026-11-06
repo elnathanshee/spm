@@ -7,8 +7,10 @@ An Attendee only ever receives what attendee_event_view returns: a short whiteli
 so a new internal field on Event can never reach them by accident.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from . import booking_rules
 from .auth import get_current_user, normalized_role
 from .database import get_db
 from .models import Event, EventRegistration, EventRegistrationSetting, User
@@ -19,6 +21,9 @@ router = APIRouter(tags=["registrations"])
 REGISTERED = "registered"
 WITHDRAWN = "withdrawn"
 
+NOT_OPEN_MESSAGE = "This event isn't open for registration."
+ALREADY_REGISTERED_MESSAGE = "You're already registered for this event."
+
 
 def _require_attendee(user: User) -> None:
     if normalized_role(user) != "attendee":
@@ -27,6 +32,16 @@ def _require_attendee(user: User) -> None:
 
 def _find_setting(db: Session, event_id: int):
     return db.query(EventRegistrationSetting).filter(EventRegistrationSetting.event_id == event_id).first()
+
+
+def _lock_setting(db: Session, event_id: int):
+    """[SCRUM-46] Hold the setting row until commit, so two people can't take the last place."""
+    return (
+        db.query(EventRegistrationSetting)
+        .filter(EventRegistrationSetting.event_id == event_id)
+        .with_for_update()
+        .first()
+    )
 
 
 def _find_registration(db: Session, event_id: int, attendee_id: int):
@@ -120,3 +135,49 @@ def list_open_events(current_user: User = Depends(get_current_user), db: Session
         attendee_event_view(db, event, _find_registration(db, event.id, current_user.id))
         for event in sorted(events, key=_soonest_first)
     ]
+
+
+@router.post("/registrations/events/{event_id}", status_code=status.HTTP_201_CREATED)
+def register_for_event(event_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """SCRUM-46: take a place. Refused when the event isn't open or is full, or I'm already registered."""
+    _require_attendee(current_user)
+    event = db.get(Event, event_id)
+    setting = _lock_setting(db, event_id) if event else None
+    # An unknown event and one that isn't open answer the same, so nothing is revealed.
+    if event is None or not _is_open(event, setting):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_OPEN_MESSAGE)
+
+    registration = _find_registration(db, event.id, current_user.id)
+    if registration is not None and registration.status == REGISTERED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_REGISTERED_MESSAGE)
+
+    capacity = event_capacity(event)
+    if capacity is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The number of places for this event hasn't been set yet. Please check back later.",
+        )
+    if _registered_count(db, event.id) >= capacity:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This event is full. A place may open up if someone withdraws.",
+        )
+
+    if registration is None:
+        registration = EventRegistration(event_id=event.id, attendee_id=current_user.id, status=REGISTERED)
+        db.add(registration)
+    else:
+        # Withdrawing then registering again reuses the row, so there is never a second one.
+        registration.status = REGISTERED
+        registration.withdrawn_at = None
+        registration.created_at = booking_rules.utc_now()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another request by this Attendee got there first. The constraint is the backstop.
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_REGISTERED_MESSAGE)
+
+    data = attendee_event_view(db, event, registration)
+    data["message"] = f'You are registered for "{event.title}".'
+    return data
