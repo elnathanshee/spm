@@ -47,6 +47,7 @@ export function changeRequests() {
     changeLoading: false,
     changeLoadError: "",
     changeForm: formFrom(null),
+    changeFormStart: formFrom(null),
     changeError: "",
     changeNotice: "",
     changeBusy: false,
@@ -55,8 +56,18 @@ export function changeRequests() {
 
     // Alpine runs init() when the panel appears in the dialog.
     async init() {
-      this.changeForm = formFrom(this.eventDetail?.detail);
+      this.resetChangeForm();
       if (this.panelShown()) await this.loadChanges();
+    },
+
+    // The start values are kept, so only what the Organiser edits here is sent. Comparing
+    // with the live event would undo a routine edit saved after this form was filled.
+    resetChangeForm() {
+      this.changeForm = formFrom(this.eventDetail?.detail);
+      this.changeFormStart = { ...this.changeForm };
+    },
+    focusChangeHeading() {
+      if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById("change-requests-title")?.focus());
     },
 
     canAsk() {
@@ -117,7 +128,7 @@ export function changeRequests() {
     // Only the fields the Organiser really changed, or an error sentence.
     changesToSend() {
       const form = this.changeForm;
-      const start = formFrom(this.eventDetail?.detail);
+      const start = this.changeFormStart;
       const changes = {};
       for (const { key } of CHANGE_FIELDS) {
         if (form[key].trim() !== start[key].trim()) changes[key] = form[key].trim();
@@ -150,9 +161,10 @@ export function changeRequests() {
         });
         if (this.eventDetail !== view) return;
         if (response.ok) {
-          this.changeForm = formFrom(view.detail);
+          this.resetChangeForm();
           this.changeNotice = "Your change request was sent to the Coordinator. The event stays as it is until they decide.";
           await this.loadChanges();
+          this.focusChangeHeading(); // The form has gone, so focus isn't left on nothing.
         } else if (response.status !== 401) {
           this.changeError = this.dialogErrorMessage(response);
         }
@@ -187,8 +199,7 @@ export function changeRequests() {
         await this.loadChanges();
         if (decision === "approve") await this.refreshEvent(view);
         await this.fetchAssignedEvents();
-        // The buttons have gone, so focus moves to the panel's heading rather than being lost.
-        if (typeof this.$nextTick === "function") this.$nextTick(() => document.getElementById("change-requests-title")?.focus());
+        this.focusChangeHeading(); // The buttons have gone, so focus isn't left on nothing.
       } finally {
         this.changeBusy = false;
       }

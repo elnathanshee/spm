@@ -315,7 +315,7 @@
         <template x-if="canAsk() && askBlocked()"><p class="form-help" x-text="askBlocked()"></p></template>
         <template x-if="canAsk() && !askBlocked()"><form class="change-request-form" @submit.prevent="submitChange()" novalidate><fieldset :disabled="changeBusy">
           <legend class="venue-search-heading">Request a change</legend>
-          <p class="field-error" role="alert" x-show="changeError" x-text="changeError"></p>
+          <p class="field-error" role="alert" x-show="changeError" x-text="changeError" x-effect="changeError && $nextTick(() => $el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))"></p>
           <div class="change-request-grid"><div class="field-group"><label for="change-start">Date and time <em>Important</em></label><input id="change-start" type="datetime-local" x-model="changeForm.proposed_start" aria-describedby="change-start-help"><small id="change-start-help" class="form-help">Singapore time (SGT). It can't be in the past.</small></div><div class="field-group"><label for="change-attendance">Expected attendance <em>Important</em></label><input id="change-attendance" type="number" min="1" inputmode="numeric" x-model="changeForm.expected_attendance"></div></div>
           <div class="field-group"><label for="change-venue">Venue requirements <em>Important</em></label><textarea id="change-venue" rows="2" x-model="changeForm.venue_requirements"></textarea></div>
           <div class="field-group"><label for="change-equipment">Equipment requirements <em>Important</em></label><textarea id="change-equipment" rows="2" x-model="changeForm.equipment_requirements"></textarea></div>
@@ -333,7 +333,7 @@
         </li></template></ul>
         <template x-if="canDecide() && pendingItems().length"><div><template x-for="item in pendingItems()" :key="item.id"><form class="change-request-form" @submit.prevent novalidate><fieldset :disabled="changeBusy">
           <legend class="venue-search-heading">Decide this change request</legend>
-          <p class="field-error" role="alert" x-show="changeDecisionError" x-text="changeDecisionError"></p>
+          <p class="field-error" role="alert" x-show="changeDecisionError" x-text="changeDecisionError" x-effect="changeDecisionError && $nextTick(() => $el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))"></p>
           <div class="field-group"><label for="change-decision-reason">Reason for your decision <em>Required</em></label><textarea id="change-decision-reason" rows="2" required x-model="changeDecisionReason"></textarea></div>
           <p class="form-help">Approving an important change applies it and flags the event's venue bookings and equipment for another look. The event's status stays as it is.</p>
           <div class="dialog-form-actions dialog-form-actions-end"><button type="button" class="button button-danger" :aria-busy="changeBusy" @click="decideChange(item, 'reject')">Reject</button><button type="button" class="button button-success" :aria-busy="changeBusy" @click="decideChange(item, 'approve')">Approve</button></div>
