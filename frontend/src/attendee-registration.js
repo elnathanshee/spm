@@ -63,13 +63,17 @@ export function attendeeRegistration() {
       this.regConfirmId = item.event_id;
     },
 
-    keepPlace() {
+    keepPlace(item) {
       this.regConfirmId = null;
+      // [SCRUM-47] The focused button has gone, so focus returns to the row's Withdraw button.
+      this.$nextTick?.(() => this.$root?.querySelector(`[data-withdraw="${item.event_id}"]`)?.focus());
     },
 
     confirmWithdraw(item) {
       if (this.regBusyId !== null) return Promise.resolve();
       this.regConfirmId = null;
+      // [SCRUM-47] The focused button is going, so focus waits on the message until the answer comes.
+      this.$nextTick?.(() => this.$refs?.regStatus?.focus());
       return this.sendRegistrationAction(item.event_id, `/registrations/events/${item.event_id}/withdraw`, "We couldn't withdraw you. Please try again.");
     },
 
@@ -83,6 +87,7 @@ export function attendeeRegistration() {
     },
 
     regPlaces(event) {
+      if (event.places_left === null) return "Places to be confirmed";
       if (event.places_left === 0) return "Full";
       return event.places_left === 1 ? "1 place left" : `${event.places_left} places left`;
     },

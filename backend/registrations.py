@@ -105,10 +105,11 @@ def _registered_count(db: Session, event_id: int) -> int:
     )
 
 
-def _places_left(db: Session, event: Event) -> int:
+def _places_left(db: Session, event: Event):
     capacity = event_capacity(event)
+    # [SCRUM-45] None means nobody knows yet. That is not the same as full.
     if capacity is None:
-        return 0
+        return None
     # A capacity lowered below the number registered reads as no places, not a negative.
     return max(capacity - _registered_count(db, event.id), 0)
 
@@ -242,13 +243,14 @@ def withdraw_from_event(event_id: int, current_user: User = Depends(get_current_
 def _event_for_staff(db: Session, event_id: int, user: User, allow_lead: bool = True) -> Event:
     """[SCRUM-48] The event's Organiser, its assigned Coordinator and (for reading) the Lead.
 
-    Another Organiser gets the same 404 as GET /events/{id}, which conceals the event.
+    Another Organiser and an Attendee get the same 404 as an unknown event, so they
+    can't use these routes to find out which events exist.
     """
     event = db.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
     role = normalized_role(user)
-    if role == "organiser" and event.organiser_id != user.id:
+    if role == "attendee" or (role == "organiser" and event.organiser_id != user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
     entitled = (
         role == "organiser"
@@ -297,6 +299,8 @@ def _setting_message(event: Event, setting) -> str:
         return "Registration is off for this event."
     if event.status == CONFIRMED:
         return "Registration is open for this event."
+    if event.status == CANCELLED or event.status == COMPLETED:
+        return f"This event is {event.status.lower()}, so registration stays closed."
     return "Registration is on. It opens to Attendees once the event is Confirmed."
 
 
