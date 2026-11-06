@@ -387,3 +387,40 @@ class VenueUnavailability(Base):
 # [Sprint 5] E SCRUM-45 models: insert directly below this line.
 
 # [Sprint 5] F SCRUM-49 models: insert directly below this line.
+from sqlalchemy import Index, text  # [SCRUM-49] Imported here so the shared import block stays free of conflicts.
+
+
+# [SCRUM-49, SCRUM-50] NEW: an Organiser's request to change an event after
+# submission, and the Coordinator's decision. The requested and previous values
+# are JSON text (field to value). A new table because create_all() never alters
+# existing ones. The partial unique index allows one Pending request per event,
+# even if two requests arrive at the same moment.
+class EventChangeRequest(Base):
+    __tablename__ = "event_change_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    requested_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    requested_changes = Column(Text, nullable=False)
+    previous_values = Column(Text, nullable=False)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="Pending")  # Pending, Approved or Rejected
+    decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decision_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_event_change_request_one_pending",
+            "event_id",
+            unique=True,
+            sqlite_where=text("status = 'Pending'"),
+            postgresql_where=text("status = 'Pending'"),
+        ),
+    )
+
+    # Relationships
+    event = relationship("Event", backref=backref("change_requests", cascade="all, delete-orphan"))
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    decided_by = relationship("User", foreign_keys=[decided_by_id])
