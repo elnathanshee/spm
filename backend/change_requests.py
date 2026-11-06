@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from . import arrangements, booking_rules, event_hooks
 from .auth import get_current_user
+from .booking_rules import singapore_time
 from .database import get_db
 from .events import (
     SIGNIFICANT_FIELDS,
@@ -122,6 +123,21 @@ def _clean_changes(changes: Dict[str, Any]) -> Dict[str, Any]:
             )
         clean[field] = value
     return clean
+
+
+def _check_values(values: Dict[str, Any]) -> None:
+    """[SCRUM-49] The shared rules, and a start time checked against Singapore's clock.
+
+    proposed_start is Singapore wall time. The shared rule compares it with UTC, so a
+    start up to 8 hours ago would pass there. Create and amend keep that rule for now.
+    """
+    start = values.get("proposed_start")
+    validate_event_business_rules(start, values.get("expected_attendance"))
+    if start is not None and start < singapore_time(booking_rules.utc_now()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Proposed start time cannot be in the past",
+        )
 
 
 def _real_differences(event: Event, changes: Dict[str, Any]) -> Dict[str, Any]:
@@ -235,7 +251,7 @@ def raise_change_request(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PENDING_REFUSAL)
 
     clean = _clean_changes(payload.changes)
-    validate_event_business_rules(clean.get("proposed_start"), clean.get("expected_attendance"))
+    _check_values(clean)
 
     changes = _real_differences(event, clean)
     if not changes:
