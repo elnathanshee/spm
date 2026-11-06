@@ -200,6 +200,7 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - Everything that overlaps the event counts, even if those times don't overlap each other. This is deliberately simple and on the safe side.
 - An event's window runs from the earliest setup to the latest turnaround of its bookings. With no booking, it runs from the proposed start to the end of that Singapore day. An event with neither can't reserve.
 - A reservation has no window of its own, so it follows its event's bookings. A closed event (cancelled, rejected or completed) holds no units.
+- Moving an event, for example when a hold lapses, can leave more units held than exist. Nothing refuses that move. The reserve panel names the item so Technical Support can release units.
 
 **Reservations**
 

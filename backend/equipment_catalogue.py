@@ -390,15 +390,20 @@ def equipment_availability(
     start, end = require_window(event)
     rows = []
     for item in db.query(EquipmentItem).order_by(EquipmentItem.equipment_type, EquipmentItem.name).all():
+        reserved = reserved_units(db, item, start, end)
+        unavailable = unavailable_units(db, item, start, end)
         rows.append(
             {
                 "item_id": item.id,
                 "equipment_type": item.equipment_type,
                 "name": item.name,
                 "total_quantity": item.total_quantity,
-                "reserved": reserved_units(db, item, start, end),
-                "unavailable": unavailable_units(db, item, start, end),
+                "reserved": reserved,
+                "unavailable": unavailable,
                 "available": available_units(db, item, start, end),
+                # A reservation follows its event, so moving an event, or lowering the
+                # total, can leave more held than exists. Technical Support need to see it.
+                "over_committed": reserved + unavailable > item.total_quantity,
             }
         )
     return {
