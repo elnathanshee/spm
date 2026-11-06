@@ -3,6 +3,8 @@
 SCRUM-41: a catalogue of equipment items. Technical Support only.
 SCRUM-42: update an item, or record a number of units unavailable for a period.
 SCRUM-43: availability for an event's window.
+SCRUM-44: reserve available equipment for an event. A reservation has no window of
+its own: it uses its event's, read live, so it follows the event's bookings.
 """
 
 from datetime import datetime
@@ -13,12 +15,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from . import booking_rules, event_hooks
 from .arrangements import event_window
 from .auth import get_current_user
 from .booking_rules import to_naive_utc, windows_overlap
 from .database import get_db
 from .equipment import COORDINATOR, LEAD, TECHNICAL_SUPPORT, _role_of, load_event
 from .models import EquipmentItem, EquipmentItemUnavailability, EquipmentReservation, Event, User
+from .status import CANCELLED, COMPLETED, REJECTED
 
 router = APIRouter(tags=["equipment catalogue"])
 
@@ -29,6 +33,10 @@ MAX_QUANTITY = 2147483647
 # [SCRUM-43] Who can read availability and an event's reservations. A Coordinator
 # also has to be the event's assigned one.
 READER_ROLES = TECHNICAL_SUPPORT | {LEAD, COORDINATOR}
+
+# [SCRUM-44] An event in one of these isn't going ahead, so a reservation would
+# only keep units from the events that are.
+CLOSED_EVENT_STATUSES = {CANCELLED, COMPLETED, REJECTED}
 
 
 def require_technical_support(current_user: User = Depends(get_current_user)) -> User:
@@ -384,3 +392,132 @@ def equipment_availability(
         "window_end": end.isoformat(),
         "items": rows,
     }
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-44: reserve available equipment for an event
+# ---------------------------------------------------------------------------
+
+
+class ReservationCreate(BaseModel):
+    item_id: int = Field(..., ge=1, le=MAX_QUANTITY)
+    quantity: int = Field(..., ge=1, le=MAX_QUANTITY)
+
+
+def reservation_to_dict(reservation: EquipmentReservation) -> Dict[str, Any]:
+    item = reservation.item
+    return {
+        "id": reservation.id,
+        "event_id": reservation.event_id,
+        "item_id": reservation.item_id,
+        "item_name": item.name,
+        "equipment_type": item.equipment_type,
+        "quantity": reservation.quantity,
+        "created_by": reservation.created_by.username,
+        "created_at": reservation.created_at.isoformat(),
+        "released_at": reservation.released_at.isoformat() if reservation.released_at else None,
+        "released_by": reservation.released_by.username if reservation.released_by else None,
+    }
+
+
+def release_reservation(reservation: EquipmentReservation, actor: User) -> None:
+    """[SCRUM-44] Keep the row: it's the record of what was held. The caller commits."""
+    reservation.released_at = booking_rules.utc_now()
+    reservation.released_by_id = actor.id
+
+
+@event_hooks.on_event_cancelled
+def release_reservations_of_cancelled_event(db: Session, event: Event, actor: User, reason: str) -> None:
+    """[SCRUM-44] A cancelled event holds nothing. Runs in the caller's transaction, so no commit."""
+    active = (
+        db.query(EquipmentReservation)
+        .filter(EquipmentReservation.event_id == event.id, EquipmentReservation.released_at.is_(None))
+        .all()
+    )
+    for reservation in active:
+        release_reservation(reservation, actor)
+
+
+@router.get("/events/{event_id}/equipment-reservations")
+def list_reservations(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-44] Everything reserved for this event, including what has been released."""
+    event = load_readable_event(db, event_id, current_user)
+    reservations = (
+        db.query(EquipmentReservation)
+        .filter(EquipmentReservation.event_id == event.id)
+        .order_by(EquipmentReservation.id.asc())
+        .all()
+    )
+    return {"event_id": event.id, "reservations": [reservation_to_dict(row) for row in reservations]}
+
+
+@router.post("/events/{event_id}/equipment-reservations", status_code=status.HTTP_201_CREATED)
+def reserve_equipment(
+    event_id: int,
+    payload: ReservationCreate,
+    current_user: User = Depends(require_technical_support),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-44] Reserve units for an event. Refused if not enough are available."""
+    event = load_event(db, event_id)
+    if event.status in CLOSED_EVENT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This event is {event.status.lower()}, so equipment can't be reserved for it.",
+        )
+    start, end = require_window(event)
+
+    # Hold the item's row until the commit, so two reservations can't both count
+    # the same last unit. SQLite ignores this; Postgres enforces it.
+    item = db.query(EquipmentItem).filter(EquipmentItem.id == payload.item_id).with_for_update().first()
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment item not found")
+
+    available = available_units(db, item, start, end)
+    if payload.quantity > available:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Only {available} of '{item.name}' available for this event's date and time, "
+                f"so {payload.quantity} can't be reserved."
+            ),
+        )
+
+    reservation = EquipmentReservation(
+        item_id=item.id, event_id=event.id, quantity=payload.quantity, created_by_id=current_user.id
+    )
+    db.add(reservation)
+    db.commit()
+    db.refresh(reservation)
+    return {"message": "Equipment reserved", "reservation": reservation_to_dict(reservation)}
+
+
+@router.delete("/events/{event_id}/equipment-reservations/{reservation_id}")
+def release_equipment(
+    event_id: int,
+    reservation_id: int,
+    current_user: User = Depends(require_technical_support),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-44] Release a reservation, so its units are available again."""
+    reservation = (
+        db.query(EquipmentReservation)
+        .filter(EquipmentReservation.id == reservation_id, EquipmentReservation.event_id == event_id)
+        .first()
+    )
+    if not reservation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment reservation not found")
+    # Refused rather than repeated, so the first release's name and time stay on record.
+    if reservation.released_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This reservation has already been released.",
+        )
+    release_reservation(reservation, current_user)
+    db.commit()
+    db.refresh(reservation)
+    return {"message": "Equipment released", "reservation": reservation_to_dict(reservation)}
