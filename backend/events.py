@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
-from . import event_hooks  # [Sprint 5]
+from . import arrangements, event_hooks  # [Sprint 5]
 from .auth import get_current_user
-from .booking_rules import hold_fields  # [SCRUM-81 | Elnathan]
+from .booking_rules import hold_fields, is_blocking  # [SCRUM-81 | Elnathan]
 from .database import get_db
-from .models import Event, EventStatusHistory, User, VenueBooking
+from .models import EquipmentRequest, Event, EventStatusHistory, User, VenueBooking
 from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
 # [SCRUM-26 | Renee] Use Melvin's rulebook (SCRUM-27) to check every status change
 from .status_rules import StatusChangeError, change_status
@@ -267,6 +267,34 @@ def submit_event(
     }
 
 
+def _has_arrangements(db: Session, event: Event) -> bool:
+    """[SCRUM-29] True when a booking holds a venue or any equipment is requested.
+
+    Not the same as "flags were created": active flags aren't repeated, but a second
+    important change to the same arrangements still has to be heard about.
+    """
+    if any(is_blocking(booking) for booking in event.venue_bookings):
+        return True
+    return db.query(EquipmentRequest.id).filter(EquipmentRequest.event_id == event.id).first() is not None
+
+
+def _handle_amendment(db: Session, event: Event, actor: User, changed_fields: list) -> tuple:
+    """[SCRUM-29] Tell a routine amendment from an important one, and do what each needs.
+
+    Returns (change_type, how many arrangements were flagged). Nothing here commits.
+    """
+    if not any(field in SIGNIFICANT_FIELDS for field in changed_fields):
+        if changed_fields:
+            event_hooks.details_changed(db, event, actor, changed_fields)
+        return "routine", 0
+    if not _has_arrangements(db, event):
+        return "important", 0
+    reason = "Request amended by organiser. Fields changed: " + ", ".join(changed_fields)
+    flags = arrangements.flag_event_arrangements(db, event, arrangements.SOURCE_IMPORTANT_CHANGE, reason, actor)
+    event_hooks.important_change(db, event, actor, changed_fields, reason)
+    return "important", len(flags)
+
+
 # [SCRUM-21 | Elnathan] Organiser amends own event request
 @router.post("/{event_id}/amend")
 def amend_event(
@@ -367,6 +395,7 @@ def amend_event(
         reason=reason_text,
     )
     db.add(status_history)
+    change_type, arrangements_flagged = _handle_amendment(db, event, current_user, changed_fields)  # [SCRUM-29]
     db.commit()
     db.refresh(event)
 
@@ -387,6 +416,8 @@ def amend_event(
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "amended_fields": changed_fields,
         "changed_fields": changed_fields,
+        "change_type": change_type,  # [SCRUM-29] "routine" or "important"
+        "arrangements_flagged": arrangements_flagged,  # [SCRUM-29]
     }
 
 
@@ -728,7 +759,8 @@ def get_event_bookings(
 PLANNING_STATUSES = (APPROVED, PLANNING, CONFIRMED)
 
 # Routine fields can be edited directly (AC2). Significant fields affect
-# arrangements already made and belong to SCRUM-29, so they are refused here.
+# arrangements already made, so they are refused here. [SCRUM-29] This is the one
+# list of important fields: amend and change requests read it too.
 ROUTINE_FIELDS = ("title", "purpose", "description", "accessibility_needs", "registration_needs")
 SIGNIFICANT_FIELDS = ("proposed_start", "expected_attendance", "venue_requirements", "equipment_requirements")
 
@@ -807,8 +839,8 @@ def update_event_routine_info(
     """SCRUM-28 AC2, AC3: update routine information during planning.
 
     Significant fields (date/time, attendance, venue or equipment requirements)
-    are refused with 422; they are handled by SCRUM-29. Every update is recorded
-    in the event's history: who changed which fields.
+    are refused with 422; they need a change request (SCRUM-29). Every update is
+    recorded in the event's history: who changed which fields.
     """
     event = _get_entitled_event(event_id, current_user, db)
 
@@ -817,7 +849,11 @@ def update_event_routine_info(
     if significant:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"{', '.join(significant)} cannot be changed here: this is a significant change (SCRUM-29)",
+            # [SCRUM-29] The message tells the user the way forward, not a story number.
+            detail=(
+                f"{', '.join(significant)} cannot be changed here because this is an important change. "
+                f"The Organiser can raise a change request for the assigned Coordinator to decide."
+            ),
         )
 
     if event.status not in PLANNING_STATUSES:
