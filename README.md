@@ -188,7 +188,7 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 
 - **Coordinator or Lead:** open an event's Venue bookings dialog and use **Request another venue** to hold more than one venue, even for the same time. A clash at one venue refuses only that request.
 - **Each booking stands alone:** rejecting, expiring or cancelling one leaves the others as they were. `GET /events/{id}/bookings` lists all of them, and `GET /events/{id}/venue-suitability` checks each venue on its own.
-- **Cancel booking:** the event's assigned Coordinator or a Lead can cancel a booking from Booking history, after a confirm step. `POST /venues/bookings/{id}/cancel` sets the status to Cancelled. This frees the slot, and the row stays as history. A booking that no longer holds the venue (rejected, expired, already cancelled, or ended) returns 400.
+- **Cancel booking:** the event's assigned Coordinator or a Lead can cancel a booking from Booking history, after a confirm step. `POST /venues/bookings/{id}/cancel` sets the status to Cancelled. This frees the slot, and the row stays as history. A booking that no longer holds the venue (rejected, expired, already cancelled, or ended) returns 400. Cancelling a Confirmed event's last Confirmed booking is allowed: the confirm step warns that the event stays Confirmed and attendees will see no venue until another booking is confirmed.
 - **Venue Staff:** Cancelled bookings appear under Past and closed, with their own filter. Venue Staff get no notification when a booking is cancelled.
 
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: its section directly below this line. -->
