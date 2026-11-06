@@ -405,6 +405,37 @@ def test_tc8517_an_inactive_coordinators_events_stay_visible_and_can_move(client
     assert reload(db_session, event_id).assigned_coordinator_id == people["coord_b"]
 
 
+def test_tc8531_a_holder_who_changed_role_shows_as_no_longer_active(client, db_session, people):
+    event_id = make_event(db_session, people, APPROVED)
+    db_session.get(User, people["coord_a"]).role = "organiser"
+    db_session.commit()
+    login(client, "lead")
+
+    row = next(row for row in client.get("/lead/events").json() if row["id"] == event_id)
+
+    assert row["assigned_coordinator"] == "coord_a"
+    assert row["assigned_coordinator_active"] is False
+
+
+def test_tc8532_an_event_held_by_someone_who_changed_role_can_still_move(client, db_session, people):
+    event_id = make_event(db_session, people, CONFIRMED)
+    db_session.get(User, people["coord_a"]).role = "organiser"
+    db_session.commit()
+    login(client, "lead")
+
+    response = reassign(client, event_id, people["coord_b"])
+
+    assert response.status_code == 200
+    assert response.json()["previous_coordinator_id"] == people["coord_a"]
+    event = reload(db_session, event_id)
+    assert event.assigned_coordinator_id == people["coord_b"]
+    assert event.status == CONFIRMED
+    assert db_session.query(CoordinatorReassignment).filter_by(event_id=event_id).count() == 1
+    # They can't see the event any more, so they get no notice. The other two people do.
+    kinds = {(row.user_id, row.kind) for row in db_session.query(Notification).all()}
+    assert kinds == {(people["coord_b"], "reassigned_to_you"), (people["org"], "coordinator_changed")}
+
+
 def test_tc8518_an_unassigned_event_shows_no_coordinator(client, db_session, people):
     event_id = make_event(db_session, people, SUBMITTED, coordinator=None)
     login(client, "lead")
