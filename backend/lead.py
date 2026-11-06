@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .assignment import AssignmentError, assign_event, get_active_coordinator, require_lead
+from .assignment import AssignmentError, assign_event, get_active_coordinator, is_serving_coordinator, require_lead
 from .auth import get_current_user
 from .database import get_db
 from .models import Event, User
@@ -54,7 +54,7 @@ def event_row(event: Event) -> dict:
         "assigned_coordinator_id": event.assigned_coordinator_id,
         "assigned_coordinator": event.assigned_coordinator.username if event.assigned_coordinator else None,
         # [SCRUM-85] /lead/coordinators lists active people only, so the row says when this one has left.
-        "assigned_coordinator_active": event.assigned_coordinator.is_active_coordinator if event.assigned_coordinator else None,
+        "assigned_coordinator_active": is_serving_coordinator(event.assigned_coordinator) if event.assigned_coordinator else None,
         "submitted_at": event.submitted_at,
     }
 

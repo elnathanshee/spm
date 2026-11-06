@@ -11,6 +11,7 @@ from .models import (
 from .notifications import (
     KIND_COORDINATOR_CHANGED,
     KIND_REASSIGNED_TO_YOU,
+    can_see_event,
     notify,
     notify_first_assignment,
     notify_former_coordinator,
@@ -28,13 +29,13 @@ def require_lead(user: User) -> None:
         raise AssignmentError("Only Event Coordinator Leads can assign event requests", 403)
 
 
+def is_serving_coordinator(user: User) -> bool:
+    return (user.role or "").strip().lower() == "coordinator" and bool(user.is_active_coordinator)
+
+
 def get_active_coordinator(db: Session, coordinator_id: int) -> User:
     coordinator = db.get(User, coordinator_id)
-    if (
-        coordinator is None
-        or (coordinator.role or "").strip().lower() != "coordinator"
-        or not coordinator.is_active_coordinator
-    ):
+    if coordinator is None or not is_serving_coordinator(coordinator):
         raise AssignmentError("Selected user is not an active Coordinator")
     return coordinator
 
@@ -52,7 +53,8 @@ def assign_event(db: Session, event: Event, coordinator: User, lead: User, *, re
     elif previous is not None:
         raise AssignmentError("Event request is already assigned; use reassignment")
 
-    if reassign and previous is not None:
+    # [SCRUM-85] Someone who changed role can't receive this notice, but their event must still move.
+    if reassign and previous is not None and can_see_event(previous, event):
         notify_former_coordinator(
             db,
             previous,
