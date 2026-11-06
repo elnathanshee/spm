@@ -21,6 +21,7 @@ from .booking_rules import BLOCKING_STATUSES, find_conflicts, is_blocking, windo
 from .booking_rules import expired_hold_refusal, hold_fields  # [SCRUM-81 | Elnathan]
 from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-95]
 from .booking_rules import unavailability_overlaps, unavailable_reason  # [SCRUM-82]
+from . import booking_rules  # [SCRUM-83] for booking_rules.utc_now(), so tests can set the clock in one place
 from .hold_store import store_default_expiry  # [SCRUM-81 | Elnathan]
 from .database import get_db
 from .models import Event, User, Venue, VenueBooking, VenueBookingConflictFlag, VenueBookingDecision
@@ -810,3 +811,39 @@ def reject_booking(
 ):
     """SCRUM-36 AC3, AC4 & SCRUM-37 AC1, AC2: reject a Pending request with mandatory reason."""
     return _decide_booking(booking_id, "Rejected", "Rejected", current_user, db, reason=action.reason)
+
+
+@router.post("/bookings/{booking_id}/cancel")
+def cancel_booking(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-83] Cancel one booking; the event's other bookings stay as they are.
+
+    "Cancelled" is not in BLOCKING_STATUSES, so the slot frees. The row stays as history.
+    """
+    role = (current_user.role or "").strip().lower()
+    # Role check before the lookup, so other roles learn nothing about the booking.
+    if role not in ("coordinator", "lead"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the assigned Coordinator or a Lead can cancel a booking",
+        )
+    booking = _get_booking_or_404(booking_id, db)
+    if role == "coordinator" and booking.event.assigned_coordinator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can cancel bookings only for events assigned to them",
+        )
+    # [SCRUM-83] Rejected, expired, cancelled and ended bookings no longer hold the venue.
+    if not is_blocking(booking) or booking.booking_end <= booking_rules.utc_now():
+        shown_status = hold_fields(booking)["status"]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This booking no longer holds the venue, so it can't be cancelled (status: {shown_status}).",
+        )
+    booking.status = "Cancelled"
+    db.commit()
+    db.refresh(booking)
+    return {"message": "Booking cancelled", "booking": booking_detail_dict(booking)}
