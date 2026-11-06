@@ -23,6 +23,8 @@ const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TI
 const TIME_FORMAT = new Intl.DateTimeFormat("en-SG", { timeZone: DISPLAY_TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true });
 const DAY_KEY_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
 const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
+// [SCRUM-99] The button that opened the calendar. Kept out of Alpine's state so a DOM element isn't made reactive.
+let venueCalendarOpener = null;
 
 // One badge tone per backend status (event statuses: backend/status.py; booking
 // statuses: booking_rules and venues). The label is always the status itself.
@@ -1565,6 +1567,7 @@ document.addEventListener("alpine:init", () => {
 
     async openVenueCalendar(venue) {
       if (!this.canViewVenueCalendar() || !venue) return;
+      venueCalendarOpener = document.activeElement;
       // AC1: a week from today, which is the span a planner usually wants.
       const first = new Date();
       const last = new Date(first.getTime() + 6 * 86400e3);
@@ -1607,7 +1610,13 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    closeVenueCalendar() { this.venueCalendar = null; },
+    closeVenueCalendar() {
+      this.venueCalendar = null;
+      const opener = venueCalendarOpener;
+      venueCalendarOpener = null;
+      // [SCRUM-99] A keyboard user carries on from where they were. The button may have gone if the list changed.
+      if (opener?.isConnected && typeof this.$nextTick === "function") this.$nextTick(() => opener.focus());
+    },
 
     calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length); },
 
