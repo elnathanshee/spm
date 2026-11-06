@@ -22,19 +22,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from .booking_rules import BLOCKING_STATUSES, is_blocking, occupied_window, windows_overlap  # [SCRUM-38]
+from .booking_rules import SINGAPORE, to_naive_utc  # [SCRUM-82]
 from .database import get_db
 from .models import User, Venue, VenueBooking
 from .venues import require_venue_searcher
-from .booking_rules import SINGAPORE, to_naive_utc  # [SCRUM-99]
 
 router = APIRouter(prefix="/venues", tags=["venue calendar"])
 
 MAX_DAYS = 31
-
-
-def singapore_midnight(day: date) -> datetime:
-    """[SCRUM-99] The start of a Singapore day in naive UTC, like the stored booking times."""
-    return to_naive_utc(datetime.combine(day, time.min, tzinfo=SINGAPORE))
+# [SCRUM-99] Year 1 and year 9999 fall off the calendar when moved to UTC, which gave a 500.
+FIRST_DAY = date(2000, 1, 1)
+LAST_DAY = date(2999, 12, 31)
 
 
 def busy_block(booking: VenueBooking, occupied_start: datetime, occupied_end: datetime) -> Dict[str, Any]:
@@ -49,6 +47,11 @@ def busy_block(booking: VenueBooking, occupied_start: datetime, occupied_end: da
     }
 
 
+def singapore_midnight(day: date) -> datetime:
+    """[SCRUM-82] The start of a Singapore day, as naive UTC like a period's times."""
+    return to_naive_utc(datetime.combine(day, time.min, tzinfo=SINGAPORE))
+
+
 @router.get("/{venue_id}/calendar")
 def venue_calendar(
     venue_id: int,
@@ -59,6 +62,11 @@ def venue_calendar(
 ):
     if to_date < from_date:
         raise HTTPException(status_code=422, detail="'to' cannot be before 'from'")
+    if from_date < FIRST_DAY or to_date > LAST_DAY:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The calendar covers {FIRST_DAY} to {LAST_DAY}. Choose dates in that range.",
+        )
     day_count = (to_date - from_date).days + 1
     if day_count > MAX_DAYS:
         raise HTTPException(
