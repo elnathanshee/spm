@@ -181,3 +181,49 @@ def register_for_event(event_id: int, current_user: User = Depends(get_current_u
     data = attendee_event_view(db, event, registration)
     data["message"] = f'You are registered for "{event.title}".'
     return data
+
+
+@router.get("/registrations/mine")
+def my_registrations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """SCRUM-47: my registrations, newest first, with withdrawn ones kept as history."""
+    _require_attendee(current_user)
+    rows = (
+        db.query(EventRegistration)
+        .filter(EventRegistration.attendee_id == current_user.id)
+        .order_by(EventRegistration.created_at.desc(), EventRegistration.id.desc())
+        .all()
+    )
+    result = []
+    for registration in rows:
+        data = attendee_event_view(db, registration.event, registration)
+        data["registered_at"] = registration.created_at
+        data["withdrawn_at"] = registration.withdrawn_at
+        result.append(data)
+    return result
+
+
+@router.post("/registrations/events/{event_id}/withdraw")
+def withdraw_from_event(event_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """SCRUM-47: give up my place. The row stays as history. Allowed until the event is over."""
+    _require_attendee(current_user)
+    registration = _find_registration(db, event_id, current_user.id)
+    if registration is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="You aren't registered for this event.")
+    if registration.status == WITHDRAWN:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You've already withdrawn from this event.")
+
+    event = registration.event
+    if event.status == CANCELLED or event.status == COMPLETED:
+        state = _event_state(event, event.registration_setting)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This event is {state}, so there is nothing to withdraw from.",
+        )
+
+    registration.status = WITHDRAWN
+    registration.withdrawn_at = booking_rules.utc_now()
+    db.commit()
+
+    data = attendee_event_view(db, event, registration)
+    data["message"] = f'You have withdrawn from "{event.title}".'
+    return data
