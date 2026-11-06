@@ -969,8 +969,11 @@ document.addEventListener("alpine:init", () => {
         editing: null, formMessage: null, retire: null, outcome: null,
       };
       const workspace = this.venueWorkspace;
-      if (workspace.busy) return;
+      // [SCRUM-101] A refresh already running may have read the list before a save or
+      // retire, so a request made meanwhile runs once that one ends instead of being lost.
+      if (workspace.busy) { workspace.refreshAgain = true; return; }
       workspace.busy = true;
+      workspace.refreshAgain = false;
       const recipient = this.user;
       try {
         const venues = await this.apiRequest("/venues", { inlineErrors: true });
@@ -995,6 +998,8 @@ document.addEventListener("alpine:init", () => {
           ? response.data.map(booking => ({ ...booking, venue_name: venue.name })) : []);
       } finally {
         if (this.venueWorkspace === workspace) workspace.busy = false;
+        // In finally, so a failed older list still leads to the later refresh.
+        if (workspace.refreshAgain && this.user === recipient && this.venueWorkspace === workspace) await this.fetchVenueWorkspace();
       }
     },
 
@@ -1613,7 +1618,8 @@ document.addEventListener("alpine:init", () => {
 
     closeVenueCalendar() { this.venueCalendar = null; },
 
-    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length); },
+    // [SCRUM-82] A day with an unavailable period isn't free, even with no bookings.
+    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length) && !day?.unavailable?.length; },
 
     calendarHours(day) {
       // AC2: the venue's recorded hours, or an honest "not recorded".
@@ -1636,6 +1642,19 @@ document.addEventListener("alpine:init", () => {
     },
 
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
+
+    // [SCRUM-82] AC6: the flagged booking's times, in Singapore time, ready for the
+    // search and the request form below. The Coordinator still chooses the venue.
+    startReplacementRequest(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog) return;
+      const toInput = value => new Date(this.parseUtc(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
+      const start = toInput(booking.booking_start);
+      const end = toInput(booking.booking_end);
+      Object.assign(dialog.form, { booking_start: start, booking_end: end });
+      Object.assign(dialog.search, { start_time: start, end_time: end, available_only: true });
+      document.getElementById?.("search-start")?.focus();
+    },
 
     // [SCRUM-83] Cancel one booking. Only a booking still holding the venue can be cancelled; the others stay as they are.
     canCancelBooking(booking) {
