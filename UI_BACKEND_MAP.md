@@ -296,7 +296,7 @@ Every one of these writes an `EventStatusHistory` row.
 
 | Screen | Data | Actions in the UI | Backend allows, not in the UI |
 |---|---|---|---|
-| Equipment worklist | `GET /equipment-requests` | Search, sort, Refresh (read only) | Per-event list `GET /events/{id}/equipment-requests` (same data). No status or assignment exists (`BACKEND_ISSUES.md` #14). |
+| Equipment worklist | `GET /equipment-requests` | Search, sort, Refresh; per line: update status (`POST /equipment-requests/{id}/status`), reserve and release (`/events/{id}/equipment-reservations`) | Per-event list `GET /events/{id}/equipment-requests` (same data). Availability is `GET /equipment/availability?event_id=...` (SCRUM-40, 43, 44). |
 
 ### Attendee — `/attendee`
 

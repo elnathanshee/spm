@@ -400,6 +400,61 @@ class SafetyCheck(Base):
 
 
 # [Sprint 5] D SCRUM-41 models: insert directly below this line.
+# [Sprint 5 | SCRUM-41] NEW: one kind of equipment Technical Support hold, and how
+# many units exist. A new table because create_all() never alters existing ones.
+class EquipmentItem(Base):
+    __tablename__ = "equipment_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    equipment_type = Column(String(100), nullable=False)
+    name = Column(String(255), nullable=False)
+    total_quantity = Column(Integer, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# [Sprint 5 | SCRUM-42] NEW: a number of an item's units that can't be used for a
+# period. Times are naive UTC, like bookings. A new table for the same reason.
+class EquipmentItemUnavailability(Base):
+    __tablename__ = "equipment_item_unavailability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("equipment_items.id"), nullable=False, index=True)
+    units = Column(Integer, nullable=False)
+    start_at = Column(DateTime, nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    reason = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    item = relationship("EquipmentItem", backref=backref("unavailable_periods", cascade="all, delete-orphan"))
+    created_by = relationship("User")
+
+
+# [Sprint 5 | SCRUM-43, SCRUM-44] NEW: units of an item held for an event. It has no
+# window of its own: arrangements.event_window(event) gives it live, so it follows the
+# event's bookings. Releasing sets released_at and keeps the row. A new table for the
+# same reason.
+class EquipmentReservation(Base):
+    __tablename__ = "equipment_reservations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("equipment_items.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    quantity = Column(Integer, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    released_at = Column(DateTime, nullable=True)
+    released_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Relationships. The backrefs give event.equipment_reservations and
+    # item.reservations without changing those classes' tables.
+    item = relationship("EquipmentItem", backref=backref("reservations", cascade="all, delete-orphan"))
+    event = relationship("Event", backref=backref("equipment_reservations", cascade="all, delete-orphan"))
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    released_by = relationship("User", foreign_keys=[released_by_id])
+
 
 # [Sprint 5] E SCRUM-45 models: insert directly below this line.
 

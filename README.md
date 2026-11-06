@@ -15,6 +15,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
 - **Event lifecycle and safety check:** Approved events move through Planning, a Safety Officer's check, Confirmed and Completed, and can be cancelled with a reason before Completed.
 <!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
+- **Equipment (SCRUM-40 to 44, SCRUM-65):** Technical Support keep a catalogue of equipment, record units that are unavailable, reserve what's available for an event, and update each equipment request's status and note. The event's Coordinator is told about each update.
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
@@ -214,6 +215,35 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Endpoints:** `POST /events/{id}/start-planning`, `/submit-safety`, `/complete`, `/cancel`; `GET /events/{id}/lifecycle-actions`; `GET /events/{id}/review-flags`, `POST /events/{id}/review-flags/clear`; `GET /safety/events`, `GET /safety/events/{id}`, `POST /safety/events/{id}/decision`.
 
 <!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
+## Equipment Catalogue and Reservations (SCRUM-40 to 44, SCRUM-65)
+
+**Who does what**
+
+- **Technical Support** manage the catalogue, record unavailable units, reserve and release equipment, and update equipment requests. All of this is on `/technical`.
+- **The event's assigned Coordinator and the Lead** can read availability and the event's reservations. The Coordinator sees the arrangements, read-only, in the event details, and gets a notice each time a request's status changes.
+
+**How availability works**
+
+- Available = total quantity, minus active reservations whose event overlaps, minus unavailable units whose period overlaps. It never goes below 0. Times that only touch don't overlap.
+- Everything that overlaps the event counts, even if those times don't overlap each other. This is deliberately simple and on the safe side.
+- An event's window runs from the earliest setup to the latest turnaround of its bookings. With no booking, it runs from the proposed start to the end of that Singapore day. An event with neither can't reserve.
+- A reservation has no window of its own, so it follows its event's bookings. A closed event (cancelled, rejected or completed) holds no units.
+- Moving an event, for example when a hold lapses, can leave more units held than exist. Nothing refuses that move. The reserve panel names the item so Technical Support can release units.
+
+**Reservations**
+
+- A reservation can't take more than is available. The item's row is locked while the units are counted, so two reservations can't both take the last unit.
+- Releasing keeps the row as a record. Cancelling an event releases all its reservations.
+- The total can be lowered below what's reserved, because units really can be lost. The reservations stay and availability shows 0.
+
+**Endpoints**
+
+- `GET` and `POST /equipment/items`, `PATCH /equipment/items/{id}`
+- `GET` and `POST /equipment/items/{id}/unavailability`, `DELETE /equipment/items/{id}/unavailability/{period_id}`
+- `GET /equipment/availability?event_id=...`
+- `GET` and `POST /events/{id}/equipment-reservations`, `DELETE /events/{id}/equipment-reservations/{reservation_id}`
+- `POST /equipment-requests/{id}/status` with a status (requested, reserved, arranged or unavailable) and an optional note. History is kept, and equipment request responses show `latest_status` and `latest_note`.
+
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->

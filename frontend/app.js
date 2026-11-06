@@ -101,8 +101,8 @@ const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 const byAsc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(a[field] || "").localeCompare(String(b[field] || ""));
 const byDesc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(b[field] || "").localeCompare(String(a[field] || ""));
 const keepOrder = () => 0;
-// Technical Support worklist sections, by when the event happens (Singapore days). The worklist has no
-// status and no action for this role (equipment.py), so the event date is the only sign of urgency.
+// Technical Support worklist sections, by when the event happens (Singapore days). A line's status and
+// reserve action are its own component (src/equipment-reservations.js); sections go by the event date.
 const TECHNICAL_WINDOW_DAYS = 7;
 const TECHNICAL_GROUPS = [
   { key: "soon", label: "Today and the next 7 days", description: "Prepare these first.", attention: true },
@@ -382,6 +382,7 @@ document.addEventListener("alpine:init", () => {
         reassigned_away: "Event reassigned",
         coordinator_changed: "Coordinator changed",
         coordinator_assigned: "Coordinator assigned",
+        equipment_request_updated: "Equipment request updated",
       }[notification?.kind] || "Workspace update";
     },
     notificationTone(notification) {
@@ -889,9 +890,9 @@ document.addEventListener("alpine:init", () => {
       if (this.currentPath === "/technical") await this.fetchTechnicalWorklist();
     },
 
-    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the read-only
-    // worklist across every event, soonest event first. Technical Support records
-    // nothing, and no route amends a line (BACKEND_ISSUES.md #2), so there are no actions.
+    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the worklist
+    // across every event, soonest event first. Each line's status and reserve action
+    // are in src/equipment-reservations.js (SCRUM-40, SCRUM-44).
     async fetchTechnicalWorklist() {
       if (this.normalizeRole(this.user?.role) !== "Technical Support") return;
       if (!this.technicalWorklist) this.technicalWorklist = { items: [], busy: false, loaded: false, error: "", denied: false };
