@@ -160,10 +160,10 @@ test("TC-4224 recording unavailable units checks the numbers and times before se
     [{ units: "0" }, "units"],
     [{ units: "1.5" }, "units"],
     [{ units: "11" }, "units"], // the item only has 10
-    [{ start_at: "" }, "start_at"],
-    [{ end_at: "" }, "end_at"],
-    [{ end_at: "2099-03-01T09:00" }, "end_at"],
-    [{ end_at: "2099-03-01T08:00" }, "end_at"],
+    [{ start_at: "" }, "start"],
+    [{ end_at: "" }, "end"],
+    [{ end_at: "2099-03-01T09:00" }, "end"],
+    [{ end_at: "2099-03-01T08:00" }, "end"],
   ];
   for (const [change, field] of tries) {
     state.catalogue.periods.form = { ...good, ...change };

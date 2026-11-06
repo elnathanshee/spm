@@ -129,9 +129,9 @@ export function equipmentCatalogue() {
       else if (units > item.total_quantity) errors.units = `This item only has ${item.total_quantity} units in total.`;
       const start = this.inputToDate(form.start_at);
       const end = this.inputToDate(form.end_at);
-      if (!start) errors.start_at = "Choose when the units become unavailable.";
-      if (!end) errors.end_at = "Choose when the units are back.";
-      else if (start && end <= start) errors.end_at = "The end must be after the start.";
+      if (!start) errors.start = "Choose when the units become unavailable.";
+      if (!end) errors.end = "Choose when the units are back.";
+      else if (start && end <= start) errors.end = "The end must be after the start.";
       return errors;
     },
 

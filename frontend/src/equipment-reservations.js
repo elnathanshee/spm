@@ -79,6 +79,10 @@ export function equipmentRequestActions() {
     },
 
     // ---- [SCRUM-44] Reserve and release
+    heldLabel(held) {
+      return `${held.quantity} of ${held.item_name}${held.released_at ? " (released)" : ""}`;
+    },
+
     reserveProblem() {
       const view = this.arrangement;
       const line = view.availability.find(row => String(row.item_id) === String(view.itemId));

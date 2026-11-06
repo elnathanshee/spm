@@ -163,6 +163,8 @@ test("TC-4425 a reservation can be released from the row, and a failed release s
   assert.deepEqual(sent[0], ["DELETE", "/events/7/equipment-reservations/9", undefined]);
   assert.match(state.arrangement.message, /Released 2 of Microphone/);
   assert.match(row, /@click="releaseReservation\(item, held\)"/);
+  assert.equal(state.heldLabel(held), "2 of Microphone");
+  assert.equal(state.heldLabel({ ...held, released_at: "2099-01-02T00:00:00" }), "2 of Microphone (released)");
   assert.match(row, /x-show="!held\.released_at"/);
 
   const failing = actions({ "DELETE /events/7/equipment-reservations/9": { ok: false, status: 409, data: { detail: "This reservation has already been released." } } });
