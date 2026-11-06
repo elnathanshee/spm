@@ -47,9 +47,9 @@ function app({ now, hostname = "localhost", document: page = {}, stubApi = true 
 }
 
 // The browser's own zone must not matter, so run these as a user far from Singapore.
-async function inNewYork(check) {
+async function inZone(zone, check) {
   const original = process.env.TZ;
-  process.env.TZ = "America/New_York";
+  process.env.TZ = zone;
   try {
     await check();
   } finally {
@@ -57,6 +57,9 @@ async function inNewYork(check) {
     else process.env.TZ = original;
   }
 }
+
+const inNewYork = check => inZone("America/New_York", check);
+const inTokyo = check => inZone("Asia/Tokyo", check);
 
 // ---------------------------------------------------------- calendar on phones
 
@@ -93,6 +96,10 @@ test("TC-9914 a calendar day's label is day-first and names the date asked for, 
   await inNewYork(() => {
     const label = app().calendarDayLabel("2099-03-09");
     assert.match(label, /^[A-Z][a-z]{2}, 9 Mar$/);
+  });
+  // East of Singapore, midnight in the browser's own zone is still the day before in Singapore.
+  await inTokyo(() => {
+    assert.match(app().calendarDayLabel("2099-03-09"), /^[A-Z][a-z]{2}, 9 Mar$/);
   });
   assert.equal(app().calendarDayLabel("not a date"), "not a date", "an unreadable date is shown as sent");
   assert.equal(app().calendarDayLabel(""), "Not set");
