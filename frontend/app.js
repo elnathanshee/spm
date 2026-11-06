@@ -1612,7 +1612,8 @@ document.addEventListener("alpine:init", () => {
 
     closeVenueCalendar() { this.venueCalendar = null; },
 
-    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length); },
+    // [SCRUM-82] A day with an unavailable period isn't free, even with no bookings.
+    calendarDayIsFree(day) { return !(Array.isArray(day?.busy) && day.busy.length) && !day?.unavailable?.length; },
 
     calendarHours(day) {
       // AC2: the venue's recorded hours, or an honest "not recorded".
@@ -1635,6 +1636,19 @@ document.addEventListener("alpine:init", () => {
     },
 
     closeBookings() { this.bookingDialog = null; this.fieldErrors = {}; },
+
+    // [SCRUM-82] AC6: the flagged booking's times, in Singapore time, ready for the
+    // search and the request form below. The Coordinator still chooses the venue.
+    startReplacementRequest(booking) {
+      const dialog = this.bookingDialog;
+      if (!dialog) return;
+      const toInput = value => new Date(this.parseUtc(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
+      const start = toInput(booking.booking_start);
+      const end = toInput(booking.booking_end);
+      Object.assign(dialog.form, { booking_start: start, booking_end: end });
+      Object.assign(dialog.search, { start_time: start, end_time: end, available_only: true });
+      document.getElementById?.("search-start")?.focus();
+    },
 
     async submitBooking() {
       const dialog = this.bookingDialog;

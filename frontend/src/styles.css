@@ -458,6 +458,15 @@
 .equipment-form-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(7rem,1fr);gap:var(--space-4)}
 @media(max-width:640px){.equipment-form-grid{grid-template-columns:1fr}}
 /* [Sprint 5] B SCRUM-82 styles: insert directly below this line. */
+.venue-unavailability{flex:1 1 100%;min-width:0}
+.venue-unavailability summary{cursor:pointer;font-size:var(--text-sm);font-weight:var(--weight-bold)}
+.venue-unavailability>*+*{margin-top:var(--space-3)}
+.unavailability-form{display:grid;gap:var(--space-3);justify-items:start}
+.unavailability-form>*{width:100%}
+.unavailability-form>button{width:auto}
+.booking-list .booking-flag{grid-column:1/-1;display:grid;gap:var(--space-2);justify-items:start}
+.calendar-unavailable{margin-bottom:var(--space-4)}
+.calendar-unavailable h3{margin:0 0 var(--space-2);font-size:var(--text-md)}
 /* [Sprint 5] C SCRUM-102 styles: insert directly below this line. */
 /* [Sprint 5] D SCRUM-41 styles: insert directly below this line. */
 /* [Sprint 5] E SCRUM-45 styles: insert directly below this line. */

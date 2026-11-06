@@ -65,12 +65,12 @@ test("TC-8241 a list that fails to load says so, and keeps what was shown", asyn
 test("TC-8242 blank fields and an end before the start are caught before anything is sent", async () => {
   const { state, calls } = panel();
   await state.save();
-  assert.ok(state.errors.start_at);
-  assert.ok(state.errors.end_at);
+  assert.ok(state.errors.start);
+  assert.ok(state.errors.end);
   assert.ok(state.errors.reason);
   Object.assign(state.form, { start_at: "2099-06-01T18:00", end_at: "2099-06-01T18:00", reason: "   " });
   await state.save();
-  assert.match(state.errors.end_at, /after the start/);
+  assert.match(state.errors.end, /after the start/);
   assert.ok(state.errors.reason);
   assert.equal(calls.length, 0);
 });
