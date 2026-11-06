@@ -761,6 +761,34 @@ def test_tc4419_the_cancel_handler_leaves_committing_to_the_caller_and_keeps_ear
     assert [row["released_by"] for row in rows] == ["tech", "lead"]
 
 
+def test_tc4420_the_real_cancel_route_releases_the_events_reservations_and_keeps_them(client, db, users):
+    """[SCRUM-44] Through POST /events/{id}/cancel, now that SCRUM-102 is on main."""
+    item = add_item(client, total_quantity=5).json()["item"]
+    event = make_event(db, users)
+    other = make_event(db, users, title="Other")
+    assert reserve(client, event.id, item["id"], 3).status_code == 201
+    assert reserve(client, other.id, item["id"], 1).status_code == 201
+    assert availability(client, other)["items"][0]["available"] == 1
+
+    # A refused cancel releases nothing.
+    login(client, "coord")
+    assert client.post(f"/events/{event.id}/cancel", json={"reason": " "}).status_code == 422
+    assert availability(client, other)["items"][0]["available"] == 1
+
+    login(client, "coord")
+    response = client.post(f"/events/{event.id}/cancel", json={"reason": "Rained off"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "Cancelled"
+
+    # The units are free for the overlapping event, and the row stays as history.
+    assert availability(client, other)["items"][0]["available"] == 4
+    rows = client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"]
+    assert [(row["quantity"], row["released_by"]) for row in rows] == [(3, "coord")]
+    assert rows[0]["released_at"]
+    other_rows = client.get(f"/events/{other.id}/equipment-reservations").json()["reservations"]
+    assert other_rows[0]["released_at"] is None
+
+
 # ---------------------------------------------------------------------------
 # SCRUM-40: Technical Support update an equipment request as arrangements are made
 # SCRUM-65 (equipment half): the Coordinator is told when a request changes
