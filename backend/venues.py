@@ -201,11 +201,17 @@ def create_venue(
 
 @router.get("")
 def list_venues(
+    retired: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all active venues."""
-    venues = db.query(Venue).filter(Venue.is_active == True).order_by(Venue.name.asc()).all()
+    """List all active venues.
+
+    [SCRUM-100] retired=true lists the retired ones instead, for Venue Staff only:
+    their bookings still hold them, but nobody else should find or request them."""
+    if retired:
+        require_venue_staff(current_user)
+    venues = db.query(Venue).filter(Venue.is_active == (not retired)).order_by(Venue.name.asc()).all()
     return [venue_to_dict(v) for v in venues]
 
 
@@ -351,9 +357,10 @@ def get_venue(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get venue by ID."""
-    venue = db.query(Venue).filter(Venue.id == venue_id, Venue.is_active == True).first()
-    if not venue:
+    """Get venue by ID. [SCRUM-100] Venue Staff can also open a retired one, to correct it."""
+    venue = db.query(Venue).filter(Venue.id == venue_id).first()
+    is_staff = (current_user.role or "").strip().lower() == "venue_staff"
+    if not venue or not (venue.is_active or is_staff):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Venue not found",

@@ -140,6 +140,17 @@
                   </details>
                 </div>
               </li></template></ul></section>
+            <!-- [SCRUM-100] Retired venues: their bookings still hold them, and staff can correct the record. -->
+            <section class="queue-panel retired-venues" aria-labelledby="retired-venues-title" x-data="retiredVenues()" x-init="load(); $watch('venueWorkspace.outcome', () => load())" x-show="venues.length || error">
+              <div class="queue-heading"><div><h2 id="retired-venues-title">Retired venues</h2><p>Not available to request. Bookings made before retirement still hold them.</p></div></div>
+              <p class="form-message error" aria-live="polite" x-show="error" x-text="error"></p>
+              <ul class="retired-venue-list"><template x-for="venue in venues" :key="venue.id"><li>
+                <div class="retired-venue-heading"><div><strong x-text="venue.name"></strong><p x-text="`${venue.location} · ${venue.capacity} people`"></p></div><button type="button" class="button button-secondary button-compact" @click="openVenueEdit(venue)" :disabled="venueWriteBusy()" :aria-label="`Correct ${venue.name}`">Correct</button></div>
+                <p class="form-message error" x-show="bookingsFailed(venue)">This venue's bookings could not be loaded.</p>
+                <p class="form-help" x-show="!bookingsFailed(venue) && !bookingsFor(venue).length">No bookings at this venue.</p>
+                <ul class="booking-list" x-show="bookingsFor(venue).length"><template x-for="booking in bookingsFor(venue)" :key="booking.id"><li><div><a class="row-link" :href="`#booking-${booking.id}`" @click.prevent="openStaffBooking(booking.id)" x-text="booking.event_title"></a><p x-text="formatSchedule(booking.booking_start, booking.booking_end)"></p></div><span class="status-badge" :class="bookingStatusClass(booking.status)"><i></i><span x-text="booking.status"></span></span></li></template></ul>
+              </li></template></ul>
+            </section>
           </div>
           </div></template>
         </section></template>
