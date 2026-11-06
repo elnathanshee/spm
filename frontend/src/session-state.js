@@ -13,7 +13,7 @@ export function resetSignedOutState(state) {
   state.allCoordinatorEvents = [];
   state.assignedView = { loaded: false, error: "", denied: false, query: "", scope: "all", sort: "queue" };
   state.allEventsView = { loaded: false, error: "", denied: false, query: "", status: "all", sort: "submitted" };
-  state.leadView = { query: "", filter: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" };
+  state.leadView = { query: "", filter: "all", status: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" };
   state.assignmentState = {};
   state.picker = { eventId: null, query: "", active: 0 };
   state.bookingView = { query: "", sort: "start" };

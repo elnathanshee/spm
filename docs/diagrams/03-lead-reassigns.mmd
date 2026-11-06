@@ -15,7 +15,7 @@ sequenceDiagram
     API->>API: body must have coordinator_id (else 422)
     API->>API: role must be lead (else 403, checked before the event is loaded)
     API->>DB: load Event (else 404)
-    alt not Submitted / Under Review / Returned (SCRUM-85: Approved is refused too)
+    alt Draft / Rejected / Completed / Cancelled (SCRUM-85: reassignable from Submitted to Confirmed)
         API-->>Lead: 400
     end
     API->>DB: load target user

@@ -28,11 +28,10 @@ Acceptance criteria (each test names the one it proves):
          notified (via the SCRUM-51 notification functions).
 
 Team assumptions, as the live handler implements them:
-  * Only a request that is Submitted, Under Review or Returned, and already
-    has a Coordinator, can be reassigned. Any other status is refused with
-    400: a Draft (no Coordinator yet), a finished request (Rejected,
-    Cancelled, Completed) and also an Approved one. Refusing Approved events
-    is a known gap, recorded on SCRUM-85.
+  * Only a request that already has a Coordinator, and is not a Draft or
+    finished (Rejected, Cancelled, Completed), can be reassigned. Any other
+    status is refused with 400. SCRUM-85 closed the old gap on Approved and
+    later events: test_scrum85_lead_oversight.py covers those statuses.
   * The new Coordinator must be an active Coordinator, and different from the
     current one (400 otherwise).
   * The former Coordinator's notification stays in their list but is not

@@ -517,4 +517,10 @@
 #change-requests-title:focus{outline:none}
 @media(max-width:640px){.change-request-grid{grid-template-columns:1fr}}
 /* [Sprint 5] G SCRUM-85 styles: insert directly below this line. */
+.lead-assignments{margin-bottom:var(--space-5)}
+.lead-assignment-group h3{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0 0 var(--space-2);font-size:var(--text-md)}
+.lead-assignment-group .form-help{margin:0}
+.lead-assignment-list{display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none}
+.lead-assignment-list li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.lead-status-chips{margin-bottom:var(--space-4)}
 /* [Sprint 5] H SCRUM-99 styles: insert directly below this line. */

@@ -12,7 +12,7 @@ workspace "ConnectSphere" "Event planning and venue booking for ConnectSphere Ev
         // PEOPLE: the roles the release supports (SUPPORTED_APPLICATION_ROLES in backend/auth.py)
         organiser = person "Event Organiser" "Client representative. Captures an event request, submits it, amends it before approval, answers clarification questions and follows its status."
         coordinator = person "Event Coordinator" "Internal staff. Reviews the full request and decides on it, updates routine details, finds a suitable available venue and requests it, and records equipment needs."
-        lead = person "Event Coordinator Lead" "Internal staff (Week 7 change 5). Assigns submitted requests to Coordinators and reassigns them."
+        lead = person "Event Coordinator Lead" "Internal staff (Week 7 change 5). Assigns and reassigns requests, including Approved and later events, and oversees every assignment and active event."
         venueStaff = person "Venue Staff" "Internal staff. Maintain the venue record, review booking requests with their event context, manage holds, and record venue unavailability."
         techSupport = person "Technical Support Staff" "Internal staff. Maintain the equipment catalogue, reserve equipment for events and update equipment requests in the Technical Support workspace."
         safetyOfficer = person "Safety Officer" "Internal staff (Week 7 change 6). Check events in Safety Review before they are confirmed."
@@ -31,7 +31,7 @@ workspace "ConnectSphere" "Event planning and venue booking for ConnectSphere Ev
         // RELATIONSHIPS: people to the system (C1) and to the web application (C2)
         organiser -> webApp "Captures, submits and amends event requests, requests changes after submission, and follows their status using"
         coordinator -> webApp "Reviews requests, decides on change requests, updates routine details, searches venues, requests bookings and records equipment needs using"
-        lead -> webApp "Assigns and reassigns requests using"
+        lead -> webApp "Assigns and reassigns requests, including Approved and later events, and oversees every assignment and active event using"
         venueStaff -> webApp "Manages venues, decides on bookings and manages holds using"
         techSupport -> webApp "Maintains the equipment catalogue, reserves equipment and updates equipment requests using"
         safetyOfficer -> webApp "Reviews events and approves, rejects or requests changes using"

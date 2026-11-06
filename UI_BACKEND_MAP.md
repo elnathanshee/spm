@@ -174,13 +174,14 @@ Changes that keep the status:
 
 - **Amend:** Organiser, while Submitted, Under Review or Returned (`events.amend_event`).
 - **Routine update:** Organiser or assigned Coordinator, while Approved, Planning or Confirmed (`events.update_event_routine_info`, `PLANNING_STATUSES`).
-- **Assign / reassign:** Lead, while Submitted, Under Review or Returned (`lead.apply_assignment`).
+- **First assignment:** Lead, while Submitted, Under Review or Returned (`lead.apply_assignment`).
+- **Reassign:** Lead, while Submitted, Under Review, Returned, Approved, Planning, Safety Review or Confirmed (`lead.apply_assignment`). Refused in Draft, Rejected, Completed and Cancelled.
 
 Every one of these writes an `EventStatusHistory` row.
 
 - **Planning, Confirmed, Completed, Cancelled:** nothing moves an event into them. The `status_rules` docstring says those transitions arrive in later sprints.
 - **⚠ Uncertain:** `submit_event` sets the status directly and does not call `change_status`, so its role and ownership checks are its own. They match `TRANSITIONS`.
-- **⚠ Uncertain:** `/approve`, `/reject` and `/return` return 403 for a non-Coordinator before looking the event up. `/review` looks the event up first, so a non-Coordinator gets 404 for a missing event.
+- `/approve`, `/reject`, `/return` and `/review` return 403 for a non-Coordinator before looking the event up.
 - **⚠ Uncertain:** `events.py` checks roles with `current_user.role.lower()` without trimming. A role with surrounding spaces would fail there but pass `auth.py`.
 
 ## 3. Venue booking statuses
