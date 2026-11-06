@@ -15,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from backend import event_hooks, registrations
 from backend.database import Base, get_db
 from backend.main import app
 from backend.models import (
@@ -23,10 +24,12 @@ from backend.models import (
     EventRegistrationSetting,
     EventStatusHistory,
     LoginSession,
+    Notification,
     User,
     Venue,
     VenueBooking,
 )
+from backend.notifications import NotEntitled, can_see_event, notify
 from backend.status import APPROVED, CANCELLED, COMPLETED, CONFIRMED, PLANNING
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -646,3 +649,162 @@ def test_tc4806_people_still_holding_places_come_first(client, db, users):
     login(client, "coord_a")
     body = client.get(f"/events/{event.id}/registrations").json()
     assert [row["status"] for row in body["registrations"]] == ["registered", "withdrawn", "withdrawn"]
+
+
+# --- SCRUM-52: registered Attendees are notified when the event changes -------
+
+
+def notices_for(db, user):
+    db.expire_all()
+    return db.query(Notification).filter(Notification.user_id == user.id).all()
+
+
+def assert_message_is_for_attendees(notice):
+    for marker in ["Internal", "Secret reason", "equipment", "Coordinator", "Organiser", "expected_attendance", "proposed_start"]:
+        assert marker not in notice.message, notice.message
+
+
+def test_tc5201_cancelling_tells_everyone_registered(db, users):
+    """TC-5201: each registered Attendee gets one notice naming the event. The reason may be internal, so it stays out."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    add_registration(db, event, users["att_2"])
+    event_hooks.event_cancelled(db, event, users["coord_a"], "Secret reason")
+    db.commit()
+    for name in ["att_1", "att_2"]:
+        found = notices_for(db, users[name])
+        assert [n.kind for n in found] == [registrations.KIND_EVENT_CANCELLED]
+        assert found[0].event_id == event.id
+        assert found[0].booking_id is None
+        assert "Open Day" in found[0].message
+        assert "cancelled" in found[0].message
+        assert_message_is_for_attendees(found[0])
+
+
+def test_tc5202_an_important_change_tells_everyone_registered(db, users):
+    """TC-5202: an approved important change sends one plain notice. Changed field names and the reason stay out."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    event_hooks.important_change(db, event, users["coord_a"], ["proposed_start", "expected_attendance", "equipment_requirements"], "Secret reason")
+    db.commit()
+    found = notices_for(db, users["att_1"])
+    assert [n.kind for n in found] == [registrations.KIND_EVENT_CHANGED]
+    assert "Open Day" in found[0].message
+    assert_message_is_for_attendees(found[0])
+
+
+def test_tc5203_a_routine_edit_through_the_api_tells_everyone_registered(client, db, users):
+    """TC-5203: the real path: the Organiser edits the title through PATCH /events/{id}, and the Attendee is told the new title."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, "org_a")
+    assert client.patch(f"/events/{event.id}", json={"title": "Renamed Day"}).status_code == 200
+    found = notices_for(db, users["att_1"])
+    assert [n.kind for n in found] == [registrations.KIND_DETAILS_CHANGED]
+    assert "Renamed Day" in found[0].message
+    assert_message_is_for_attendees(found[0])
+    login(client, "att_1")
+    assert [n["kind"] for n in client.get("/notifications").json()] == [registrations.KIND_DETAILS_CHANGED]
+
+
+@pytest.mark.parametrize("field", ["purpose", "accessibility_needs", "registration_needs"])
+def test_tc5204_an_edit_to_an_internal_field_sends_nothing(client, db, users, field):
+    """TC-5204: an Attendee can't see these fields, so a notice would point at nothing that changed."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, "org_a")
+    assert client.patch(f"/events/{event.id}", json={field: "New internal text"}).status_code == 200
+    assert notices_for(db, users["att_1"]) == []
+
+
+def test_tc5205_nobody_withdrawn_or_never_registered_is_told(db, users):
+    """TC-5205: all three hooks skip someone who withdrew, and anyone with no registration."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"], status="withdrawn")
+    event_hooks.event_cancelled(db, event, users["coord_a"], "Reason")
+    event_hooks.important_change(db, event, users["coord_a"], ["proposed_start"], "Reason")
+    event_hooks.details_changed(db, event, users["coord_a"], ["title"])
+    db.commit()
+    assert notices_for(db, users["att_1"]) == []
+    assert notices_for(db, users["att_2"]) == []
+
+
+def test_tc5206_another_events_attendees_are_not_told(db, users):
+    """TC-5206: only this event's registrations count."""
+    event, other = make_event(db, users), make_event(db, users, title="Other")
+    add_registration(db, other, users["att_1"])
+    event_hooks.event_cancelled(db, event, users["coord_a"], "Reason")
+    db.commit()
+    assert notices_for(db, users["att_1"]) == []
+
+
+def test_tc5207_the_change_and_its_notice_are_saved_together(db, users):
+    """TC-5207: handlers don't commit. If the caller rolls back, no notice remains."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    event_hooks.event_cancelled(db, event, users["coord_a"], "Reason")
+    db.rollback()
+    assert notices_for(db, users["att_1"]) == []
+
+
+def test_tc5208_several_notices_about_one_event_are_all_kept(db, users):
+    """TC-5208: event-level notices leave booking_id empty, so the booking uniqueness rule doesn't stop a second notice."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    event_hooks.details_changed(db, event, users["coord_a"], ["title"])
+    db.commit()
+    event_hooks.details_changed(db, event, users["coord_a"], ["description"])
+    db.commit()
+    assert len(notices_for(db, users["att_1"])) == 2
+
+
+def test_tc5209_entitlement_follows_the_registered_row(db, users):
+    """TC-5209: can_see_event is true only while an Attendee holds a registered row, and notify() refuses otherwise."""
+    event = make_event(db, users)
+    assert can_see_event(users["att_1"], event) is False
+    with pytest.raises(NotEntitled):
+        notify(db, users["att_1"], event, "test", "Hello")
+    row = add_registration(db, event, users["att_1"])
+    assert can_see_event(users["att_1"], event) is True
+    assert can_see_event(users["att_2"], event) is False
+    row.status = "withdrawn"
+    db.commit()
+    assert can_see_event(users["att_1"], event) is False
+
+
+def test_tc5210_a_cancelled_events_notice_stays_readable(client, db, users):
+    """TC-5210: the row outlives the event being cancelled, so GET /notifications still shows the notice."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    event_hooks.event_cancelled(db, event, users["coord_a"], "Reason")
+    event.status = CANCELLED
+    db.commit()
+    login(client, "att_1")
+    assert [n["kind"] for n in client.get("/notifications").json()] == [registrations.KIND_EVENT_CANCELLED]
+
+
+def test_tc5211_a_registered_row_opens_no_event_details(client, db, users):
+    """TC-5211: can_see_event is for notifications. A registered Attendee still gets the short view of GET /events/{id}, and 404 once it's not Confirmed."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, "att_1")
+    detail = client.get(f"/events/{event.id}")
+    assert set(detail.json()) == {"name", "description", "date", "time", "venue_name"}
+    assert client.get(f"/events/{event.id}/bookings").status_code == 403
+    assert client.get(f"/events/{event.id}/registrations").status_code == 403
+    event.status = PLANNING
+    db.commit()
+    assert client.get(f"/events/{event.id}").status_code == 404
+
+
+def test_tc5212_someone_no_longer_an_attendee_does_not_block_the_change(db, users):
+    """TC-5212: a registered user whose role has since changed isn't told, and the cancellation isn't stopped by an error."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    add_registration(db, event, users["att_2"])
+    users["att_1"].role = "venue_staff"
+    db.commit()
+    event_hooks.event_cancelled(db, event, users["coord_a"], "Reason")
+    db.commit()
+    assert notices_for(db, users["att_1"]) == []
+    assert len(notices_for(db, users["att_2"])) == 1
