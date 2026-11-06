@@ -969,8 +969,11 @@ document.addEventListener("alpine:init", () => {
         editing: null, formMessage: null, retire: null, outcome: null,
       };
       const workspace = this.venueWorkspace;
-      if (workspace.busy) return;
+      // [SCRUM-101] A refresh already running may have read the list before a save or
+      // retire, so a request made meanwhile runs once that one ends instead of being lost.
+      if (workspace.busy) { workspace.refreshAgain = true; return; }
       workspace.busy = true;
+      workspace.refreshAgain = false;
       const recipient = this.user;
       try {
         const venues = await this.apiRequest("/venues", { inlineErrors: true });
@@ -995,6 +998,8 @@ document.addEventListener("alpine:init", () => {
           ? response.data.map(booking => ({ ...booking, venue_name: venue.name })) : []);
       } finally {
         if (this.venueWorkspace === workspace) workspace.busy = false;
+        // In finally, so a failed older list still leads to the later refresh.
+        if (workspace.refreshAgain && this.user === recipient && this.venueWorkspace === workspace) await this.fetchVenueWorkspace();
       }
     },
 
