@@ -808,3 +808,122 @@ def test_tc5212_someone_no_longer_an_attendee_does_not_block_the_change(db, user
     db.commit()
     assert notices_for(db, users["att_1"]) == []
     assert len(notices_for(db, users["att_2"])) == 1
+
+
+# --- SCRUM-65 (registration half): registration is switched on per event ------
+
+
+def put_setting(client, event, enabled=True):
+    return client.put(f"/events/{event.id}/registration-settings", json={"enabled": enabled})
+
+
+@pytest.mark.parametrize("username", ["org_a", "coord_a"])
+def test_tc6550_organiser_or_coordinator_switch_it_on_and_off(client, db, users, username):
+    """TC-6550: the first PUT creates the row and records who and when; the second switches it off in the same row."""
+    event = make_event(db, users, enabled=None)
+    login(client, username)
+    response = put_setting(client, event, True)
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["open"] is True
+    assert response.json()["updated_by"] == username
+    assert response.json()["updated_at"]
+    assert response.json()["message"]
+    assert put_setting(client, event, False).json()["enabled"] is False
+    db.expire_all()
+    rows = db.query(EventRegistrationSetting).filter(EventRegistrationSetting.event_id == event.id).all()
+    assert [(r.enabled, r.updated_by_id) for r in rows] == [(False, users[username].id)]
+
+
+def test_tc6551_a_new_event_starts_with_registration_off(client, db, users):
+    """TC-6551: with no row, GET answers off rather than an error, and writes nothing."""
+    event = make_event(db, users, enabled=None)
+    login(client, "org_a")
+    body = client.get(f"/events/{event.id}/registration-settings").json()
+    assert (body["enabled"], body["open"], body["updated_by"], body["updated_at"]) == (False, False, None, None)
+    db.expire_all()
+    assert db.query(EventRegistrationSetting).count() == 0
+
+
+def test_tc6552_switching_on_early_waits_for_confirmed(client, db, users):
+    """TC-6552: it can be switched on before Confirmed. Open stays false, Attendees see nothing, and it opens at Confirmed."""
+    event = make_event(db, users, status=PLANNING, enabled=None)
+    login(client, "org_a")
+    body = put_setting(client, event, True).json()
+    assert (body["enabled"], body["open"]) == (True, False)
+    assert "Confirmed" in body["message"]
+    login(client, "att_1")
+    assert listed(client) == []
+    assert register(client, event).status_code == 404
+    event.status = CONFIRMED
+    db.commit()
+    assert [row["event_id"] for row in listed(client)] == [event.id]
+    assert register(client, event).status_code == 201
+
+
+def test_tc6553_switching_off_closes_and_keeps_registrations(client, db, users):
+    """TC-6553: switching off stops new registrations, keeps existing places, and they can still be seen and withdrawn."""
+    event = make_event(db, users)
+    add_registration(db, event, users["att_1"])
+    login(client, "coord_a")
+    assert put_setting(client, event, False).json()["open"] is False
+    login(client, "att_2")
+    assert listed(client) == []
+    assert register(client, event).status_code == 404
+    login(client, "att_1")
+    assert mine(client)[0]["my_status"] == "registered"
+    login(client, "org_a")
+    assert client.get(f"/events/{event.id}/registrations").json()["registered_count"] == 1
+
+
+def test_tc6554_the_lead_can_read_but_not_switch(client, db, users):
+    """TC-6554: the Lead sees the setting and cannot change it."""
+    event = make_event(db, users)
+    login(client, "lead")
+    assert client.get(f"/events/{event.id}/registration-settings").json()["enabled"] is True
+    assert put_setting(client, event, False).status_code == 403
+    db.expire_all()
+    assert db.query(EventRegistrationSetting).one().enabled is True
+
+
+def test_tc6555_everyone_else_is_refused(client, db, users):
+    """TC-6555: another Organiser gets 404; another Coordinator, Venue Staff, Technical Support and Attendees get 403, for read and write."""
+    event = make_event(db, users, enabled=None)
+    login(client, "org_b")
+    assert client.get(f"/events/{event.id}/registration-settings").status_code == 404
+    assert put_setting(client, event).status_code == 404
+    for username in ["coord_b", "venue", "tech", "att_1"]:
+        login(client, username)
+        assert client.get(f"/events/{event.id}/registration-settings").status_code == 403, username
+        assert put_setting(client, event).status_code == 403, username
+    db.expire_all()
+    assert db.query(EventRegistrationSetting).count() == 0
+
+
+@pytest.mark.parametrize("body", [{}, {"enabled": "maybe"}, {"enabled": None}])
+def test_tc6556_a_bad_body_is_refused(client, db, users, body):
+    """TC-6556: enabled must be true or false, and nothing is written otherwise."""
+    event = make_event(db, users, enabled=None)
+    login(client, "org_a")
+    assert client.put(f"/events/{event.id}/registration-settings", json=body).status_code == 422
+    db.expire_all()
+    assert db.query(EventRegistrationSetting).count() == 0
+
+
+def test_tc6557_two_first_saves_at_once_give_a_409(client, db, users, monkeypatch):
+    """TC-6557: both requests find no row; the unique constraint stops the second, and the user is asked to try again."""
+    event = make_event(db, users)
+    monkeypatch.setattr(registrations, "_find_setting", lambda *args: None)
+    login(client, "org_a")
+    response = put_setting(client, event, False)
+    assert response.status_code == 409
+    assert "try again" in response.json()["detail"]
+    db.expire_all()
+    assert db.query(EventRegistrationSetting).one().enabled is True
+
+
+def test_tc6558_the_new_tables_are_new_and_events_is_unchanged(db, users):
+    """TC-6558: production only creates missing tables, so this story adds tables and adds no column to events."""
+    assert {"event_registration_settings", "event_registrations"} <= set(Base.metadata.tables)
+    assert "registration_enabled" not in Event.__table__.columns
+    assert "uq_event_registration_attendee" in {c.name for c in EventRegistration.__table__.constraints}
