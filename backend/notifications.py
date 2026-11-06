@@ -75,6 +75,8 @@ def can_see_event(user: User, event: Event) -> bool:
         return event.assigned_coordinator_id == user.id
     if role == "lead":  # [SCRUM-23 | Renee]
         return True
+    # [Sprint 5] C SCRUM-86 safety officer: insert directly below this line.
+    # [Sprint 5] E SCRUM-52 attendee: insert directly below this line.
     return False
 
 

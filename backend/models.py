@@ -322,3 +322,68 @@ class EquipmentRequest(Base):
         backref=backref("equipment_requests", cascade="all, delete-orphan"),
     )
     requested_by = relationship("User")
+
+
+# [Sprint 5 | SCRUM-40] NEW: one row per status update on an equipment request:
+# requested, reserved, arranged or unavailable, with a note and who made it. The
+# latest row is the request's status (no rows means requested). A new table
+# because create_all() never alters existing ones.
+class EquipmentRequestUpdate(Base):
+    __tablename__ = "equipment_request_updates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey("equipment_requests.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False)
+    note = Column(Text, nullable=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    request = relationship("EquipmentRequest", backref=backref("status_updates", cascade="all, delete-orphan"))
+    actor = relationship("User")
+
+
+# [Sprint 5 | SCRUM-87, SCRUM-50] NEW: marks one booking or one equipment request
+# of an event for another look, after a safety decision or an approved important
+# change. Nothing is cancelled or deleted. A cleared flag stays as history. Exactly
+# one of booking_id and equipment_request_id is set. A new table for the same reason.
+class ArrangementReviewFlag(Base):
+    __tablename__ = "arrangement_review_flags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    booking_id = Column(Integer, ForeignKey("venue_bookings.id"), nullable=True)
+    equipment_request_id = Column(Integer, ForeignKey("equipment_requests.id"), nullable=True)
+    source = Column(String(30), nullable=False)  # "safety_review" or "important_change"
+    reason = Column(Text, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    cleared_at = Column(DateTime, nullable=True)
+    cleared_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+# [Sprint 5 | SCRUM-82] NEW: a period when a venue can't be used (maintenance,
+# equipment failure, renovation, safety). Availability checks treat it as blocked.
+# Times are naive UTC, like bookings. A new table for the same reason.
+class VenueUnavailability(Base):
+    __tablename__ = "venue_unavailability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    venue_id = Column(Integer, ForeignKey("venues.id"), nullable=False, index=True)
+    start_at = Column(DateTime, nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    reason = Column(Text, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    venue = relationship("Venue", backref=backref("unavailable_periods", cascade="all, delete-orphan"))
+    created_by = relationship("User")
+
+# [Sprint 5] C SCRUM-102 models: insert directly below this line.
+
+# [Sprint 5] D SCRUM-41 models: insert directly below this line.
+
+# [Sprint 5] E SCRUM-45 models: insert directly below this line.
+
+# [Sprint 5] F SCRUM-49 models: insert directly below this line.

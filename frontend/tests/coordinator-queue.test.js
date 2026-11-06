@@ -75,7 +75,7 @@ test("TC-9933 each row has at most one main action, matching what the backend al
   const labels = Object.fromEntries(state.assignedEvents.map(event => [event.status, state.coordinatorPrimary(event)?.label ?? null]));
   assert.deepEqual(labels, {
     Submitted: "Start review", "Under Review": "Record decision", Approved: null, Rejected: null, Returned: null,
-    Planning: null, Confirmed: null, Completed: null, Cancelled: null,
+    Planning: null, "Safety Review": null, Confirmed: null, Completed: null, Cancelled: null,
   });
   // A request not assigned to this Coordinator gets no decision action
   assert.equal(state.coordinatorPrimary({ ...row(99, "Submitted"), assigned_coordinator_id: 7 }), null);

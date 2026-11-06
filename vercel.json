@@ -19,6 +19,9 @@
     { "source": "/lead/:path*", "destination": { "service": "backend" } },
     { "source": "/notifications/:path*", "destination": { "service": "backend" } },
     { "source": "/equipment-requests/:path*", "destination": { "service": "backend" } },
+    { "source": "/equipment/:path*", "destination": { "service": "backend" } },
+    { "source": "/safety/:path*", "destination": { "service": "backend" } },
+    { "source": "/registrations/:path*", "destination": { "service": "backend" } },
     { "source": "/(.*)", "destination": { "service": "frontend" } }
   ]
 }

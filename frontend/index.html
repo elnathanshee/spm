@@ -133,6 +133,9 @@
           <section class="state-card compact" role="status"><div class="state-icon" x-html="iconFor('ticket')"></div><h2>No events are available yet</h2><p>Please check back later.</p></section>
         </section></template>
 
+        <!-- [Sprint 5] SCRUM-86 Safety Officer workspace: insert directly below this line. -->
+        <!-- [Sprint 5] SCRUM-41 equipment catalogue workspace: insert directly below this line. -->
+
         <!-- Technical Support: the read-only equipment worklist (GET /equipment-requests, SCRUM-39 AC2). -->
         <template x-if="currentPath === '/technical' && user.role === 'Technical Support' && technicalWorklist"><section class="operations-page">
           <div class="page-header"><div><p class="eyebrow">Technical Support workspace</p><h1>Equipment worklist</h1><p>Equipment that Coordinators and Leads record for each event, soonest event first. Read only: you can't change or update a line here.</p></div><button type="button" class="button button-secondary" :disabled="technicalWorklist.busy" :aria-busy="technicalWorklist.busy" @click="fetchTechnicalWorklist()" x-show="technicalWorklist.loaded && !technicalWorklist.denied"><span class="spinner dark" x-show="technicalWorklist.busy" aria-hidden="true"></span><span x-text="technicalWorklist.busy ? 'Refreshing…' : 'Refresh'"></span></button></div>
@@ -298,7 +301,13 @@
           <div class="dialog-form-actions dialog-form-actions-end"><button type="submit" class="button button-primary" :aria-busy="eventDetail.equipment.busy"><span class="spinner" x-show="eventDetail.equipment.busy" aria-hidden="true"></span><span x-text="eventDetail.equipment.busy ? 'Adding…' : 'Add equipment'"></span></button></div>
         </fieldset></form></template>
         <template x-if="eventDetail.equipment.loaded && !eventDetail.equipment.denied && !canRecordEquipment(eventDetail.detail)"><p class="form-help">Only the assigned Coordinator or a Lead can add equipment to this event.</p></template>
-      </section></template></div></template></div>
+      </section></template>
+      <!-- [Sprint 5] SCRUM-102 lifecycle actions panel: insert directly below this line. -->
+      <!-- [Sprint 5] SCRUM-87 arrangement review flags panel: insert directly below this line. -->
+      <!-- [Sprint 5] SCRUM-44 equipment reservations panel: insert directly below this line. -->
+      <!-- [Sprint 5] SCRUM-48 registrations panel: insert directly below this line. -->
+      <!-- [Sprint 5] SCRUM-49 change requests panel: insert directly below this line. -->
+      </div></template></div>
     </section></div></template>
 
     <template x-if="staffBooking && isVenueStaff()"><div class="modal-backdrop" @click.self="staffBooking = null" @keydown.escape.window="staffBooking = null"><section class="modal-card booking-dialog review-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-booking-title" x-init="$nextTick(() => $el.querySelector('button').focus())"><div class="modal-header"><div><p class="eyebrow">Venue booking</p><h2 id="staff-booking-title" x-text="staffBooking.detail && staffBooking.detail.status !== 'Pending' ? 'Booking details' : 'Review request'">Review request</h2></div><button class="icon-button" @click="staffBooking = null" aria-label="Close booking review">×</button></div><div class="modal-body"><div class="inline-state" x-show="staffBooking.busy" role="status"><span class="spinner dark"></span> Loading booking details…</div><div class="inline-state error" x-show="!staffBooking.busy && !staffBooking.detail">Booking details could not be loaded. Close this dialog and try again.</div>

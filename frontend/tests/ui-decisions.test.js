@@ -41,7 +41,7 @@ test("UI-D3 summary card labels sit 12px after their accent line; numbers stay r
 test("UI-D4 Organiser list: one section per status, no row badges; the details panel keeps its badge", () => {
   const groups = app.slice(app.indexOf("const ORGANISER_GROUPS = ["), app.indexOf("];", app.indexOf("const ORGANISER_GROUPS = [")));
   const statuses = [...groups.matchAll(/statuses: \["([^"]+)"\]/g)].map(match => match[1]);
-  assert.deepEqual(statuses, ["Returned", "Draft", "Submitted", "Under Review", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"]);
+  assert.deepEqual(statuses, ["Returned", "Draft", "Submitted", "Under Review", "Approved", "Planning", "Safety Review", "Confirmed", "Rejected", "Completed", "Cancelled"]);
   assert.doesNotMatch(organiserRow, /status-badge/);
   assert.match(html, /eventDetail\.detail"><div><span class="status-badge"/);
 });

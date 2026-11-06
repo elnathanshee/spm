@@ -6,6 +6,16 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 - **Live app:** https://spm-dusky-six.vercel.app
 - **Release:** [v1.0.0](https://github.com/elnathanshee/spm/releases/tag/v1.0.0), the end of Sprint 4 (5 Nov 2026)
 
+## What's new in v1.1.0 (Sprint 5)
+
+<!-- [Sprint 5] A SCRUM-83 multiple venues: one bullet directly below this line. -->
+<!-- [Sprint 5] B SCRUM-82 venue unavailability: one bullet directly below this line. -->
+<!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
+<!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
+<!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
+<!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
+<!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
+
 ## Team — Machu Picchu
 
 | Name | Role |
@@ -171,6 +181,14 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Coordinator notices (in-app):** a warning before expiry, 24 hours ahead by default, which the event's assigned Coordinator can change per hold with `PUT /venues/bookings/{booking_id}/hold/warning`; and a notice at expiry. Each is sent once.
 - **When notices are created:** there is no background job (the app runs on serverless hosting). Due notices are created at the start of any request to the events, notifications or venues API, which includes every signed-in user's notification poll (every 15 seconds in the web app). Any user's activity creates everyone's due notices.
 - **Limitation:** if nobody uses the app between a hold's warning time and its expiry, only the expiry notice is shown.
+
+<!-- [Sprint 5] A SCRUM-83 multiple venues: its section directly below this line. -->
+<!-- [Sprint 5] B SCRUM-82 venue unavailability: its section directly below this line. -->
+<!-- [Sprint 5] C SCRUM-102 lifecycle and safety: its section directly below this line. -->
+<!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
+<!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
+<!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
+<!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
 
 ## Developer Standards & SOP
 

@@ -28,7 +28,7 @@ const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
 // statuses: booking_rules and venues). The label is always the status itself.
 const STATUS_TONES = {
   Draft: "neutral", Submitted: "waiting", "Under Review": "info", Returned: "attention",
-  Approved: "success", Rejected: "danger", Planning: "info", Confirmed: "success",
+  Approved: "success", Rejected: "danger", Planning: "info", "Safety Review": "waiting", Confirmed: "success",
   Completed: "neutral", Cancelled: "muted", Pending: "waiting", Tentative: "waiting", Expired: "muted",
 };
 
@@ -60,6 +60,7 @@ const ORGANISER_GROUPS = [
   { key: "under-review", label: "Under review", description: "A Coordinator is reviewing it. You can still amend it.", statuses: ["Under Review"] },
   { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"] },
   { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"] },
+  { key: "safety-review", label: "Safety review", description: "The Safety Officer is checking the arrangements.", statuses: ["Safety Review"] },
   { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"] },
   { key: "rejected", label: "Rejected", description: "A rejected request can't be amended.", statuses: ["Rejected"] },
   { key: "completed", label: "Completed", description: "No further changes can be made.", statuses: ["Completed"] },
@@ -87,6 +88,7 @@ const COORDINATOR_GROUPS = [
   { key: "returned", label: "Waiting on the Organiser", description: "You asked for clarification. The Organiser can edit and resubmit it.", statuses: ["Returned"], active: true },
   { key: "approved", label: "Approved", description: "You can update routine details from View details.", statuses: ["Approved"], active: true },
   { key: "planning", label: "Planning", description: "You can update routine details from View details.", statuses: ["Planning"], active: true },
+  { key: "safety-review", label: "Safety review", description: "The Safety Officer is checking the arrangements.", statuses: ["Safety Review"], active: true },
   { key: "confirmed", label: "Confirmed", description: "You can update routine details from View details.", statuses: ["Confirmed"], active: true },
   { key: "rejected", label: "Rejected", description: "No further decisions can be made.", statuses: ["Rejected"], active: false },
   { key: "completed", label: "Completed", description: "No further decisions can be made.", statuses: ["Completed"], active: false },
@@ -109,7 +111,7 @@ const TECHNICAL_GROUPS = [
   { key: "past", label: "Past events", description: "Events before today, kept for reference." },
 ];
 // Event statuses in workflow order, for status filter chips
-const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Confirmed", "Rejected", "Completed", "Cancelled"];
+const EVENT_STATUS_ORDER = ["Submitted", "Under Review", "Returned", "Approved", "Planning", "Safety Review", "Confirmed", "Rejected", "Completed", "Cancelled"];
 const BOOKING_FILTERS = ["All", "Pending", "Confirmed", "Rejected", "Expired"];
 // Venue Staff booking sections, in the order they need attention. Pending is the only status Venue Staff can
 // decide (venues._decide_booking), whatever its date; Confirmed bookings that haven't ended still hold the

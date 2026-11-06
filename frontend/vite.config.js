@@ -28,6 +28,9 @@ export default defineConfig({
       "/lead": backendProxy,
       "/notifications": backendProxy,
       "/equipment-requests": backendProxy,
+      "/equipment": backendProxy,
+      "/safety": backendProxy,
+      "/registrations": backendProxy,
     },
   },
   build: {

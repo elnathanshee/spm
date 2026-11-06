@@ -142,12 +142,15 @@ def test_tc10296_hooks_run_every_registered_handler_in_order(world, db, monkeypa
     monkeypatch.setattr(event_hooks, "_cancelled", [])
     monkeypatch.setattr(event_hooks, "_important_change", [])
     monkeypatch.setattr(event_hooks, "_safety_returned", [])
+    monkeypatch.setattr(event_hooks, "_details_changed", [])
     event_hooks.on_event_cancelled(lambda db, event, actor, reason: seen.append(("cancelled-1", reason)))
     event_hooks.on_event_cancelled(lambda db, event, actor, reason: seen.append(("cancelled-2", reason)))
     event_hooks.on_important_change(lambda db, event, actor, fields, reason: seen.append(("change", fields)))
     event_hooks.on_safety_returned(lambda db, event, actor, reason: seen.append(("safety", reason)))
+    event_hooks.on_details_changed(lambda db, event, actor, fields: seen.append(("details", fields)))
     event_hooks.event_cancelled(db, world["event"], world["coord"], "Rained off")
     event_hooks.important_change(db, world["event"], world["coord"], ["proposed_start"], "Moved")
     event_hooks.safety_returned(db, world["event"], world["coord"], "Exit width")
+    event_hooks.details_changed(db, world["event"], world["coord"], ["title"])
     assert seen == [("cancelled-1", "Rained off"), ("cancelled-2", "Rained off"),
-                    ("change", ["proposed_start"]), ("safety", "Exit width")]
+                    ("change", ["proposed_start"]), ("safety", "Exit width"), ("details", ["title"])]
