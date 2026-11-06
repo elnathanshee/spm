@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import booking_rules
+from . import booking_rules, event_hooks
 from .auth import get_current_user, normalized_role
 from .database import get_db
 from .models import Event, EventRegistration, EventRegistrationSetting, User
+from .notifications import can_see_event, notify
 from .status import CANCELLED, COMPLETED, CONFIRMED
 
 router = APIRouter(tags=["registrations"])
@@ -23,6 +24,13 @@ WITHDRAWN = "withdrawn"
 
 NOT_OPEN_MESSAGE = "This event isn't open for registration."
 ALREADY_REGISTERED_MESSAGE = "You're already registered for this event."
+
+# [SCRUM-52] Notification kinds. They are kept here, like the rest of the feature.
+KIND_EVENT_CANCELLED = "registered_event_cancelled"
+KIND_EVENT_CHANGED = "registered_event_changed"
+KIND_DETAILS_CHANGED = "registered_details_changed"
+# The routine-edit fields an Attendee can see in attendee_event_view.
+ATTENDEE_VISIBLE_FIELDS = {"title", "description"}
 
 
 def _require_attendee(user: User) -> None:
@@ -274,3 +282,34 @@ def event_registrations(event_id: int, current_user: User = Depends(get_current_
             for r in rows
         ],
     }
+
+
+def _notify_registered(db: Session, event: Event, kind: str, message: str) -> None:
+    """[SCRUM-52] One notice for each Attendee holding a place. The caller commits."""
+    for registration in event.registrations:
+        # A role can change after registering. notify() would raise, and that must not stop the change itself.
+        if registration.status == REGISTERED and can_see_event(registration.attendee, event):
+            notify(db, registration.attendee, event, kind, message)
+
+
+# The hooks below pass an internal reason and internal field names. Attendee
+# messages use neither, so nothing internal can reach them.
+@event_hooks.on_event_cancelled
+def _tell_attendees_cancelled(db, event, actor, reason):
+    message = f'"{event.title}", which you registered for, has been cancelled.'
+    _notify_registered(db, event, KIND_EVENT_CANCELLED, message)
+
+
+@event_hooks.on_important_change
+def _tell_attendees_changed(db, event, actor, changed_fields, reason):
+    message = f'"{event.title}", which you registered for, has changed. Please check the date, time and venue.'
+    _notify_registered(db, event, KIND_EVENT_CHANGED, message)
+
+
+@event_hooks.on_details_changed
+def _tell_attendees_details_changed(db, event, actor, changed_fields):
+    # A routine edit of a field an Attendee can't see would be a notice about nothing.
+    if not set(changed_fields) & ATTENDEE_VISIBLE_FIELDS:
+        return
+    message = f'The details of "{event.title}", which you registered for, have been updated.'
+    _notify_registered(db, event, KIND_DETAILS_CHANGED, message)
