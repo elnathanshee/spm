@@ -74,9 +74,12 @@ export function equipmentCatalogue() {
     },
 
     cancelCatalogueForm() {
+      // Look these up first. Alpine ties $refs and $root to the clicked button, and they
+      // stop working once that button has left the page.
+      const addButton = this.$refs?.catalogueAdd;
       Object.assign(this.catalogue, { form: null, editing: null, errors: {} });
       // The form held the focus, so hand it back once Add item is showing again.
-      this.$nextTick?.(() => this.$refs?.catalogueAdd?.focus());
+      this.$nextTick?.(() => addButton?.focus());
     },
 
     async saveCatalogueItem() {
@@ -116,10 +119,10 @@ export function equipmentCatalogue() {
     },
 
     closeCataloguePeriods() {
-      const itemId = this.catalogue.periods.item.id;
+      // The Close button goes, so hand the focus back to the button that opened this.
+      const opener = this.$root?.querySelector(`[data-periods-item="${this.catalogue.periods.item.id}"]`);
       this.catalogue.periods = null;
-      // The Close button has gone, so hand the focus back to the button that opened this.
-      this.$nextTick?.(() => this.$root?.querySelector(`[data-periods-item="${itemId}"]`)?.focus());
+      this.$nextTick?.(() => opener?.focus());
     },
 
     async loadPeriods() {
@@ -171,6 +174,7 @@ export function equipmentCatalogue() {
 
     async removePeriod(period) {
       const periods = this.catalogue.periods;
+      const heading = this.$refs?.periodsHeading;
       periods.errors = {};
       periods.message = "";
       const response = await this.apiRequest(`/equipment/items/${periods.item.id}/unavailability/${period.id}`, { method: "DELETE", inlineErrors: true });
@@ -181,7 +185,7 @@ export function equipmentCatalogue() {
       periods.message = "Unavailable period removed.";
       await this.loadPeriods();
       // The Remove button has gone, so move the focus to the section's heading.
-      this.$nextTick?.(() => this.$refs?.periodsHeading?.focus());
+      this.$nextTick?.(() => heading?.focus());
     },
   };
 }

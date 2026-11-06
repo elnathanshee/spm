@@ -129,6 +129,8 @@ export function equipmentRequestActions() {
 
     async releaseReservation(item, reservation) {
       const view = this.arrangement;
+      // Looked up first: Alpine ties $refs to the clicked button, which may be about to go.
+      const reserveButton = this.$refs?.reserveToggle;
       Object.assign(view, { reserveError: "", message: "", reserveBusy: true });
       const response = await this.apiRequest(`/events/${item.event_id}/equipment-reservations/${reservation.id}`, { method: "DELETE", inlineErrors: true });
       view.reserveBusy = false;
@@ -137,7 +139,7 @@ export function equipmentRequestActions() {
       const refusal = response.ok ? "" : this.dialogErrorMessage(response);
       await this.loadReserveData(item);
       // The Release button has gone, so hand the focus to the row's Reserve button.
-      this.$nextTick?.(() => this.$refs?.reserveToggle?.focus());
+      this.$nextTick?.(() => reserveButton?.focus());
       if (refusal) { view.reserveError = refusal; return; }
       view.message = `Released ${reservation.quantity} of ${reservation.item_name}.`;
     },
