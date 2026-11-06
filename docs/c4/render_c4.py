@@ -13,7 +13,7 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else "."
 PEOPLE = [
     ("organiser", "Event Organiser", "Client representative. Captures an event request, submits it, amends it before approval, answers clarification questions and follows its status."),
     ("coordinator", "Event Coordinator", "Internal staff. Reviews the full request and decides on it, updates routine details, finds a suitable available venue and requests it, and records equipment needs."),
-    ("lead", "Event Coordinator Lead", "Internal staff (Week 7 change 5). Assigns submitted requests to Coordinators and reassigns them."),
+    ("lead", "Event Coordinator Lead", "Internal staff (Week 7 change 5). Assigns and reassigns requests, including Approved and later events, and oversees every assignment and active event."),
     ("venueStaff", "Venue Staff", "Internal staff. Maintain the venue record, review booking requests with their event context, manage holds, and record venue unavailability."),
     ("techSupport", "Technical Support Staff", "Internal staff. Work through the equipment requests in the Technical Support workspace."),
     ("attendee", "Attendee", "Can sign in. Registration is not in this release, so the Attendee workspace is a placeholder."),
@@ -21,7 +21,7 @@ PEOPLE = [
 USES = {
     "organiser": "Captures, submits and amends event requests, and follows their status",
     "coordinator": "Reviews requests, updates routine details, searches venues, requests bookings and records equipment needs",
-    "lead": "Assigns and reassigns requests",
+    "lead": "Assigns and reassigns requests, including Approved and later events, and oversees every assignment and active event",
     "venueStaff": "Manages venues, decides on bookings and manages holds",
     "techSupport": "Works through equipment requests",
     "attendee": "Signs in to the placeholder Attendee workspace",
