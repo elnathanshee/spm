@@ -141,3 +141,16 @@ test("TC-9917 a role that can't open the calendar doesn't take focus when closin
   state.closeVenueCalendar();
   assert.equal(opener.focused, 0);
 });
+
+// ---------------------------------------------------------- equipment quantity
+
+const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+
+test("TC-9920 the equipment form accepts the largest quantity and refuses one above it before calling the server", () => {
+  const state = app();
+  const check = quantity => state.validateEquipment({ equipment_type: "Projector", quantity }, []).quantity;
+  assert.equal(check("2147483647"), undefined);
+  assert.match(check("2147483648"), /2,147,483,647 or fewer/);
+  assert.match(check("99999999999999999999999999"), /2,147,483,647 or fewer/);
+  assert.match(html, /id="equipment-quantity" type="number" min="1" max="2147483647"/);
+});

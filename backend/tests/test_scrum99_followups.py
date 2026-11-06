@@ -15,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, LoginSession, User, Venue, VenueBooking
+from backend.models import EquipmentRequest, Event, LoginSession, User, Venue, VenueBooking
 from backend.security import hash_password
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -125,3 +125,30 @@ def test_tc9912_a_booking_that_only_touches_singapore_midnight_is_not_on_that_da
 
     add_booking(db_session, room, event, datetime(2099, 3, 9, 15), datetime(2099, 3, 9, 16, 1))
     assert busy_on(client, room, DAY) == 1
+
+
+# ---------------------------------------------------------- equipment quantity
+
+
+def record_equipment(client, event, quantity, equipment_type="Projector"):
+    return client.post(
+        f"/events/{event.id}/equipment-requests",
+        json={"equipment_type": equipment_type, "quantity": quantity},
+    )
+
+
+def test_tc9918_the_largest_equipment_quantity_is_accepted(client, event):
+    """TC-9918 | Boundary Path | 2147483647 is the largest value the quantity column can hold."""
+    response = record_equipment(client, event, 2147483647)
+
+    assert response.status_code == 201
+    assert response.json()["quantity"] == 2147483647
+
+
+@pytest.mark.parametrize("quantity", [2147483648, 10**30])
+def test_tc9919_a_huge_equipment_quantity_is_refused_not_a_server_error(client, db_session, event, quantity):
+    """TC-9919 | Negative Path | One above the limit, and a number too big for any column: 422, nothing stored."""
+    response = record_equipment(client, event, quantity)
+
+    assert response.status_code == 422
+    assert db_session.query(EquipmentRequest).count() == 0
