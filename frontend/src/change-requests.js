@@ -36,9 +36,11 @@ function formFrom(detail) {
   };
 }
 
-function flaggedText(count) {
-  if (!count) return "No arrangements were flagged.";
-  return `${count} ${count === 1 ? "arrangement" : "arrangements"} flagged for another look.`;
+// Flags aren't repeated, so 0 new can still mean some are waiting for another look.
+function flaggedText(count, active) {
+  if (count) return `${count} ${count === 1 ? "arrangement" : "arrangements"} flagged for another look.`;
+  if (active) return `No new flags: ${active} ${active === 1 ? "arrangement is" : "arrangements are"} already flagged for another look.`;
+  return "No arrangements were flagged.";
 }
 
 export function changeRequests() {
@@ -194,7 +196,7 @@ export function changeRequests() {
         }
         this.changeDecisionReason = "";
         this.changeNotice = decision === "approve"
-          ? `Approved and applied. ${flaggedText(response.data.arrangements_flagged)}`
+          ? `Approved and applied. ${flaggedText(response.data.arrangements_flagged, response.data.arrangements_active)}`
           : "Rejected. The event hasn't changed.";
         await this.loadChanges();
         if (decision === "approve") await this.refreshEvent(view);

@@ -315,7 +315,7 @@ def _apply_change_request(db: Session, event: Event, change_request: EventChange
 
     # Checked again: a date can pass while a request waits for its decision.
     requested = _parse_values(json.loads(change_request.requested_changes))
-    validate_event_business_rules(requested.get("proposed_start"), requested.get("expected_attendance"))
+    _check_values(requested)
 
     changes = _real_differences(event, requested)
     if not changes:
@@ -325,7 +325,8 @@ def _apply_change_request(db: Session, event: Event, change_request: EventChange
         )
 
     # An amendment may have changed the event since the request was raised, so the
-    # record keeps what approval really replaced.
+    # record, the panel and the notices keep only what approval really replaced.
+    change_request.requested_changes = _to_json(changes)
     change_request.previous_values = _to_json({field: getattr(event, field) for field in changes})
     for field, value in changes.items():
         setattr(event, field, value)
@@ -400,5 +401,7 @@ def decide_change_request(
 
     data = _change_request_to_dict(change_request)
     data["arrangements_flagged"] = flagged
+    # Active flags aren't repeated, so a second change flags 0 while they still stand.
+    data["arrangements_active"] = len(arrangements.active_review_flags(db, event))
     data["event_status"] = event.status
     return data
