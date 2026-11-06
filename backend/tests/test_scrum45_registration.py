@@ -15,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend import event_hooks, registrations
+from backend import booking_rules, event_hooks, registrations
 from backend.database import Base, get_db
 from backend.main import app
 from backend.models import (
@@ -71,7 +71,7 @@ def client(db):
 def users(db):
     roles = {
         "org_a": "organiser", "org_b": "organiser", "coord_a": "coordinator", "coord_b": "coordinator",
-        "lead": "lead", "venue": "venue_staff", "tech": "technical_support",
+        "lead": "lead", "venue": "venue_staff", "tech": "technical_support", "safety": "safety_officer",
         "att_1": "attendee", "att_2": "attendee", "att_3": "attendee",
     }
     found = {}
@@ -1013,3 +1013,193 @@ def test_tc6558_the_new_tables_are_new_and_events_is_unchanged(db, users):
         "assigned_coordinator_id", "created_at", "submitted_at",
     }
     assert "uq_event_registration_attendee" in {c.name for c in EventRegistration.__table__.constraints}
+
+
+# --- Through the real routes that reach Confirmed and Cancelled (SCRUM-102, SCRUM-86) ----------
+
+
+def confirm_through_routes(client, event, reason=None):
+    """The only road into Confirmed: the Coordinator submits it, and the Safety Officer approves."""
+    login(client, "coord_a")
+    assert client.post(f"/events/{event.id}/submit-safety").status_code == 200
+    login(client, "safety")
+    response = client.post(f"/safety/events/{event.id}/decision", json={"decision": "approve", "reason": reason})
+    assert response.status_code == 200
+    assert response.json()["status"] == CONFIRMED
+
+
+def cancel_through_route(client, event, actor="coord_a", reason="Secret reason"):
+    login(client, actor)
+    return client.post(f"/events/{event.id}/cancel", json={"reason": reason})
+
+
+def test_tc4510_an_event_confirmed_by_the_safety_check_shows_only_the_whitelist(client, db, users):
+    """TC-4510: after the real safety approval the Attendee sees the event, with no internal detail and nothing of the check."""
+    event = make_event(db, users, status=PLANNING, venues=[make_venue(db)])
+    confirm_through_routes(client, event, reason="Exit plan looks fine")
+    login(client, "att_1")
+    rows = listed(client)
+    assert [row["event_id"] for row in rows] == [event.id]
+    assert set(rows[0]) == ATTENDEE_KEYS
+    assert rows[0]["event_state"] == "open"
+    assert rows[0]["venues"] == [{"name": "Main Hall", "location": "Block A"}]
+    assert_no_internal_detail(rows)
+    assert "Exit plan" not in str(rows)
+
+
+def test_tc4617_capacity_and_duplicates_hold_on_an_event_confirmed_by_the_safety_check(client, db, users):
+    """TC-4617: the venue's 2 is lower than the attendance of 100, so the third is refused, a duplicate is refused, and a withdrawal frees a place."""
+    event = make_event(db, users, status=PLANNING, attendance=100, venues=[make_venue(db, capacity=2)])
+    confirm_through_routes(client, event)
+    path = f"/registrations/events/{event.id}"
+    login(client, "att_1")
+    assert client.post(path).status_code == 201
+    assert client.post(path).status_code == 409
+    login(client, "att_2")
+    assert client.post(path).json()["places_left"] == 0
+    login(client, "att_3")
+    full = client.post(path)
+    assert full.status_code == 409
+    assert "full" in full.json()["detail"]
+    login(client, "att_1")
+    assert client.post(f"{path}/withdraw").status_code == 200
+    login(client, "att_3")
+    assert client.post(path).status_code == 201
+
+
+def test_tc4712_after_the_real_cancel_route_my_registration_says_cancelled(client, db, users):
+    """TC-4712: the cancel route releases the booking and closes the event: it leaves the open list, stays in mine as cancelled, and can't be registered for or withdrawn from."""
+    event = make_event(db, users, venues=[make_venue(db)])
+    add_registration(db, event, users["att_1"])
+    assert cancel_through_route(client, event).status_code == 200
+    login(client, "att_1")
+    assert listed(client) == []
+    mine = client.get("/registrations/mine").json()
+    assert [(row["event_id"], row["my_status"], row["event_state"], row["venues"]) for row in mine] == [
+        (event.id, "registered", "cancelled", [])
+    ]
+    refused = client.post(f"/registrations/events/{event.id}/withdraw")
+    assert refused.status_code == 409
+    assert "cancelled" in refused.json()["detail"]
+    assert client.post(f"/registrations/events/{event.id}").status_code == 404
+
+
+def test_tc4713_the_real_complete_route_closes_registration(client, db, users):
+    """TC-4713: once the event's booking has ended, the Coordinator marks it Completed: it leaves the open list, stays in mine as completed, and can't be withdrawn from."""
+    event = make_event(db, users)
+    now = booking_rules.utc_now()
+    db.add(VenueBooking(event_id=event.id, venue_id=make_venue(db).id, booking_start=now - timedelta(days=2),
+                        booking_end=now - timedelta(days=1), status="Confirmed"))
+    db.commit()
+    add_registration(db, event, users["att_1"])
+    login(client, "coord_a")
+    assert client.post(f"/events/{event.id}/complete").status_code == 200
+    login(client, "att_1")
+    assert listed(client) == []
+    assert client.get("/registrations/mine").json()[0]["event_state"] == "completed"
+    assert client.post(f"/registrations/events/{event.id}/withdraw").status_code == 409
+    assert client.post(f"/registrations/events/{event.id}").status_code == 404
+
+
+def test_tc4808_staff_see_who_registered_on_an_event_confirmed_by_the_safety_check(client, db, users):
+    """TC-4808: the Organiser and the assigned Coordinator see the real registration. The Safety Officer, a new role, is refused."""
+    event = make_event(db, users, status=PLANNING, attendance=100, venues=[make_venue(db, capacity=5)])
+    confirm_through_routes(client, event)
+    login(client, "att_1")
+    assert client.post(f"/registrations/events/{event.id}").status_code == 201
+    for staff in ["org_a", "coord_a"]:
+        login(client, staff)
+        body = client.get(f"/events/{event.id}/registrations").json()
+        assert (body["capacity"], body["registered_count"], body["places_left"]) == (5, 1, 4)
+        assert [(row["attendee"], row["status"]) for row in body["registrations"]] == [("att_1", "registered")]
+    login(client, "safety")
+    assert client.get(f"/events/{event.id}/registrations").status_code == 403
+    assert client.get(f"/events/{event.id}/registration-settings").status_code == 403
+    assert client.put(f"/events/{event.id}/registration-settings", json={"enabled": False}).status_code == 403
+
+
+@pytest.mark.parametrize("actor", ["coord_a", "lead"])
+def test_tc5217_the_real_cancel_route_tells_each_registered_attendee_once(client, db, users, actor):
+    """TC-5217: POST /events/{id}/cancel notifies everyone holding a place, once, without the reason. The released booking adds no second notice. Someone who withdrew and another event's Attendee hear nothing."""
+    venue = make_venue(db)
+    event = make_event(db, users, venues=[venue])
+    other = make_event(db, users, title="Other Day")
+    add_registration(db, event, users["att_1"])
+    add_registration(db, event, users["att_2"], status="withdrawn")
+    add_registration(db, other, users["att_3"])
+    assert cancel_through_route(client, event, actor=actor).status_code == 200
+    db.expire_all()
+    found = notices_for(db, users["att_1"])
+    assert [(n.kind, n.event_id) for n in found] == [(registrations.KIND_EVENT_CANCELLED, event.id)]
+    assert_message_is_for_attendees(found[0])
+    assert notices_for(db, users["att_2"]) == []
+    assert notices_for(db, users["att_3"]) == []
+    login(client, "att_1")
+    shown = client.get("/notifications").json()
+    assert [row["kind"] for row in shown] == [registrations.KIND_EVENT_CANCELLED]
+    assert "Open Day" in shown[0]["message"]
+    assert "Secret reason" not in str(shown)
+
+
+@pytest.mark.parametrize("actor,reason,code", [("org_a", "Secret reason", 403), ("att_1", "Secret reason", 403), ("coord_a", "   ", 422)])
+def test_tc5218_a_refused_cancel_tells_nobody_and_keeps_registration_open(client, db, users, actor, reason, code):
+    """TC-5218: after approval the Organiser can't cancel, an Attendee never can, and a blank reason is refused: no notice, and the event stays open."""
+    event = make_event(db, users, venues=[make_venue(db)])
+    add_registration(db, event, users["att_1"])
+    assert cancel_through_route(client, event, actor=actor, reason=reason).status_code == code
+    db.expire_all()
+    assert notices_for(db, users["att_1"]) == []
+    login(client, "att_2")
+    assert [row["event_id"] for row in listed(client)] == [event.id]
+
+
+def test_tc6564_the_safety_decision_route_opens_registration(client, db, users):
+    """TC-6564: with the setting on, the event is closed in Planning and Safety Review. The real approval opens it, and nothing else had to change."""
+    event = make_event(db, users, status=PLANNING, venues=[make_venue(db)])
+    path = f"/registrations/events/{event.id}"
+    login(client, "att_1")
+    assert listed(client) == []
+    assert client.post(path).status_code == 404
+    login(client, "coord_a")
+    assert client.post(f"/events/{event.id}/submit-safety").status_code == 200
+    login(client, "att_1")
+    assert listed(client) == []
+    assert client.post(path).status_code == 404
+    login(client, "safety")
+    assert client.post(f"/safety/events/{event.id}/decision", json={"decision": "approve"}).status_code == 200
+    login(client, "org_a")
+    assert client.get(f"/events/{event.id}/registration-settings").json()["open"] is True
+    login(client, "att_1")
+    assert [row["event_id"] for row in listed(client)] == [event.id]
+    assert client.post(path).status_code == 201
+
+
+@pytest.mark.parametrize("enabled", [False, None])
+def test_tc6565_the_safety_decision_does_not_open_an_event_with_the_setting_off(client, db, users, enabled):
+    """TC-6565: Confirmed alone isn't open. With the setting off or never set it stays closed until the Organiser switches it on."""
+    event = make_event(db, users, status=PLANNING, enabled=enabled, venues=[make_venue(db)])
+    confirm_through_routes(client, event)
+    login(client, "att_1")
+    assert listed(client) == []
+    assert client.post(f"/registrations/events/{event.id}").status_code == 404
+    login(client, "org_a")
+    assert put_setting(client, event).json()["open"] is True
+    login(client, "att_1")
+    assert [row["event_id"] for row in listed(client)] == [event.id]
+
+
+@pytest.mark.parametrize("decision", ["reject", "request_changes"])
+def test_tc6566_a_safety_decision_that_returns_the_event_keeps_registration_closed(client, db, users, decision):
+    """TC-6566: reject and request changes send the event back to Planning, so the setting stays on and nobody can register."""
+    event = make_event(db, users, status=PLANNING, venues=[make_venue(db)])
+    login(client, "coord_a")
+    assert client.post(f"/events/{event.id}/submit-safety").status_code == 200
+    login(client, "safety")
+    response = client.post(f"/safety/events/{event.id}/decision", json={"decision": decision, "reason": "Exits blocked"})
+    assert response.json()["status"] == PLANNING
+    login(client, "org_a")
+    setting = client.get(f"/events/{event.id}/registration-settings").json()
+    assert (setting["enabled"], setting["open"]) == (True, False)
+    login(client, "att_1")
+    assert listed(client) == []
+    assert client.post(f"/registrations/events/{event.id}").status_code == 404

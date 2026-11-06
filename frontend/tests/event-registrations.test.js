@@ -105,6 +105,24 @@ test("TC-4825 a failed load shows why, and a retry recovers", async () => {
   assert.equal(state.regLoaded, true);
 });
 
+test("TC-4827 the panel reads again when the event's status changes in the dialog, and not once the dialog is closing", async () => {
+  // [SCRUM-48] The lifecycle panel changes the status in this same dialog, and a cancel also releases the venue.
+  assert.match(panel, /x-init="\$watch\('eventDetail\?\.detail\?\.status', \(\) => refreshRegistrations\(\)\)"/);
+  const server = {};
+  const state = panelFor("Organiser", 1, DETAIL, server);
+  await state.init();
+  assert.equal(state.regSetting.message, "Registration is open for this event.");
+  server.setting = ok({ ...SETTING, open: false, message: "This event is cancelled, so registration stays closed." });
+  server.list = ok({ ...LIST, capacity: 1, places_left: 0 });
+  await state.refreshRegistrations();
+  assert.equal(state.regSetting.message, "This event is cancelled, so registration stays closed.");
+  assert.equal(state.regList.capacity, 1);
+  const before = state.calls.length;
+  state.eventDetail = null;
+  await state.refreshRegistrations();
+  assert.equal(state.calls.length, before, "a closing dialog asks for nothing");
+});
+
 test("TC-4826 the markup sits at its fixed place with a gate, a table and an empty state", () => {
   assert.ok(panelStart > 0);
   const place = html.indexOf("<!-- [Sprint 5] SCRUM-48 registrations panel");
