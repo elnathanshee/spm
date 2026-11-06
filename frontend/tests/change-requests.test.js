@@ -100,6 +100,33 @@ test("TC-4915 a new date goes out as entered, in Singapore wall time", async () 
   assert.deepEqual(state.sent.find(item => item.method === "POST").body.changes, { proposed_start: "2099-05-01T18:30" });
 });
 
+test("TC-4915 a routine edit saved after the panel opened is not undone by the next change request", async () => {
+  const detail = eventDetail();
+  const state = panel(ORGANISER, detail);
+  await state.init();
+  detail.detail.description = "Edited through Edit details";
+  state.changeForm.expected_attendance = "150";
+  state.changeForm.reason = "More guests";
+  await state.submitChange();
+  assert.deepEqual(state.sent.find(item => item.method === "POST").body.changes, { expected_attendance: 150 });
+});
+
+test("TC-4915 focus moves to the panel's heading when the form goes away after sending", async () => {
+  const state = panel(ORGANISER, eventDetail(), { "POST /events/5/change-requests": { ok: true, status: 201, data: pendingRequest() } });
+  let focusQueued = 0;
+  state.$nextTick = () => { focusQueued += 1; };
+  await state.init();
+  state.changeForm.expected_attendance = "150";
+  state.changeForm.reason = "More guests";
+  await state.submitChange();
+  assert.equal(focusQueued, 1);
+});
+
+test("TC-4916 an error at the top of a long form is scrolled into view on a phone", () => {
+  assert.match(PANEL, /x-text="changeError" x-effect="changeError && \$nextTick\(\(\) => \$el\.scrollIntoView/);
+  assert.match(PANEL, /x-text="changeDecisionError" x-effect="changeDecisionError && \$nextTick\(\(\) => \$el\.scrollIntoView/);
+});
+
 test("TC-4916 mistakes are caught before sending, in sentences the Organiser can act on", async () => {
   const state = panel(ORGANISER);
   await state.init();
