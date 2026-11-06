@@ -13,10 +13,15 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: one bullet directly below this line. -->
 - **Venue unavailability:** Venue Staff record when a venue can't be used. Overlapping bookings are flagged, not cancelled, and the Coordinator is told to make other arrangements. Venue Staff can also see bookings at retired venues and correct a retired venue.
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
+- **Event lifecycle and safety check:** Approved events move through Planning, a Safety Officer's check, Confirmed and Completed, and can be cancelled with a reason before Completed.
 <!-- [Sprint 5] D SCRUM-41 equipment: one bullet directly below this line. -->
+- **Equipment (SCRUM-40 to 44, SCRUM-65):** Technical Support keep a catalogue of equipment, record units that are unavailable, reserve what's available for an event, and update each equipment request's status and note. The event's Coordinator is told about each update.
 <!-- [Sprint 5] E SCRUM-45 registration: one bullet directly below this line. -->
+- **Attendee registration (SCRUM-45, 46, 47, 48, 52, 65):** Attendees see open events, register, check their status and withdraw. The Organiser and assigned Coordinator switch registration on and see who registered. Registered Attendees are told when the event changes or is cancelled.
 <!-- [Sprint 5] F SCRUM-49 change requests: one bullet directly below this line. -->
+- **Change requests:** after submission, the Organiser asks for a change with a reason, and the assigned Coordinator approves or rejects it. An approved important change flags the event's venue bookings and equipment for another look. See [Change requests](#change-requests-sprint-5).
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: one bullet directly below this line. -->
+- **Lead oversight (SCRUM-85):** the Lead can reassign an event until it is finished, filter by status, and see each Coordinator's assignments.
 
 - **Register and review follow-ups (SCRUM-99):** the CSV test register matches the Markdown again, and a test keeps them matched. Calendar days follow Singapore time, and PR #48's small fixes are in.
 
@@ -205,10 +210,82 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Catalogue refresh (SCRUM-101):** a refresh asked for while another is running now runs when that one ends, so a save or retire always shows in the catalogue.
 
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: its section directly below this line. -->
+## Event lifecycle and safety check (SCRUM-102, 86, 87, 66)
+
+- **Coordinator:** starts planning, submits for the safety check once there is a Confirmed booking and all equipment is arranged, and marks a Confirmed event Completed after it ends.
+- **Safety Officer** (`safety_officer` or `safety officer`, page `/safety`): sees attendance, venue capacity and layouts, accessibility needs, equipment notes and known venue restrictions, then approves, rejects or requests changes. A reason is required unless approving. Only approval reaches Confirmed, and it is refused if the arrangements stopped meeting the submit rule during the check.
+- **Reject or request changes:** the event returns to Planning and its bookings and equipment are flagged for review. Nothing is cancelled. Resubmitting clears the flags, and the rows stay as history.
+- **Cancelling:** the assigned Coordinator or the Lead at any stage before Completed; the owning Organiser only before Approved. A reason is required. Bookings become Cancelled, review flags clear, and the rows stay. A Cancelled or Completed event can't take a new booking or equipment line.
+- **Notices:** the Organiser and the Coordinator are told when an event is confirmed or cancelled. The Coordinator is told when a check returns it.
+- **Endpoints:** `POST /events/{id}/start-planning`, `/submit-safety`, `/complete`, `/cancel`; `GET /events/{id}/lifecycle-actions`; `GET /events/{id}/review-flags`, `POST /events/{id}/review-flags/clear`; `GET /safety/events`, `GET /safety/events/{id}`, `POST /safety/events/{id}/decision`.
+
 <!-- [Sprint 5] D SCRUM-41 equipment: its section directly below this line. -->
+## Equipment Catalogue and Reservations (SCRUM-40 to 44, SCRUM-65)
+
+**Who does what**
+
+- **Technical Support** manage the catalogue, record unavailable units, reserve and release equipment, and update equipment requests. All of this is on `/technical`.
+- **The event's assigned Coordinator and the Lead** can read availability and the event's reservations. The Coordinator sees the arrangements, read-only, in the event details, and gets a notice each time a request's status changes.
+
+**How availability works**
+
+- Available = total quantity, minus active reservations whose event overlaps, minus unavailable units whose period overlaps. It never goes below 0. Times that only touch don't overlap.
+- Everything that overlaps the event counts, even if those times don't overlap each other. This is deliberately simple and on the safe side.
+- An event's window runs from the earliest setup to the latest turnaround of its bookings. With no booking, it runs from the proposed start to the end of that Singapore day. An event with neither can't reserve.
+- A reservation has no window of its own, so it follows its event's bookings. A closed event (cancelled, rejected or completed) holds no units.
+- Moving an event, for example when a hold lapses, can leave more units held than exist. Nothing refuses that move. The reserve panel names the item so Technical Support can release units.
+
+**Reservations**
+
+- A reservation can't take more than is available. The item's row is locked while the units are counted, so two reservations can't both take the last unit.
+- Releasing keeps the row as a record. Cancelling an event releases all its reservations.
+- The total can be lowered below what's reserved, because units really can be lost. The reservations stay and availability shows 0.
+
+**Endpoints**
+
+- `GET` and `POST /equipment/items`, `PATCH /equipment/items/{id}`
+- `GET` and `POST /equipment/items/{id}/unavailability`, `DELETE /equipment/items/{id}/unavailability/{period_id}`
+- `GET /equipment/availability?event_id=...`
+- `GET` and `POST /events/{id}/equipment-reservations`, `DELETE /events/{id}/equipment-reservations/{reservation_id}`
+- `POST /equipment-requests/{id}/status` with a status (requested, reserved, arranged or unavailable) and an optional note. History is kept, and equipment request responses show `latest_status` and `latest_note`.
+
 <!-- [Sprint 5] E SCRUM-45 registration: its section directly below this line. -->
+## Attendee Registration (SCRUM-45, 46, 47, 48, 52, 65)
+
+An event is **open** when its registration setting is on and its status is Confirmed. The setting can be switched on earlier, but nobody can register until the Safety Officer's approval makes the event Confirmed.
+
+- **Organiser or assigned Coordinator:** switch registration on or off, and see the list, in the Registrations panel of the event detail dialog (`GET` and `PUT /events/{id}/registration-settings`, `GET /events/{id}/registrations`). The Lead can read both through the API but can't switch it.
+- **Attendee:** uses the Event directory screen. `GET /registrations/events` lists open events, `POST /registrations/events/{id}` registers, `POST /registrations/events/{id}/withdraw` withdraws and `GET /registrations/mine` shows my status. An Attendee sees only the title, description, date and time, venue names and locations, places left and their own status.
+- **Capacity:** the lower of the expected attendance and the capacity of the event's Confirmed venues. With several venues the smallest decides. With neither number known, nobody can register yet and the screen says "Places to be confirmed". A full event refuses with a sentence, and withdrawing frees a place.
+- **Past dates:** a Confirmed event whose date has passed stays open until someone changes its status, for example the Coordinator marking it Completed. No status changes on its own in this app.
+- **History:** a withdrawn registration, or one on a cancelled event, stays as a record. Registering again reuses the same row, so there are never duplicates.
+- **Notices (in-app):** registered Attendees are told when the event is cancelled, when an important change is approved, when a routine edit changes the title or description, and when a booking is approved or a Confirmed booking is cancelled, because that changes the venue and the places. An edit to a field they can't see sends nothing, and an Attendee who withdrew gets nothing. Once they withdraw, their earlier notices about that event leave their list too.
+
 <!-- [Sprint 5] F SCRUM-49 change requests: its section directly below this line. -->
+### Change requests (Sprint 5)
+
+- **Organiser:** opens the event's detail dialog and uses the Change requests panel. They can ask to change the date and time, expected attendance, venue requirements, equipment requirements or description, with a reason. They can ask when the event is Submitted, Under Review, Approved, Planning, Safety Review or Confirmed, and a Coordinator is assigned. One request can be pending per event. The event doesn't change until the request is decided.
+- **Assigned Coordinator:** sees the pending request in the same panel, and approves or rejects it with a reason. Rejecting changes nothing on the event. Approving applies the fields and writes the event's history. The event's status stays as it is, even when it's Confirmed.
+- **Routine or important:** date and time, attendance, and venue and equipment requirements are important (`SIGNIFICANT_FIELDS` in `backend/events.py`). Everything else is routine. An important change flags the event's venue bookings and equipment for another look, and nothing is cancelled or deleted. A routine change flags nothing.
+- **Other ways to edit:** `PATCH /events/{id}` takes routine fields only, and its refusal points to a change request. `POST /events/{id}/amend` reports `change_type` (`routine` or `important`) and `arrangements_flagged`. `POST /venues/{id}/bookings` can carry new venue requirements: that's an important change too, and it reports `arrangements_flagged`.
+- **Notices:** the assigned Coordinator is told when a request is amended and when a change request is raised, with the fields. The Organiser and the Coordinator are both told the outcome, with the reason.
+- **Endpoints:** `POST` and `GET /events/{id}/change-requests`, and `POST /events/{id}/change-requests/{change_request_id}/decision` with `decision` (`approve` or `reject`) and `reason`. The decision's response includes `arrangements_flagged` (new flags) and `arrangements_active` (flags still waiting for another look).
+
 <!-- [Sprint 5] G SCRUM-85 Lead oversight: its section directly below this line. -->
+## Lead oversight (SCRUM-85)
+
+The Event Coordinator Lead works from **Assignment oversight** (`/lead/events`).
+
+- **Reassign:** allowed in Submitted, Under Review, Returned, Approved, Planning, Safety Review and Confirmed. It is refused in Draft, Rejected, Completed and Cancelled. Bookings, equipment and status stay as they are. The old Coordinator, the new Coordinator and the Organiser are each told. An old Coordinator who has since changed role can no longer see the event, so they aren't told.
+- **First assignment:** still only in Submitted, Under Review or Returned.
+- **See everything:** the list has every event past Draft with its Coordinator, and status chips filter it. **Assignments by Coordinator** shows each Coordinator's active events, including anyone no longer active who still holds one.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /lead/events` | The Lead's list. Optional filters: `status` and `coordinator_id`. An unknown status gets a 400. |
+| `POST /events/{id}/assign` | First assignment. |
+| `POST /events/{id}/reassign` | Moves the event to another active Coordinator. |
+
 
 ### Test register and review follow-ups (SCRUM-99)
 

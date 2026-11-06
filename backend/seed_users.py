@@ -29,6 +29,7 @@ def seed():
             ("lead1", "lead", False),
             ("venue1", "venue_staff", False),
             ("technical1", "technical support", False),
+            ("safety1", "safety_officer", False),  # [SCRUM-86] local use only
             ("attendee1", "attendee", False),
         ]
 

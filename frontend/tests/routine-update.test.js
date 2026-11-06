@@ -171,7 +171,7 @@ test("TC-9405 (AC3) significant fields are read-only with a change-request note,
 
 test("TC-9406 (AC3) a server 422 or 400 is shown in the view, and the form keeps what was typed", async () => {
   for (const [status, detail] of [
-    [422, "expected_attendance cannot be changed here: this is a significant change (SCRUM-29)"],
+    [422, "expected_attendance cannot be changed here because this is an important change. The Organiser can raise a change request for the assigned Coordinator to decide."],
     [400, "Event information can only be updated during planning (Approved, Planning, Confirmed); this event is Completed."],
     [422, [{ loc: ["body", "title"], msg: "Value error, Title cannot be empty" }]],
   ]) {

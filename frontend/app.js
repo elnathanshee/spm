@@ -111,8 +111,8 @@ const listView = () => ({ loaded: false, error: "", denied: false, query: "" });
 const byAsc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(a[field] || "").localeCompare(String(b[field] || ""));
 const byDesc = field => (a, b) => (a[field] ? 0 : 1) - (b[field] ? 0 : 1) || String(b[field] || "").localeCompare(String(a[field] || ""));
 const keepOrder = () => 0;
-// Technical Support worklist sections, by when the event happens (Singapore days). The worklist has no
-// status and no action for this role (equipment.py), so the event date is the only sign of urgency.
+// Technical Support worklist sections, by when the event happens (Singapore days). A line's status and
+// reserve action are its own component (src/equipment-reservations.js); sections go by the event date.
 const TECHNICAL_WINDOW_DAYS = 7;
 const TECHNICAL_GROUPS = [
   { key: "soon", label: "Today and the next 7 days", description: "Prepare these first.", attention: true },
@@ -159,7 +159,7 @@ document.addEventListener("alpine:init", () => {
     allCoordinatorEvents: [],
     assignedView: { ...listView(), scope: "all", sort: "queue" },
     allEventsView: { ...listView(), status: "all", sort: "submitted" },
-    leadView: { query: "", filter: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" },
+    leadView: { query: "", filter: "all", status: "all", sort: "attention", loaded: false, error: "", denied: false, coordinatorsError: "" },
     assignmentState: {},
     picker: { eventId: null, query: "", active: 0 },
     bookingView: { query: "", sort: "start" },
@@ -380,20 +380,29 @@ document.addEventListener("alpine:init", () => {
         hold_warning: "Hold expiry warning",
         hold_expired: "Hold expired",
         hold_expiry_set: "Hold expiry updated",
+        // [SCRUM-52] Sent to registered Attendees (backend/registrations.py).
+        registered_event_cancelled: "Event cancelled",
+        registered_event_changed: "Event changed",
+        registered_details_changed: "Event details updated",
+        registered_venue_changed: "Event venue updated",
         submitted: "Event request submitted",
         returned: "Clarification requested",
         approved: "Event request approved",
         rejected: "Event request rejected",
+        event_confirmed: "Event confirmed", // [SCRUM-66]
+        event_cancelled: "Event cancelled",
+        safety_returned: "Safety check returned",
         assigned_to_you: "Event assigned to you",
         reassigned_to_you: "Event reassigned to you",
         reassigned_away: "Event reassigned",
         coordinator_changed: "Coordinator changed",
         coordinator_assigned: "Coordinator assigned",
+        equipment_request_updated: "Equipment request updated",
       }[notification?.kind] || "Workspace update";
     },
     notificationTone(notification) {
-      if (["booking_approved", "approved"].includes(notification?.kind)) return "success";
-      if (["booking_rejected", "rejected", "returned", "hold_expired"].includes(notification?.kind)) return "warning";
+      if (["booking_approved", "approved", "event_confirmed"].includes(notification?.kind)) return "success";
+      if (["booking_rejected", "rejected", "returned", "hold_expired", "event_cancelled", "safety_returned"].includes(notification?.kind)) return "warning";
       if (["booking_submitted", "assigned_to_you", "reassigned_to_you", "hold_warning"].includes(notification?.kind)) return "action";
       return "info";
     },
@@ -712,6 +721,7 @@ document.addEventListener("alpine:init", () => {
       this.fieldErrors = {};
       const payload = this.amendPayload(data);
       const changed = Object.keys(payload).length > 0;
+      let flagged = 0;
       if (!changed && !resubmit) {
         this.showAlert("No changes to save.", "info");
         return;
@@ -724,6 +734,7 @@ document.addEventListener("alpine:init", () => {
         if (changed) {
           const response = await this.apiRequest(`/events/${eventId}/amend`, { method: "POST", body: payload });
           if (!response.ok) { this.focusFirstError(".amend-dialog"); return; }
+          flagged = response.data?.arrangements_flagged || 0; // [SCRUM-29]
           // Saved: later diffs start from the values just stored.
           this.amendOriginal = { ...this.amendOriginal, ...this.amendFormFrom({ ...this.amendOriginal, ...payload }) };
         }
@@ -737,7 +748,8 @@ document.addEventListener("alpine:init", () => {
         }
         this.closeModal();
         await this.fetchEvents();
-        this.showAlert(resubmit ? "Request resubmitted" : "Changes saved", "success");
+        const flaggedNote = flagged ? `. ${flagged} ${flagged === 1 ? "arrangement" : "arrangements"} flagged for another look.` : ""; // [SCRUM-29]
+        this.showAlert(`${resubmit ? "Request resubmitted" : "Changes saved"}${flaggedNote}`, "success");
       } finally {
         this.decisionBusy = false;
         if (modal) modal.action = "";
@@ -808,15 +820,43 @@ document.addEventListener("alpine:init", () => {
 
     // Lead: needs assignment (no Coordinator yet) or assigned, in the backend's order (oldest submission first).
     leadFilterChips() {
-      const count = filter => this.leadEvents.filter(event => this.leadInFilter(event, filter)).length;
+      const count = filter => this.leadEvents.filter(event => this.leadInFilter(event, filter) && this.leadInStatus(event, this.leadView.status)).length;
       return [{ key: "all", label: "All", count: count("all") }, { key: "unassigned", label: "Needs assignment", count: count("unassigned") }, { key: "assigned", label: "Assigned", count: count("assigned") }];
     },
     leadInFilter(event, filter) { return filter === "all" || (filter === "unassigned") === !event.assigned_coordinator_id; },
+    leadInStatus(event, status) { return status === "all" || event.status === status; },
+    // [SCRUM-85] One chip per status in the list, in workflow order. The chosen one stays, so a refresh can't strand the Lead on an empty list with nothing selected.
+    leadStatusChips() {
+      const view = this.leadView;
+      const inFilter = this.leadEvents.filter(event => this.leadInFilter(event, view.filter));
+      const present = [...new Set(this.leadEvents.map(event => event.status))];
+      if (view.status !== "all" && !present.includes(view.status)) present.push(view.status);
+      const statuses = [...EVENT_STATUS_ORDER.filter(status => present.includes(status)), ...present.filter(status => !EVENT_STATUS_ORDER.includes(status))];
+      return [{ key: "all", label: "All statuses", count: inFilter.length }, ...statuses.map(status => ({ key: status, label: status, count: inFilter.filter(event => event.status === status).length }))];
+    },
+    leadEmptyMessage() {
+      if (this.leadView.status !== "all") return `No ${this.leadView.status} requests in this view`;
+      return this.leadView.filter === "unassigned" ? "Every request has a Coordinator" : "No requests are assigned yet";
+    },
     filteredLeadEvents() {
       const view = this.leadView;
       const sorts = { attention: (a, b) => this.leadAttentionRank(a) - this.leadAttentionRank(b), start: byAsc("proposed_start"), submitted: keepOrder };
-      return this.leadEvents.filter(event => this.leadInFilter(event, view.filter) && this.coordinatorMatches(event, view.query))
+      return this.leadEvents.filter(event => this.leadInFilter(event, view.filter) && this.leadInStatus(event, view.status) && this.coordinatorMatches(event, view.query))
         .sort(sorts[view.sort] || keepOrder);
+    },
+    // [SCRUM-85] Each Coordinator's active events. It starts from the active Coordinators so those with none still show,
+    // then adds anyone who has left but still holds an event. Unassigned events come last.
+    coordinatorAssignments() {
+      const holders = new Map(this.coordinators.map(coordinator => [String(coordinator.id), { key: `coordinator-${coordinator.id}`, name: this.coordinatorName(coordinator), inactive: false, events: [] }]));
+      const unassigned = [];
+      for (const event of this.leadEvents.filter(event => this.coordinatorGroupOf(event).active)) {
+        if (!event.assigned_coordinator_id) { unassigned.push(event); continue; }
+        const id = String(event.assigned_coordinator_id);
+        if (!holders.has(id)) holders.set(id, { key: `coordinator-${id}`, name: event.assigned_coordinator, inactive: event.assigned_coordinator_active === false, events: [] });
+        holders.get(id).events.push(event);
+      }
+      const groups = [...holders.values()].sort((a, b) => a.name.localeCompare(b.name));
+      return unassigned.length ? [...groups, { key: "unassigned", name: "Not assigned", inactive: false, events: unassigned }] : groups;
     },
 
     // Technical Support: events grouped as before; search covers the event and each line, and
@@ -896,9 +936,9 @@ document.addEventListener("alpine:init", () => {
       if (this.currentPath === "/technical") await this.fetchTechnicalWorklist();
     },
 
-    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the read-only
-    // worklist across every event, soonest event first. Technical Support records
-    // nothing, and no route amends a line (BACKEND_ISSUES.md #2), so there are no actions.
+    // GET /equipment-requests (backend equipment.py, SCRUM-39 AC2): the worklist
+    // across every event, soonest event first. Each line's status and reserve action
+    // are in src/equipment-reservations.js (SCRUM-40, SCRUM-44).
     async fetchTechnicalWorklist() {
       if (this.normalizeRole(this.user?.role) !== "Technical Support") return;
       if (!this.technicalWorklist) this.technicalWorklist = { items: [], busy: false, loaded: false, error: "", denied: false };
@@ -1312,6 +1352,8 @@ document.addEventListener("alpine:init", () => {
 
     canBookEvent(event) {
       if (!event) return false;
+      // [SCRUM-102] The backend refuses bookings on a closed event, so don't offer one.
+      if (event.status === "Cancelled" || event.status === "Completed") return false;
       const role = this.normalizeRole(this.user?.role);
       if (role === "Event Coordinator Lead") return true;
       if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
@@ -1760,8 +1802,12 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    // The statuses POST /events/{id}/assign and /reassign accept (backend lead.py assignable_statuses).
-    canAssignEvent(event) { return ["Submitted", "Under Review", "Returned"].includes(event?.status); },
+    // [SCRUM-85] The statuses POST /events/{id}/assign (no Coordinator yet) and /reassign accept (backend lead.py).
+    canAssignEvent(event) {
+      const firstAssignment = ["Submitted", "Under Review", "Returned"];
+      const reassignment = [...firstAssignment, "Approved", "Planning", "Safety Review", "Confirmed"];
+      return (event?.assigned_coordinator_id ? reassignment : firstAssignment).includes(event?.status);
+    },
 
     // Unsaved means a Coordinator is chosen and it isn't the one already assigned (the backend refuses a same-Coordinator reassignment).
     assignmentChanged(event) {
@@ -1835,7 +1881,11 @@ document.addEventListener("alpine:init", () => {
     pickerOptionLabel(coordinator) { return `${coordinator.name} (${this.openRequestsLabel(coordinator.open)})`; },
     pickerChoiceLabel(event) {
       const chosen = this.coordinators.find(coordinator => String(coordinator.id) === String(event.selectedCoordinatorId));
-      return chosen ? this.coordinatorName(chosen) : "Select coordinator";
+      if (chosen) return this.coordinatorName(chosen);
+      // [SCRUM-85] The picker lists active Coordinators only, so someone who has left is named from the row.
+      const stillHeld = event.assigned_coordinator && String(event.selectedCoordinatorId) === String(event.assigned_coordinator_id);
+      if (!stillHeld) return "Select coordinator";
+      return event.assigned_coordinator_active === false ? `${event.assigned_coordinator} (no longer active)` : event.assigned_coordinator;
     },
     choosePickerOption(event, coordinator) {
       event.selectedCoordinatorId = coordinator.id;
@@ -2016,9 +2066,9 @@ document.addEventListener("alpine:init", () => {
     },
     // [SCRUM-94 | Renee] Update routine information during planning (PATCH /events/{id}, SCRUM-28).
     // AC1, AC4: only the event's Organiser or its assigned Coordinator, and only while it is
-    // Approved, Planning or Confirmed (the backend's PLANNING_STATUSES).
+    // Approved, Planning, Safety Review or Confirmed (the backend's PLANNING_STATUSES).
     canEditRoutine(event) {
-      if (!event || !["Approved", "Planning", "Confirmed"].includes(event.status)) return false;
+      if (!event || !["Approved", "Planning", "Safety Review", "Confirmed"].includes(event.status)) return false;
       const role = this.normalizeRole(this.user?.role);
       const me = Number(this.user?.user_id);
       return (role === "Organiser" && Number(event.organiser_id) === me)
