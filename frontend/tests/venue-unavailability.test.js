@@ -178,6 +178,32 @@ test("TC-8250 the Coordinator's booking list shows the flag and a way to request
   assert.match(list, /@click="startReplacementRequest\(booking\)"[^>]*>Request another venue</);
 });
 
+test("TC-8254 focus stays in the panel after Remove, even though the pressed button has gone", async () => {
+  let buttonGone = false;
+  let focused = 0;
+  const heading = { focus() { focused += 1; } };
+  const { state } = panel({ "DELETE /venues/7/unavailability/5": () => { buttonGone = true; return { ok: true, status: 204, data: null }; } });
+  // Alpine finds refs from the element that was clicked, so once that button is out
+  // of the page the ref can't be found any more.
+  Object.defineProperty(state, "$refs", { get: () => (buttonGone ? {} : { unavailabilityHeading: heading }) });
+  await state.remove(PERIOD);
+  assert.equal(focused, 1);
+});
+
+test("TC-8255 Venue Staff see a period's flag as arrangements needed, and a real clash as a possible clash", () => {
+  const row = HTML.slice(HTML.indexOf('<td data-label="Booking" class="booking-cell-main">'), HTML.indexOf('<td data-label="Date and time"'));
+  assert.match(row, /x-if="booking\.conflict_flag && !booking\.conflict_flag\.unavailability_id"><p class="booking-row-note"><span class="row-flag">Possible clash</);
+  assert.match(row, /x-if="booking\.conflict_flag\?\.unavailability_id"><p class="booking-row-note"><span class="row-flag">Alternative arrangements needed</);
+  const review = HTML.match(/<div class="conflict-callout" role="note" x-show="staffBooking\.detail\.conflict_flag">.*?<\/div>/)?.[0] || "";
+  assert.match(review, /<strong x-text="staffBooking\.detail\.conflict_flag\?\.unavailability_id \? 'Alternative arrangements needed' : 'Possible clash'"><\/strong>/);
+});
+
+test("TC-8256 each venue's reason list has its own id, so the page has no duplicate ids", () => {
+  assert.doesNotMatch(HTML, / id="unavailable-reasons"| list="unavailable-reasons"/);
+  assert.match(HTML, /:list="`unavailable-reasons-\$\{venue\.id\}`"/);
+  assert.match(HTML, /<datalist :id="`unavailable-reasons-\$\{venue\.id\}`">/);
+});
+
 test("TC-8251 Request another venue fills the search and the request with the flagged times, in Singapore time", async () => {
   const state = app();
   state.assignedEvents = [{ id: 9 }];

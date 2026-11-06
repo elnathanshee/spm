@@ -248,6 +248,24 @@ def test_tc8210_same_period_twice_is_refused(client, db_session, seed):
     assert db_session.query(VenueUnavailability).count() == 2
 
 
+@pytest.mark.parametrize("start,end", [
+    ("0001-01-01T00:00:00+08:00", "2099-06-01T12:00:00+08:00"),  # converting this start overflows
+    ("2099-06-01T10:00:00+00:00", "9999-12-31T23:59:00+00:00"),  # showing this end in Singapore time overflows
+    ("2099-06-01T10:00:00", "9999-12-31T23:59:00"),  # the same, with no offset
+])
+def test_tc8253_dates_outside_a_sensible_range_are_refused(client, db_session, seed, start, end):
+    """TC-8253: a year like 0001 or 9999 gives 422 with a plain message and stores
+    nothing, so it can't break the search and booking checks later."""
+    _as(client, "staff")
+    res = client.post(
+        f"/venues/{seed['hall'].id}/unavailability",
+        json={"start_at": start, "end_at": end, "reason": "Maintenance"},
+    )
+    assert res.status_code == 422
+    assert "years 2000 and 2999" in res.json()["detail"][0]["msg"]
+    assert db_session.query(VenueUnavailability).count() == 0
+
+
 # ---------------------------------------------------------------------------
 # AC2: the availability check treats the period as blocked
 # ---------------------------------------------------------------------------
