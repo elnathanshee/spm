@@ -107,6 +107,18 @@ test("TC-4322 an event with no window shows the backend's sentence, not an empty
   assert.match(row, /x-show="arrangement\.availabilityLoaded && arrangement\.availability\.length"/);
 });
 
+test("TC-4323 an item with more units held than exist is called out in the reserve panel", async () => {
+  const over = { item_id: 3, equipment_type: "Audio", name: "Speaker", total_quantity: 5, reserved: 8, unavailable: 1, available: 0, over_committed: true };
+  const { state } = actions({ "GET /equipment/availability?event_id=7": { ok: true, status: 200, data: { items: [{ ...available[0], over_committed: false }, over] } } });
+  const item = request();
+  state.startArrangement(item);
+  await state.toggleReserve(item);
+  assert.deepEqual(state.overCommittedLines().map(line => line.name), ["Speaker"]);
+  assert.equal(state.overCommittedLabel(over), "Speaker: 9 units are reserved or unavailable for this event's date and time, but there are only 5. Release some or find more.");
+  assert.match(row, /x-for="line in overCommittedLines\(\)"/);
+  assert.match(row, /x-text="overCommittedLabel\(line\)"/);
+});
+
 test("TC-4421 the reserve form offers the matching item and the quantity requested", async () => {
   const { state } = actions();
   const item = request();
@@ -178,6 +190,43 @@ test("TC-4425 a reservation can be released from the row, and a failed release s
   await failing.state.toggleReserve(item);
   await failing.state.releaseReservation(item, held);
   assert.match(failing.state.arrangement.reserveError, /already been released/);
+});
+
+test("TC-4430 a refused release reloads the list, so a stale row and its button don't stay", async () => {
+  const fresh = { ...held, released_at: "2099-01-02T00:00:00", released_by: "tech" };
+  const { state, sent } = actions({
+    "DELETE /events/7/equipment-reservations/9": { ok: false, status: 409, data: { detail: "This reservation has already been released." } },
+    "GET /events/7/equipment-reservations": { ok: true, status: 200, data: { reservations: [fresh] } },
+  });
+  const item = request();
+  state.startArrangement(item);
+  state.arrangement.reserveOpen = true;
+  state.arrangement.reservations = [held];
+  await state.releaseReservation(item, held);
+  assert.deepEqual(sent.slice(1).map(([method, path]) => `${method} ${path}`), ["GET /equipment/availability?event_id=7", "GET /events/7/equipment-reservations"]);
+  assert.deepEqual(state.arrangement.reservations, [fresh]);
+  assert.match(state.arrangement.reserveError, /already been released/, "the reason stays after the reload");
+  assert.equal(state.arrangement.message, "");
+});
+
+test("TC-4431 releasing hands focus to the row's Reserve button, because the Release button goes away", async () => {
+  const { state } = actions();
+  const item = request();
+  let focused = 0;
+  state.$nextTick = callback => callback();
+  state.$refs = { reserveToggle: { focus: () => { focused += 1; } } };
+  state.startArrangement(item);
+  await state.releaseReservation(item, held);
+  assert.equal(focused, 1);
+
+  const failing = actions({ "DELETE /events/7/equipment-reservations/9": { ok: false, status: 409, data: { detail: "This reservation has already been released." } } });
+  let refusedFocus = 0;
+  failing.state.$nextTick = callback => callback();
+  failing.state.$refs = { reserveToggle: { focus: () => { refusedFocus += 1; } } };
+  failing.state.startArrangement(item);
+  await failing.state.releaseReservation(item, held);
+  assert.equal(refusedFocus, 1, "a refused release can also remove the button, once the list reloads");
+  assert.match(row, /x-ref="reserveToggle"[^>]*@click="toggleReserve\(item\)"/);
 });
 
 function detail(reply) {

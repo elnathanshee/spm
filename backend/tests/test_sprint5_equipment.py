@@ -926,3 +926,34 @@ def test_tc4315_a_closed_event_holds_no_units_even_if_its_reservation_was_never_
     other.status = closed
     db.commit()
     assert availability(client, event)["items"][0]["reserved"] == 0
+
+
+def test_tc4316_units_over_committed_after_they_were_reserved_are_flagged(client, db, users):
+    # [SCRUM-43] Reserving never over-reserves, but a reservation follows its event, so
+    # moving an event later can leave more held than exists. Technical Support must see that.
+    item = add_item(client, total_quantity=5).json()["item"]
+    event = make_event(db, users)
+    book(db, event)
+    other = make_event(db, users, title="Other")
+    hold_units(db, users, item, event, 5)
+    hold_units(db, users, item, other, 5)  # no booking, so on its own day in April
+    assert availability(client, event)["items"][0]["over_committed"] is False, "exactly all of it held is fine"
+
+    book(db, other, name="Side Hall")  # now both events are at the same time
+    row = availability(client, event)["items"][0]
+    assert row["reserved"] == 10 and row["available"] == 0
+    assert row["over_committed"] is True
+
+
+def test_tc4317_unavailable_units_count_towards_over_committed(client, db, users):
+    # [SCRUM-43] Reserved + unavailable above the total, and exactly the total is not flagged.
+    item = add_item(client, total_quantity=5).json()["item"]
+    event = make_event(db, users)
+    book(db, event)
+    hold_units(db, users, item, event, 3)
+    window = availability(client, event)
+    period = {"start_at": window["window_start"], "end_at": window["window_end"]}
+    assert add_period(client, item["id"], units=2, **period).status_code == 201
+    assert availability(client, event)["items"][0]["over_committed"] is False
+    assert add_period(client, item["id"], units=1, **period).status_code == 201
+    assert availability(client, event)["items"][0]["over_committed"] is True

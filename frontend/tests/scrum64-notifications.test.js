@@ -109,6 +109,11 @@ test("TC-9512 hold notifications retain payloads, distinct mappings and read beh
   assert.equal(state.notificationTitle({ kind: "unknown" }), "Workspace update");
 });
 
+test("TC-6505 the Coordinator's equipment notice has its own title in the bell", () => {
+  const { state } = app();
+  assert.equal(state.notificationTitle({ kind: "equipment_request_updated" }), "Equipment request updated");
+});
+
 test("TC-9811 a notification links only to a record its backend links and the user's role allow", () => {
   const { state } = app();
   const booking = { id: 1, event_id: 4, booking_id: 9, kind: "booking_submitted" };

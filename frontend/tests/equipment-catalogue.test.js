@@ -238,3 +238,39 @@ test("TC-4127 closing the form returns focus to Add item, so keyboard users don'
   assert.equal(focused, 2);
   assert.match(panel, /x-ref="catalogueAdd"/);
 });
+
+test("TC-4229 closing the unavailable units section returns focus to that item's button", async () => {
+  const { state } = component();
+  await state.init();
+  const looked = [];
+  let focused = 0;
+  state.$nextTick = callback => callback();
+  state.$root = { querySelector: selector => { looked.push(selector); return { focus: () => { focused += 1; } }; } };
+  await state.openCataloguePeriods(microphone);
+  state.closeCataloguePeriods();
+  assert.equal(state.catalogue.periods, null);
+  assert.deepEqual(looked, ['[data-periods-item="1"]']);
+  assert.equal(focused, 1);
+  assert.match(panel, /:data-periods-item="item\.id"[^>]*@click="openCataloguePeriods\(item\)"/);
+});
+
+test("TC-4230 removing a period moves focus to the section heading, because the Remove button goes away", async () => {
+  const { state } = component();
+  await state.init();
+  let focused = 0;
+  state.$nextTick = callback => callback();
+  state.$refs = { periodsHeading: { focus: () => { focused += 1; } } };
+  await state.openCataloguePeriods(microphone);
+  await state.removePeriod(period);
+  assert.equal(focused, 1);
+  assert.match(panel, /<h3 id="equipment-periods-title" tabindex="-1" x-ref="periodsHeading"/);
+
+  const failing = component({ "DELETE /equipment/items/1/unavailability/5": { ok: false, status: 404, data: { detail: "Unavailable period not found" } } });
+  await failing.state.init();
+  let refusedFocus = 0;
+  failing.state.$nextTick = callback => callback();
+  failing.state.$refs = { periodsHeading: { focus: () => { refusedFocus += 1; } } };
+  await failing.state.openCataloguePeriods(microphone);
+  await failing.state.removePeriod(period);
+  assert.equal(refusedFocus, 0, "a refused removal keeps the button, so focus stays on it");
+});
