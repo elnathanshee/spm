@@ -26,6 +26,14 @@ const HAS_ZONE = /(Z|[+-]\d{2}:?\d{2})$/i;
 // [SCRUM-99] The button that opened the calendar. Kept out of Alpine's state so a DOM element isn't made reactive.
 let venueCalendarOpener = null;
 
+// [SCRUM-99] Only a developer on their own machine can start the backend, so only they see that hint.
+function backendUnreachableMessage() {
+  const hostname = window.location.hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1"
+    ? "Cannot reach the backend service. Start FastAPI on port 8000 and try again."
+    : "Cannot reach the backend service. Check your connection and try again.";
+}
+
 // One badge tone per backend status (event statuses: backend/status.py; booking
 // statuses: booking_rules and venues). The label is always the status itself.
 const STATUS_TONES = {
@@ -243,7 +251,7 @@ document.addEventListener("alpine:init", () => {
       try {
         response = await fetch(`${API_BASE}${path}`, request);
       } catch {
-        const data = { detail: "Cannot reach the backend service. Start FastAPI on port 8000 and try again." };
+        const data = { detail: backendUnreachableMessage() };
         handleError(0, data);
         return { ok: false, status: 0, data };
       }
@@ -255,7 +263,7 @@ document.addEventListener("alpine:init", () => {
 
     handleHttpError(status, data, path) {
       if (status === 0 || status === 503) {
-        this.showAlert(data.detail || "Cannot reach the backend service. Start FastAPI on port 8000 and try again.");
+        this.showAlert(data.detail || backendUnreachableMessage());
         return;
       }
       if (status === 401) {

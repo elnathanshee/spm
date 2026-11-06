@@ -16,8 +16,8 @@ import { resetSignedOutState } from "../src/session-state.js";
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
-// Loads app.js with a fixed clock (when `now` is given), address and document.
-function app({ now, hostname = "localhost", document: page = {} } = {}) {
+// Loads app.js with a fixed clock (when `now` is given), address and document. Its fetch always fails.
+function app({ now, hostname = "localhost", document: page = {}, stubApi = true } = {}) {
   let factory;
   const context = {
     NAVIGATION,
@@ -42,7 +42,7 @@ function app({ now, hostname = "localhost", document: page = {} } = {}) {
   );
   const state = factory();
   state.user = { user_id: 9, username: "coord1", role: "Coordinator" };
-  state.apiRequest = async () => ({ ok: true, status: 200, data: { days: [] } });
+  if (stubApi) state.apiRequest = async () => ({ ok: true, status: 200, data: { days: [] } });
   return state;
 }
 
@@ -157,25 +157,7 @@ test("TC-9920 the equipment form accepts the largest quantity and refuses one ab
 
 // ---------------------------------------------------------- network message
 
-// app() replaces apiRequest with a stub, so read the real one from a fresh copy of the source.
-const realApiRequest = hostname => {
-  let factory;
-  vm.runInNewContext(
-    source.trimStart().replace(/^const API_BASE.*$/m, 'const API_BASE = "";').replace(/^import[\s\S]*?from ".*?";/gm, ""),
-    {
-      NAVIGATION,
-      normalizeRoleName: normalizeRole,
-      resolveRolePath,
-      resetSignedOutState,
-      requestedFrontendPath: () => null,
-      document: { addEventListener: (_, fn) => fn() },
-      Alpine: { data: (_, fn) => (factory = fn) },
-      window: { location: { hostname }, setInterval: () => 0 },
-      fetch: async () => { throw new TypeError("Failed to fetch"); },
-    },
-  );
-  return factory();
-};
+const realApiRequest = hostname => app({ hostname, stubApi: false });
 
 test("TC-9924 on the developer's machine a failed call says to start FastAPI", async () => {
   for (const hostname of ["localhost", "127.0.0.1"]) {
@@ -202,4 +184,12 @@ test("TC-9926 the page alert for a 503 without a message follows the same rule",
   };
   assert.match(shown("localhost"), /Start FastAPI/);
   assert.doesNotMatch(shown("connectsphere.vercel.app"), /FastAPI/);
+});
+
+// ---------------------------------------------------------- browser-tab icon
+
+test("TC-9927 the page names a browser-tab icon, and that icon is an SVG file Vite will publish", () => {
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg">/);
+  const icon = readFileSync(new URL("../public/favicon.svg", import.meta.url), "utf8");
+  assert.match(icon, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
 });
