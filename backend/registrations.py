@@ -7,6 +7,7 @@ An Attendee only ever receives what attendee_event_view returns: a short whiteli
 so a new internal field on Event can never reach them by accident.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, StrictBool
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -282,6 +283,67 @@ def event_registrations(event_id: int, current_user: User = Depends(get_current_
             for r in rows
         ],
     }
+
+
+class RegistrationSettingUpdate(BaseModel):
+    # StrictBool: only a real true or false switches registration, not "yes" or 1.
+    enabled: StrictBool
+
+
+def _setting_message(event: Event, setting) -> str:
+    """[SCRUM-65] What the switch means right now, in a sentence."""
+    if setting is None or not setting.enabled:
+        return "Registration is off for this event."
+    if event.status == CONFIRMED:
+        return "Registration is open for this event."
+    return "Registration is on. It opens to Attendees once the event is Confirmed."
+
+
+def _setting_to_dict(event: Event, setting) -> dict:
+    return {
+        "event_id": event.id,
+        "enabled": bool(setting and setting.enabled),
+        "open": _is_open(event, setting),
+        "updated_by": setting.updated_by.username if setting else None,
+        "updated_at": setting.updated_at if setting else None,
+        "message": _setting_message(event, setting),
+    }
+
+
+@router.get("/events/{event_id}/registration-settings")
+def get_registration_settings(event_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """SCRUM-65: whether registration is on. No row means off."""
+    event = _event_for_staff(db, event_id, current_user)
+    return _setting_to_dict(event, _find_setting(db, event.id))
+
+
+@router.put("/events/{event_id}/registration-settings")
+def update_registration_settings(
+    event_id: int,
+    payload: RegistrationSettingUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SCRUM-65: the Organiser or assigned Coordinator switch registration on or off, at any status."""
+    event = _event_for_staff(db, event_id, current_user, allow_lead=False)
+    setting = _find_setting(db, event.id)
+    if setting is None:
+        setting = EventRegistrationSetting(event_id=event.id)
+        db.add(setting)
+    setting.enabled = payload.enabled
+    setting.updated_by_id = current_user.id
+    setting.updated_at = booking_rules.utc_now()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two first saves at the same moment. The constraint keeps a single row.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Someone else changed this setting at the same time. Please try again.",
+        )
+    db.refresh(setting)
+    return _setting_to_dict(event, setting)
 
 
 def _notify_registered(db: Session, event: Event, kind: str, message: str) -> None:
