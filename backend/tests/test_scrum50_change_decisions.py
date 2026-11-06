@@ -367,3 +367,27 @@ def test_tc5023_with_nothing_flagged_the_active_count_is_zero(client, world):
     """TC-5023: no arrangements means nothing active, so the panel can say none were flagged."""
     res = decide(client, world["event"], raised(client, world, {"expected_attendance": 150}))
     assert (res.json()["arrangements_flagged"], res.json()["arrangements_active"]) == (0, 0)
+
+
+def test_tc5025_flags_from_an_approved_change_reach_the_review_flags_route(client, world, db_session, arrangements):
+    """TC-5025: Group C's route lists what approval flagged, and after a clear the next change flags again."""
+    event = world["event"]
+    decide(client, event, raised(client, world, {"expected_attendance": 150}))
+
+    flags = client.get(f"/events/{event.id}/review-flags").json()
+    assert {flag["kind"] for flag in flags} == {"venue", "equipment"}
+    assert {flag["source"] for flag in flags} == {SOURCE_IMPORTANT_CHANGE}
+    assert all("expected attendance" in flag["reason"] for flag in flags)
+    login(client, "org")
+    assert len(client.get(f"/events/{event.id}/review-flags").json()) == 2
+
+    login(client, "coord")
+    assert client.post(f"/events/{event.id}/review-flags/clear").json()["cleared"] == 2
+    assert client.get(f"/events/{event.id}/review-flags").json() == []
+
+    res = decide(client, event, raised(client, world, {"proposed_start": NEW_START}))
+    assert (res.json()["arrangements_flagged"], res.json()["arrangements_active"]) == (2, 2)
+    # Flagged, never removed: both arrangements are still there and unchanged.
+    db_session.expire_all()
+    assert db_session.get(VenueBooking, arrangements["booking"].id).status == "Confirmed"
+    assert db_session.get(EquipmentRequest, arrangements["equipment"].id) is not None
