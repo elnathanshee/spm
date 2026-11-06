@@ -136,7 +136,7 @@
         <!-- [Sprint 5] SCRUM-86 Safety Officer workspace: insert directly below this line. -->
         <!-- [Sprint 5] SCRUM-41 equipment catalogue workspace: insert directly below this line. -->
         <template x-if="currentPath === '/technical' && user.role === 'Technical Support'"><section class="queue-panel equipment-catalogue" x-data="equipmentCatalogue()" aria-labelledby="equipment-catalogue-title">
-          <div class="queue-heading"><div><h2 id="equipment-catalogue-title">Equipment catalogue</h2><p>What you hold and how many. Events reserve from this list.</p></div><button type="button" class="button button-primary button-compact" x-show="catalogue.loaded && !catalogue.form" @click="startCatalogueAdd()">Add item</button></div>
+          <div class="queue-heading"><div><h2 id="equipment-catalogue-title">Equipment catalogue</h2><p>What you hold and how many. Events reserve from this list.</p></div><button type="button" class="button button-primary button-compact" x-ref="catalogueAdd" x-show="catalogue.loaded && !catalogue.form" @click="startCatalogueAdd()">Add item</button></div>
           <div class="equipment-catalogue-body">
             <section class="state-card compact" x-show="catalogue.denied" role="alert"><div class="state-icon danger">!</div><h2>You can't view the equipment catalogue</h2><p x-text="catalogue.error"></p></section>
             <div class="inline-state error request-load-error" x-show="catalogue.error && !catalogue.denied" role="alert"><span x-text="catalogue.error"></span><button type="button" class="button button-secondary button-compact" :disabled="catalogue.busy" @click="loadCatalogue()">Try again</button></div>

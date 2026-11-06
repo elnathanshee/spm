@@ -75,6 +75,8 @@ export function equipmentCatalogue() {
 
     cancelCatalogueForm() {
       Object.assign(this.catalogue, { form: null, editing: null, errors: {} });
+      // The form held the focus, so hand it back once Add item is showing again.
+      this.$nextTick?.(() => this.$refs?.catalogueAdd?.focus());
     },
 
     async saveCatalogueItem() {
