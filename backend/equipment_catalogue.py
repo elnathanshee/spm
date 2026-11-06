@@ -2,6 +2,7 @@
 
 SCRUM-41: a catalogue of equipment items. Technical Support only.
 SCRUM-42: update an item, or record a number of units unavailable for a period.
+SCRUM-43: availability for an event's window.
 """
 
 from datetime import datetime
@@ -12,17 +13,22 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from .arrangements import event_window
 from .auth import get_current_user
-from .booking_rules import to_naive_utc
+from .booking_rules import to_naive_utc, windows_overlap
 from .database import get_db
-from .equipment import TECHNICAL_SUPPORT, _role_of
-from .models import EquipmentItem, EquipmentItemUnavailability, User
+from .equipment import COORDINATOR, LEAD, TECHNICAL_SUPPORT, _role_of, load_event
+from .models import EquipmentItem, EquipmentItemUnavailability, EquipmentReservation, Event, User
 
 router = APIRouter(tags=["equipment catalogue"])
 
 # [SCRUM-41] The Integer column's limit. Above it Postgres fails with a 500, so
 # the request body refuses it with a 422 first.
 MAX_QUANTITY = 2147483647
+
+# [SCRUM-43] Who can read availability and an event's reservations. A Coordinator
+# also has to be the event's assigned one.
+READER_ROLES = TECHNICAL_SUPPORT | {LEAD, COORDINATOR}
 
 
 def require_technical_support(current_user: User = Depends(get_current_user)) -> User:
@@ -284,3 +290,97 @@ def remove_unavailability(
     db.delete(period)
     db.commit()
     return {"message": "Unavailable period removed"}
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-43: availability for an event's date and time
+# ---------------------------------------------------------------------------
+
+
+def reserved_units(db: Session, item: EquipmentItem, start: datetime, end: datetime) -> int:
+    """[SCRUM-43] Units in active reservations whose event's window overlaps. An event
+    that has lost its window (no date, no booking) can't overlap anything."""
+    reservations = (
+        db.query(EquipmentReservation)
+        .filter(EquipmentReservation.item_id == item.id, EquipmentReservation.released_at.is_(None))
+        .all()
+    )
+    total = 0
+    for reservation in reservations:
+        window = event_window(reservation.event)
+        if window and windows_overlap(start, end, window[0], window[1]):
+            total += reservation.quantity
+    return total
+
+
+def unavailable_units(db: Session, item: EquipmentItem, start: datetime, end: datetime) -> int:
+    """[SCRUM-43] Units in unavailable periods that overlap."""
+    periods = db.query(EquipmentItemUnavailability).filter(EquipmentItemUnavailability.item_id == item.id).all()
+    return sum(period.units for period in periods if windows_overlap(start, end, period.start_at, period.end_at))
+
+
+def available_units(db: Session, item: EquipmentItem, start: datetime, end: datetime) -> int:
+    """[SCRUM-43] The PO's formula: total - reservations - unavailable, never below 0.
+    Everything overlapping the window counts, even if those times don't overlap each
+    other. That's deliberately simple, and on the safe side."""
+    return max(item.total_quantity - reserved_units(db, item, start, end) - unavailable_units(db, item, start, end), 0)
+
+
+def load_readable_event(db: Session, event_id: int, user: User) -> Event:
+    """[SCRUM-43] Technical Support, the Lead and the event's assigned Coordinator.
+    The role comes first, so nobody else can learn which events exist."""
+    role = _role_of(user)
+    if role not in READER_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Technical Support Staff, the Lead and the event's Coordinator can view this",
+        )
+    event = load_event(db, event_id)
+    if role == COORDINATOR and event.assigned_coordinator_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Coordinators can view this only for events assigned to them",
+        )
+    return event
+
+
+def require_window(event: Event):
+    """[SCRUM-43] The event's window, or a 400 that says what to do about it."""
+    window = event_window(event)
+    if window is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This event has no date or venue booking yet, so its equipment can't be checked or reserved.",
+        )
+    return window
+
+
+@router.get("/equipment/availability")
+def equipment_availability(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[SCRUM-43] How many units of each item are free for this event's window."""
+    event = load_readable_event(db, event_id, current_user)
+    start, end = require_window(event)
+    rows = []
+    for item in db.query(EquipmentItem).order_by(EquipmentItem.equipment_type, EquipmentItem.name).all():
+        rows.append(
+            {
+                "item_id": item.id,
+                "equipment_type": item.equipment_type,
+                "name": item.name,
+                "total_quantity": item.total_quantity,
+                "reserved": reserved_units(db, item, start, end),
+                "unavailable": unavailable_units(db, item, start, end),
+                "available": available_units(db, item, start, end),
+            }
+        )
+    return {
+        "event_id": event.id,
+        "event_title": event.title,
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
+        "items": rows,
+    }
