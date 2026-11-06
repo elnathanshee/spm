@@ -189,9 +189,9 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 ## Event lifecycle and safety check (SCRUM-102, 86, 87, 66)
 
 - **Coordinator:** starts planning, submits for the safety check once there is a Confirmed booking and all equipment is arranged, and marks a Confirmed event Completed after it ends.
-- **Safety Officer** (`safety_officer` or `safety officer`, page `/safety`): sees attendance, venue capacity and layouts, accessibility needs, equipment notes and known venue restrictions, then approves, rejects or requests changes. A reason is required unless approving. Only approval reaches Confirmed.
+- **Safety Officer** (`safety_officer` or `safety officer`, page `/safety`): sees attendance, venue capacity and layouts, accessibility needs, equipment notes and known venue restrictions, then approves, rejects or requests changes. A reason is required unless approving. Only approval reaches Confirmed, and it is refused if the arrangements stopped meeting the submit rule during the check.
 - **Reject or request changes:** the event returns to Planning and its bookings and equipment are flagged for review. Nothing is cancelled. Resubmitting clears the flags, and the rows stay as history.
-- **Cancelling:** the assigned Coordinator or the Lead at any stage before Completed; the owning Organiser only before Approved. A reason is required. Bookings become Cancelled and their rows stay.
+- **Cancelling:** the assigned Coordinator or the Lead at any stage before Completed; the owning Organiser only before Approved. A reason is required. Bookings become Cancelled, review flags clear, and the rows stay. A Cancelled or Completed event can't take a new booking or equipment line.
 - **Notices:** the Organiser and the Coordinator are told when an event is confirmed or cancelled. The Coordinator is told when a check returns it.
 - **Endpoints:** `POST /events/{id}/start-planning`, `/submit-safety`, `/complete`, `/cancel`; `GET /events/{id}/lifecycle-actions`; `GET /events/{id}/review-flags`, `POST /events/{id}/review-flags/clear`; `GET /safety/events`, `GET /safety/events/{id}`, `POST /safety/events/{id}/decision`.
 
