@@ -416,3 +416,281 @@ def test_tc8222_calendar_leaves_out_a_period_that_only_touches_the_range(client,
     _record(db_session, seed["room"], seed["staff"], at(16), at(18))
     _as(client, "coord")
     assert _calendar(client, seed["hall"], "2099-06-02", "2099-06-02")["unavailable_periods"] == []
+
+
+# ---------------------------------------------------------------------------
+# AC4: overlapping bookings are flagged, never cancelled
+# ---------------------------------------------------------------------------
+
+def _staff_view(client, venue, booking):
+    """The booking as Venue Staff see it in the venue's list."""
+    _as(client, "staff")
+    rows = client.get(f"/venues/{venue.id}/bookings").json()
+    return next(row for row in rows if row["booking_id"] == booking.id)
+
+
+def test_tc8223_pending_and_confirmed_bookings_are_flagged_and_keep_their_status(client, db_session, seed):
+    """TC-8223: both are flagged and returned in affected_bookings with the reason.
+    The status of each is unchanged. The flag row names the booking itself."""
+    confirmed = _booking(db_session, seed["hall"], seed["event"], at(10), at(11), "Confirmed")
+    pending = _booking(db_session, seed["hall"], seed["event"], at(14), at(15), "Pending")
+    db_session.commit()
+    _as(client, "staff")
+    res = _post_period(client, seed["hall"], at(9), at(18), "Renovation")
+    assert res.status_code == 201
+    body = res.json()
+    assert sorted(b["booking_id"] for b in body["affected_bookings"]) == [confirmed.id, pending.id]
+    for row in body["affected_bookings"]:
+        assert "Renovation" in row["conflict_flag"]["reason"]
+    db_session.expire_all()
+    assert (confirmed.status, pending.status) == ("Confirmed", "Pending")
+    assert confirmed.conflict_flag.conflicting_booking_id == confirmed.id
+    assert pending.conflict_flag.conflicting_booking_id == pending.id
+
+
+def test_tc8224_bookings_that_dont_hold_the_venue_or_dont_overlap_are_not_flagged(client, db_session, seed):
+    """TC-8224: Rejected, an expired hold, an overlap at another venue, and a booking
+    whose occupied window only touches the period (12:30 occupies from 12:00) are
+    left alone. Starting at 12:29, a booking occupies from 11:59 and is flagged."""
+    rejected = _booking(db_session, seed["hall"], seed["event"], at(10), at(11), "Rejected")
+    expired = _booking(db_session, seed["hall"], seed["event"], at(10), at(11), "Expired")
+    elsewhere = _booking(db_session, seed["room"], seed["event"], at(10), at(11))
+    touching = _booking(db_session, seed["hall"], seed["event"], at(12, 30), at(13))
+    overlapping = _booking(db_session, seed["hall"], seed["event"], at(12, 29), at(12, 30))
+    db_session.commit()
+    _as(client, "staff")
+    body = _post_period(client, seed["hall"]).json()
+    assert [b["booking_id"] for b in body["affected_bookings"]] == [overlapping.id]
+    assert db_session.query(VenueBookingConflictFlag).count() == 1
+    for untouched in (rejected, expired, elsewhere, touching):
+        assert untouched.conflict_flag is None
+
+
+def test_tc8225_a_booking_that_has_ended_is_not_flagged(client, db_session, seed):
+    """TC-8225: a period recorded over the past flags nothing: nobody can make
+    other arrangements for a booking that is over."""
+    past = datetime(2020, 1, 1, 10)
+    _booking(db_session, seed["hall"], seed["event"], past, past + timedelta(hours=1))
+    db_session.commit()
+    _as(client, "staff")
+    res = _post_period(client, seed["hall"], past, past + timedelta(hours=2))
+    assert res.status_code == 201
+    assert res.json()["affected_bookings"] == []
+    assert db_session.query(VenueBookingConflictFlag).count() == 0
+    assert db_session.query(Notification).count() == 0
+
+
+def test_tc8226_the_events_own_information_is_preserved(client, db_session, seed):
+    """TC-8226: recording and removing a period leaves the event's fields and its
+    status history exactly as they were, and the booking's times too."""
+    event = seed["event"]
+    booking = _booking(db_session, seed["hall"], event, at(10), at(11))
+    db_session.commit()
+    before = (event.title, event.status, event.proposed_start, event.expected_attendance, event.assigned_coordinator_id)
+    history_before = db_session.query(EventStatusHistory).count()
+    _as(client, "staff")
+    period_id = _post_period(client, seed["hall"]).json()["period"]["id"]
+    client.delete(f"/venues/{seed['hall'].id}/unavailability/{period_id}")
+    db_session.expire_all()
+    assert (event.title, event.status, event.proposed_start, event.expected_attendance,
+            event.assigned_coordinator_id) == before
+    assert db_session.query(EventStatusHistory).count() == history_before
+    assert (booking.booking_start, booking.booking_end, booking.status) == (at(10), at(11), "Confirmed")
+
+
+def test_tc8227_removing_the_period_clears_the_flag_without_further_work(client, db_session, seed):
+    """TC-8227: the flag shows while the period exists, naming its reason in
+    Singapore time. Once removed it is gone, and the stored row reads Resolved."""
+    booking = _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    db_session.commit()
+    _as(client, "staff")
+    period_id = _post_period(client, seed["hall"], at(9), at(12), "Equipment failure").json()["period"]["id"]
+    flag = _staff_view(client, seed["hall"], booking)["conflict_flag"]
+    assert "Equipment failure" in flag["reason"] and "2099-06-01 17:00" in flag["reason"]
+    assert flag["unavailability_id"] == period_id
+
+    client.delete(f"/venues/{seed['hall'].id}/unavailability/{period_id}")
+    row = _staff_view(client, seed["hall"], booking)
+    assert row["conflict_flag"] is None
+    assert row["conflict_flag_record"]["state"] == "Resolved"
+    assert db_session.query(VenueBookingConflictFlag).count() == 1
+
+
+def test_tc8228_a_booking_with_a_clash_flag_reuses_its_row(client, db_session, seed):
+    """TC-8228: the flag table allows one row per booking. A booking already flagged
+    for a clash keeps its row and the clash it names. The period shows while it
+    exists, then the clash shows again."""
+    first = _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    other = _booking(db_session, seed["hall"], seed["event"], at(10, 30), at(11, 30))
+    db_session.add(VenueBookingConflictFlag(booking_id=first.id, conflicting_booking_id=other.id, reason="Old clash"))
+    db_session.commit()
+    _as(client, "staff")
+    res = _post_period(client, seed["hall"], at(9), at(12), "Safety")
+    assert res.status_code == 201
+    row = db_session.query(VenueBookingConflictFlag).filter_by(booking_id=first.id).one()
+    assert (row.conflicting_booking_id, row.reason) == (other.id, "Old clash")
+    assert "Safety" in _staff_view(client, seed["hall"], first)["conflict_flag"]["reason"]
+
+    client.delete(f"/venues/{seed['hall'].id}/unavailability/{res.json()['period']['id']}")
+    flag = _staff_view(client, seed["hall"], first)["conflict_flag"]
+    assert flag["conflicting_booking_id"] == other.id
+    assert "Safety" not in flag["reason"]
+
+
+def test_tc8229_two_periods_keep_the_flag_until_both_are_gone(client, db_session, seed):
+    """TC-8229: with two overlapping periods, removing the first shows the second's
+    reason; removing that clears the flag. A later period flags the booking again
+    with its own reason, on the same row."""
+    booking = _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    db_session.commit()
+    _as(client, "staff")
+    url = f"/venues/{seed['hall'].id}/unavailability"
+    first = _post_period(client, seed["hall"], at(9), at(10, 30), "Maintenance").json()["period"]["id"]
+    second = _post_period(client, seed["hall"], at(10, 30), at(12), "Safety").json()["period"]["id"]
+    assert "Maintenance" in _staff_view(client, seed["hall"], booking)["conflict_flag"]["reason"]
+    client.delete(f"{url}/{first}")
+    assert "Safety" in _staff_view(client, seed["hall"], booking)["conflict_flag"]["reason"]
+    client.delete(f"{url}/{second}")
+    assert _staff_view(client, seed["hall"], booking)["conflict_flag"] is None
+
+    body = _post_period(client, seed["hall"], at(9), at(12), "Renovation").json()
+    assert "Renovation" in body["affected_bookings"][0]["conflict_flag"]["reason"]
+    row = db_session.query(VenueBookingConflictFlag).one()
+    assert "Renovation" in row.reason
+
+
+def test_tc8230_longer_buffers_can_reach_a_period_and_flag_the_booking(client, db_session, seed):
+    """TC-8230: the booking ends 09:15, so with 45 min turnaround it only touches
+    the 10:00 period. A turnaround of 60 min overlaps it: SCRUM-80's re-check flags
+    the booking and reports it, with the period's reason."""
+    booking = _booking(db_session, seed["hall"], seed["event"], at(8), at(9, 15))
+    db_session.commit()
+    _as(client, "staff")
+    assert _post_period(client, seed["hall"], reason="Maintenance").json()["affected_bookings"] == []
+    res = client.patch(f"/venues/{seed['hall'].id}", json={"turnaround_time_mins": 60})
+    flagged = res.json()["flagged_bookings"]
+    assert [b["booking_id"] for b in flagged] == [booking.id]
+    assert "Maintenance" in flagged[0]["conflict_flag"]["reason"]
+
+
+def test_tc8231_a_row_left_by_a_removed_period_doesnt_hide_a_new_clash(client, db_session, seed):
+    """TC-8231: after the period is removed the row remains as history. A later
+    buffer change that makes a real clash still counts as new and is reported,
+    naming the other booking."""
+    first = _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    other = _booking(db_session, seed["hall"], seed["event"], at(12), at(13))
+    db_session.commit()
+    _as(client, "staff")
+    period_id = _post_period(client, seed["hall"], at(9), at(10, 30)).json()["period"]["id"]
+    client.delete(f"/venues/{seed['hall'].id}/unavailability/{period_id}")
+    res = client.patch(f"/venues/{seed['hall'].id}", json={"turnaround_time_mins": 120})
+    flagged = {b["booking_id"]: b for b in res.json()["flagged_bookings"]}
+    assert flagged[first.id]["conflict_flag"]["conflicting_booking_id"] == other.id
+
+
+# ---------------------------------------------------------------------------
+# AC5: the assigned Coordinator is told
+# ---------------------------------------------------------------------------
+
+def test_tc8232_coordinator_is_told_once_per_event_with_the_details(client, db_session, seed):
+    """TC-8232: an event with two affected bookings gets one notice for its
+    Coordinator. It names the venue, the Singapore-time period, the reason and
+    that alternative arrangements are needed, and nobody else is told."""
+    _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    _booking(db_session, seed["hall"], seed["event"], at(14), at(15), "Pending")
+    db_session.commit()
+    _as(client, "staff")
+    assert _post_period(client, seed["hall"], at(9), at(18), "Equipment failure").status_code == 201
+    notice = db_session.query(Notification).one()
+    assert notice.user_id == seed["coord"].id
+    assert notice.event_id == seed["event"].id
+    assert notice.booking_id is None
+    assert notice.kind == "venue_unavailable"
+    for text in ("Grand Hall", "Equipment failure", "2099-06-01 17:00", "2099-06-02 02:00", "alternative arrangements"):
+        assert text in notice.message
+
+
+def test_tc8233_each_affected_event_tells_its_own_coordinator(client, db_session, seed):
+    """TC-8233: two events with different Coordinators: one notice each."""
+    second = _event(db_session, "Careers Fair", seed["organiser"], seed["other_coord"])
+    _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    _booking(db_session, seed["hall"], second, at(14), at(15))
+    db_session.commit()
+    _as(client, "staff")
+    _post_period(client, seed["hall"], at(9), at(18))
+    told = {(n.user_id, n.event_id) for n in db_session.query(Notification).all()}
+    assert told == {(seed["coord"].id, seed["event"].id), (seed["other_coord"].id, second.id)}
+    assert db_session.query(Notification).count() == 2
+
+
+def test_tc8234_a_second_period_is_a_second_notice(client, db_session, seed):
+    """TC-8234: once per event per period: another period tells them again, and
+    the unique rule on notifications doesn't get in the way."""
+    _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    db_session.commit()
+    _as(client, "staff")
+    assert _post_period(client, seed["hall"], at(9), at(11), "Maintenance").status_code == 201
+    assert _post_period(client, seed["hall"], at(10), at(12), "Safety").status_code == 201
+    assert db_session.query(Notification).count() == 2
+
+
+def test_tc8235_no_coordinator_means_no_notice_but_the_booking_is_returned(client, db_session, seed):
+    """TC-8235: the event has no assigned Coordinator: 201, the booking is flagged
+    and returned in affected_bookings, and nobody is notified."""
+    unassigned = _event(db_session, "Unassigned Meetup", seed["organiser"], None)
+    booking = _booking(db_session, seed["hall"], unassigned, at(10), at(11))
+    db_session.commit()
+    _as(client, "staff")
+    res = _post_period(client, seed["hall"])
+    assert res.status_code == 201
+    assert [b["booking_id"] for b in res.json()["affected_bookings"]] == [booking.id]
+    assert db_session.query(Notification).count() == 0
+
+
+def test_tc8236_a_period_with_nothing_affected_tells_nobody(client, db_session, seed):
+    """TC-8236: no bookings in the period: an empty list and no notices."""
+    _booking(db_session, seed["hall"], seed["event"], at(10, days=5), at(11, days=5))
+    db_session.commit()
+    _as(client, "staff")
+    assert _post_period(client, seed["hall"]).json()["affected_bookings"] == []
+    assert db_session.query(Notification).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# AC6: the Coordinator sees the flag and can request a replacement
+# ---------------------------------------------------------------------------
+
+def test_tc8237_coordinator_sees_the_flag_on_the_events_bookings(client, db_session, seed):
+    """TC-8237: GET /events/{id}/bookings carries the flag on the affected booking
+    only, and not once the period is removed."""
+    hit = _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    miss = _booking(db_session, seed["room"], seed["event"], at(10), at(11))
+    db_session.commit()
+    _as(client, "staff")
+    period_id = _post_period(client, seed["hall"], reason="Safety").json()["period"]["id"]
+    _as(client, "coord")
+    rows = {r["id"]: r for r in client.get(f"/events/{seed['event'].id}/bookings").json()}
+    assert "Safety" in rows[hit.id]["conflict_flag"]["reason"]
+    assert rows[miss.id]["conflict_flag"] is None
+
+    _as(client, "staff")
+    client.delete(f"/venues/{seed['hall'].id}/unavailability/{period_id}")
+    _as(client, "coord")
+    rows = {r["id"]: r for r in client.get(f"/events/{seed['event'].id}/bookings").json()}
+    assert rows[hit.id]["conflict_flag"] is None
+
+
+def test_tc8238_coordinator_can_find_and_request_a_replacement(client, db_session, seed):
+    """TC-8238: search shows the flagged venue as unavailable and the other as free.
+    The request at the other venue succeeds and the flagged booking stays."""
+    original = _booking(db_session, seed["hall"], seed["event"], at(10), at(11))
+    db_session.commit()
+    _as(client, "staff")
+    _post_period(client, seed["hall"])
+    _as(client, "coord")
+    params = {"start_time": at(10).isoformat(), "end_time": at(11).isoformat(), "available_only": True}
+    assert [v["name"] for v in client.get("/venues/search", params=params).json()] == ["Small Room"]
+    assert _request(client, seed["room"], seed["event"], at(10), at(11)).status_code == 201
+    db_session.expire_all()
+    assert original.status == "Confirmed"
+    assert original.conflict_flag is not None
