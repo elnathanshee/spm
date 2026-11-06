@@ -9,6 +9,7 @@ Event Planning & Venue Booking System, built for **IS212 Software Project Manage
 ## What's new in v1.1.0 (Sprint 5)
 
 <!-- [Sprint 5] A SCRUM-83 multiple venues: one bullet directly below this line. -->
+- **Multiple venues for one event:** an event can hold several bookings, each checked on its own, and the Coordinator can now cancel one booking without affecting the others.
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: one bullet directly below this line. -->
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: one bullet directly below this line. -->
 - **Event lifecycle and safety check:** Approved events move through Planning, a Safety Officer's check, Confirmed and Completed, and can be cancelled with a reason before Completed.
@@ -184,6 +185,13 @@ A venue booking request is a **tentative hold** (status `Pending`) until Venue S
 - **Limitation:** if nobody uses the app between a hold's warning time and its expiry, only the expiry notice is shown.
 
 <!-- [Sprint 5] A SCRUM-83 multiple venues: its section directly below this line. -->
+### Multiple venues for one event (SCRUM-83)
+
+- **Coordinator or Lead:** open an event's Venue bookings dialog and use **Request another venue** to hold more than one venue, even for the same time. A clash at one venue refuses only that request.
+- **Each booking stands alone:** rejecting, expiring or cancelling one leaves the others as they were. `GET /events/{id}/bookings` lists all of them, and `GET /events/{id}/venue-suitability` checks each venue on its own.
+- **Cancel booking:** the event's assigned Coordinator or a Lead can cancel a booking from Booking history, after a confirm step. `POST /venues/bookings/{id}/cancel` sets the status to Cancelled. This frees the slot, and the row stays as history. A booking that no longer holds the venue (rejected, expired, already cancelled, or ended) returns 400. Cancelling a Confirmed event's last Confirmed booking is allowed: the confirm step warns that the event stays Confirmed and attendees will see no venue until another booking is confirmed.
+- **Venue Staff:** Cancelled bookings appear under Past and closed, with their own filter. Venue Staff get no notification when a booking is cancelled.
+
 <!-- [Sprint 5] B SCRUM-82 venue unavailability: its section directly below this line. -->
 <!-- [Sprint 5] C SCRUM-102 lifecycle and safety: its section directly below this line. -->
 ## Event lifecycle and safety check (SCRUM-102, 86, 87, 66)
