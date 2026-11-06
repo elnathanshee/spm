@@ -431,3 +431,40 @@ def test_tc8630_approval_is_refused_while_the_gate_is_no_longer_met(world):
     back = officer.post(f"/safety/events/{event.id}/decision", json={"decision": "request_changes", "reason": "Arrange the Mic first"})
     assert back.status_code == 200
     assert back.json()["status"] == "Planning"
+
+
+# --- [SCRUM-82] A venue period recorded through its own route meets the lifecycle -------
+
+def _record_period(world, reason="Fire door repair"):
+    body = {"start_at": START.isoformat(), "end_at": END.isoformat(), "reason": reason}
+    return world.login("venue1").post(f"/venues/{world.hall.id}/unavailability", json=body)
+
+
+def test_tc8632_a_period_recorded_during_the_check_reaches_the_officer_and_moves_nothing(world):
+    """TC-8632: the Coordinator is told, the officer sees the reason, and the event and booking stay as they were."""
+    event = world.event("Safety Review")
+    booking = world.booking(event)
+
+    recorded = _record_period(world)
+
+    assert recorded.status_code == 201
+    assert booking.id in [item["id"] for item in recorded.json()["affected_bookings"]]
+    assert any("Fire door repair" in notice.message for notice in world.notices("coord1", event))
+    world.db.expire_all()
+    assert world.db.get(Event, event.id).status == "Safety Review"
+    assert world.db.get(VenueBooking, booking.id).status == "Confirmed"
+    details = world.login("safety1").get(f"/safety/events/{event.id}").json()
+    assert "Fire door repair" in [p["reason"] for venue in details["venue_details"] for p in venue["unavailable_periods"]]
+
+
+def test_tc8633_a_period_after_a_cancel_passes_over_the_released_booking(world):
+    """TC-8633: the cancel released the booking, so a later period flags nothing and tells nobody."""
+    event = _in_review(world)
+    assert world.login("coord1").post(f"/events/{event.id}/cancel", json={"reason": "Client withdrew"}).status_code == 200
+    before = len(world.notices("coord1", event))
+
+    recorded = _record_period(world)
+
+    assert recorded.status_code == 201
+    assert recorded.json()["affected_bookings"] == []
+    assert len(world.notices("coord1", event)) == before
