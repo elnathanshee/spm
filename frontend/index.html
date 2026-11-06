@@ -126,11 +126,38 @@
           </div>
           </div></template>
         </section></template>
-        <!-- Attendee: no route lists events for this role and none can be confirmed yet (BACKEND_ISSUES.md #1),
-             so the page shows only its empty state. -->
-        <template x-if="currentPath === '/attendee' && user.role === 'Attendee'"><section class="attendee-page">
-          <div class="page-header"><div><p class="eyebrow">Attendee workspace</p><h1>Event directory</h1><p>Events you can attend.</p></div></div>
-          <section class="state-card compact" role="status"><div class="state-icon" x-html="iconFor('ticket')"></div><h2>No events are available yet</h2><p>Please check back later.</p></section>
+        <!-- [SCRUM-45, 46, 47] Attendee: open events, register, my registrations and withdraw (attendee-registration.js). -->
+        <template x-if="currentPath === '/attendee' && user.role === 'Attendee'"><section class="attendee-page" x-data="attendeeRegistration()">
+          <div class="page-header"><div><p class="eyebrow">Attendee workspace</p><h1>Event directory</h1><p>Events open for registration, and your own registrations.</p></div><button type="button" class="button button-secondary" :disabled="regLoading" @click="loadRegistrationData()" x-show="regLoaded">Refresh</button></div>
+          <p class="form-help" role="status" aria-live="polite" tabindex="-1" x-ref="regStatus" x-text="regNotice"></p>
+          <div class="inline-state error request-load-error" x-show="regError" role="alert"><span x-text="regError"></span><button type="button" class="button button-secondary button-compact" :disabled="regLoading" @click="loadRegistrationData()">Try again</button></div>
+          <div class="inline-state" x-show="!regLoaded && !regError" role="status"><span class="spinner dark" aria-hidden="true"></span> Loading events…</div>
+          <template x-if="regLoaded"><div>
+            <section class="state-card compact" x-show="!regEvents.length"><div class="state-icon" x-html="iconFor('ticket')"></div><h2>No events are open for registration</h2><p>Please check back later.</p></section>
+            <section class="queue-panel request-group registration-section" x-show="regEvents.length" aria-labelledby="registration-open-title">
+              <div class="queue-heading"><div><h2 id="registration-open-title">Open events</h2><p>Register for a place. You can withdraw later if your plans change.</p></div></div>
+              <ul class="request-list"><template x-for="event in regEvents" :key="event.event_id"><li class="request-row">
+                <div class="request-summary">
+                  <div class="request-title"><h3 x-text="event.title"></h3><template x-if="event.my_status === 'registered'"><span class="status-badge badge-success">Registered</span></template></div>
+                  <p class="registration-description" x-show="event.description" x-text="event.description"></p>
+                  <dl class="request-meta"><div><dt>When</dt><dd x-text="regWhen(event)"></dd></div><div><dt>Where</dt><dd x-text="regVenues(event)"></dd></div><div><dt>Places</dt><dd x-text="regPlaces(event)"></dd></div></dl>
+                </div>
+                <div class="request-actions button-group"><button type="button" class="button button-primary" x-show="regCanRegister(event)" :disabled="regBusyId !== null" :aria-label="`${regRegisterLabel(event)} for ${event.title}`" @click="registerFor(event)" x-text="regBusyId === event.event_id ? 'Saving…' : regRegisterLabel(event)"></button></div>
+              </li></template></ul>
+            </section>
+            <section class="queue-panel request-group registration-section" aria-labelledby="registration-mine-title">
+              <div class="queue-heading"><div><h2 id="registration-mine-title">My registrations</h2><p>Your status for each event you registered for.</p></div></div>
+              <p class="form-help" x-show="!regMine.length">You haven't registered for any events yet.</p>
+              <ul class="request-list"><template x-for="item in regMine" :key="item.event_id"><li class="request-row">
+                <div class="request-summary">
+                  <div class="request-title"><h3 x-text="item.title"></h3><span class="status-badge" :class="regStatusClass(item)" x-text="regStatusText(item)"></span></div>
+                  <dl class="request-meta"><div><dt>When</dt><dd x-text="regWhen(item)"></dd></div><div><dt>Where</dt><dd x-text="regVenues(item)"></dd></div></dl>
+                </div>
+                <div class="request-actions button-group"><button type="button" class="button button-secondary" x-show="regCanWithdraw(item) && regConfirmId !== item.event_id" :disabled="regBusyId !== null" :aria-label="`Withdraw from ${item.title}`" @click="askWithdraw(item)">Withdraw</button></div>
+                <template x-if="regConfirmId === item.event_id"><div class="dialog-error registration-confirm" role="alert"><span x-text="`Withdraw from ${item.title}? Your place goes to someone else if the event fills up.`"></span><div class="panel-actions"><button type="button" class="button button-secondary" x-init="$nextTick(() => $el.focus())" @click="keepPlace()">Keep my place</button><button type="button" class="button button-danger" :disabled="regBusyId !== null" @click="confirmWithdraw(item)">Withdraw</button></div></div></template>
+              </li></template></ul>
+            </section>
+          </div></template>
         </section></template>
 
         <!-- [Sprint 5] SCRUM-86 Safety Officer workspace: insert directly below this line. -->
@@ -306,6 +333,18 @@
       <!-- [Sprint 5] SCRUM-87 arrangement review flags panel: insert directly below this line. -->
       <!-- [Sprint 5] SCRUM-44 equipment reservations panel: insert directly below this line. -->
       <!-- [Sprint 5] SCRUM-48 registrations panel: insert directly below this line. -->
+      <section class="dialog-section" x-data="eventRegistrations()" x-show="canManageRegistrations()" aria-labelledby="event-registrations-title">
+        <div class="dialog-section-heading"><div><h3 id="event-registrations-title">Registrations</h3><p>Attendees can register while this is on and the event is Confirmed.</p></div></div>
+        <div class="inline-state" x-show="regLoading && !regLoaded" role="status"><span class="spinner dark" aria-hidden="true"></span> Loading registrations…</div>
+        <div class="inline-state error request-load-error" x-show="regError" role="alert"><span x-text="regError"></span><button type="button" class="button button-secondary button-compact" x-show="!regLoaded" :disabled="regLoading" @click="loadEventRegistrations()">Try again</button></div>
+        <template x-if="regLoaded"><div>
+          <div class="registration-switch"><p class="form-help" role="status" x-text="regSetting.message"></p><button type="button" class="button button-secondary button-compact" :aria-pressed="regSetting.enabled ? 'true' : 'false'" :disabled="regBusy" @click="toggleRegistration()" x-text="regToggleLabel()"></button></div>
+          <p class="form-help" x-text="regCounts()"></p>
+          <p class="form-help" x-show="!regList.registrations.length">Nobody has registered yet.</p>
+          <template x-if="regList.registrations.length"><div class="table-container"><table class="data-table"><thead><tr><th scope="col">Attendee</th><th scope="col">Status</th><th scope="col">When</th></tr></thead>
+            <tbody><template x-for="row in regList.registrations" :key="row.id"><tr><td data-label="Attendee" x-text="row.attendee"></td><td data-label="Status"><span class="status-badge" :class="regRowClass(row)" x-text="regRowStatus(row)"></span></td><td data-label="When" x-text="regRowTime(row)"></td></tr></template></tbody></table></div></template>
+        </div></template>
+      </section>
       <!-- [Sprint 5] SCRUM-49 change requests panel: insert directly below this line. -->
       </div></template></div>
     </section></div></template>

@@ -370,6 +370,10 @@ document.addEventListener("alpine:init", () => {
         hold_warning: "Hold expiry warning",
         hold_expired: "Hold expired",
         hold_expiry_set: "Hold expiry updated",
+        // [SCRUM-52] Sent to registered Attendees (backend/registrations.py).
+        registered_event_cancelled: "Event cancelled",
+        registered_event_changed: "Event changed",
+        registered_details_changed: "Event details updated",
         submitted: "Event request submitted",
         returned: "Clarification requested",
         approved: "Event request approved",
