@@ -16,12 +16,13 @@ from sqlalchemy.orm import Session
 
 from . import arrangements, booking_rules, event_hooks
 from .auth import get_current_user
-from .booking_rules import singapore_time, to_naive_utc
 from .database import get_db
 from .events import (
     SIGNIFICANT_FIELDS,
     EventAmend,
     _get_entitled_event,
+    column_value,
+    differs_from_event,
     validate_event_business_rules,
 )
 from .models import Event, EventChangeRequest, EventStatusHistory, User
@@ -112,12 +113,8 @@ def _clean_changes(changes: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     clean = {}
-    for field, value in _parse_values(changes).items():
-        if isinstance(value, str):
-            value = value.strip() or None  # Blank text means the same as an empty column.
-        if isinstance(value, datetime) and value.tzinfo is not None:
-            # events.proposed_start is naive Singapore wall time.
-            value = singapore_time(to_naive_utc(value))
+    for field, sent_value in _parse_values(changes).items():
+        value = column_value(sent_value)
         if value is None and field in ("proposed_start", "expected_attendance"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -128,8 +125,8 @@ def _clean_changes(changes: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _real_differences(event: Event, changes: Dict[str, Any]) -> Dict[str, Any]:
-    """Only the changes that differ from the event. An empty string counts as empty."""
-    return {field: value for field, value in changes.items() if (getattr(event, field) or None) != value}
+    """Only the changes that differ from the event."""
+    return {field: value for field, value in changes.items() if differs_from_event(event, field, value)}
 
 
 def _to_json(values: Dict[str, Any]) -> str:

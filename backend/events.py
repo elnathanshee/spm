@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from . import arrangements, event_hooks  # [Sprint 5]
 from .auth import get_current_user
 from .booking_rules import hold_fields, is_blocking  # [SCRUM-81 | Elnathan]
+from .booking_rules import singapore_time, to_naive_utc  # [SCRUM-29]
 from .database import get_db
 from .models import EquipmentRequest, Event, EventStatusHistory, User, VenueBooking
 from .status import APPROVED, CONFIRMED, DRAFT, PLANNING, REJECTED, RETURNED, SUBMITTED, UNDER_REVIEW
@@ -282,8 +283,26 @@ def _has_arrangements(db: Session, event: Event) -> bool:
     return db.query(EquipmentRequest.id).filter(EquipmentRequest.event_id == event.id).first() is not None
 
 
-def _handle_amendment(db: Session, event: Event, actor: User, changed_fields: list) -> tuple:
-    """[SCRUM-29] Tell a routine amendment from an important one, and do what each needs.
+def column_value(value: Any) -> Any:
+    """[SCRUM-29] A sent value as the column holds it, so a false change isn't taken for a real one.
+
+    Blank text means the same as an empty column. proposed_start is naive Singapore
+    wall time, so a time sent with a zone is converted.
+    """
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return singapore_time(to_naive_utc(value))
+    return value
+
+
+def differs_from_event(event: Event, field: str, value: Any) -> bool:
+    """[SCRUM-29] True when a column value really changes the field. An empty string counts as empty."""
+    return (getattr(event, field) or None) != value
+
+
+def _handle_detail_edit(db: Session, event: Event, actor: User, changed_fields: list, reason: str) -> tuple:
+    """[SCRUM-29] Tell a routine edit from an important one, and do what each needs.
 
     Returns (change_type, how many arrangements were flagged). Nothing here commits.
     """
@@ -293,10 +312,31 @@ def _handle_amendment(db: Session, event: Event, actor: User, changed_fields: li
         return "routine", 0
     if not _has_arrangements(db, event):
         return "important", 0
-    reason = "Request amended by organiser. Fields changed: " + ", ".join(changed_fields)
     flags = arrangements.flag_event_arrangements(db, event, arrangements.SOURCE_IMPORTANT_CHANGE, reason, actor)
     event_hooks.important_change(db, event, actor, changed_fields, reason)
     return "important", len(flags)
+
+
+def apply_booking_requirements(db: Session, event: Event, actor: User, requirements: Optional[str]) -> int:
+    """[SCRUM-29] A booking request can bring new venue requirements, an important field.
+
+    Called before the new booking is added, because that booking is made for the new
+    requirements. Blank means none were sent. Returns how many arrangements were flagged.
+    """
+    value = column_value(requirements)
+    if value is None or not differs_from_event(event, "venue_requirements", value):
+        return 0
+    event.venue_requirements = value
+    reason = "Venue booking request changed the requirements. Fields changed: venue_requirements"
+    db.add(EventStatusHistory(
+        event_id=event.id,
+        previous_status=event.status,
+        new_status=event.status,
+        actor_id=actor.id,
+        reason=reason,
+    ))
+    _, flagged = _handle_detail_edit(db, event, actor, ["venue_requirements"], reason)
+    return flagged
 
 
 # [SCRUM-21 | Elnathan] Organiser amends own event request
@@ -378,8 +418,9 @@ def amend_event(
     )
 
     changed_fields = []
-    for field_name, new_value in changes.items():
-        if getattr(event, field_name) != new_value:
+    for field_name, sent_value in changes.items():
+        new_value = column_value(sent_value)  # [SCRUM-29]
+        if differs_from_event(event, field_name, new_value):
             setattr(event, field_name, new_value)
             changed_fields.append(field_name)
 
@@ -399,7 +440,7 @@ def amend_event(
         reason=reason_text,
     )
     db.add(status_history)
-    change_type, arrangements_flagged = _handle_amendment(db, event, current_user, changed_fields)  # [SCRUM-29]
+    change_type, arrangements_flagged = _handle_detail_edit(db, event, current_user, changed_fields, reason_text)  # [SCRUM-29]
     # [SCRUM-67] Only a real change, and only when there is a Coordinator to tell.
     if changed_fields and event.assigned_coordinator_id is not None:
         notify(
