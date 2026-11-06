@@ -16,10 +16,10 @@ from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend import equipment_catalogue, event_hooks
+from backend import arrangements, equipment_catalogue, event_hooks
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import Event, EquipmentReservation, LoginSession, User, Venue, VenueBooking
+from backend.models import Event, EquipmentRequest, EquipmentReservation, LoginSession, Notification, User, Venue, VenueBooking
 from backend.security import hash_password
 
 engine = create_engine(
@@ -759,3 +759,157 @@ def test_tc4419_the_cancel_handler_leaves_committing_to_the_caller_and_keeps_ear
     db.commit()
     rows = client.get(f"/events/{event.id}/equipment-reservations").json()["reservations"]
     assert [row["released_by"] for row in rows] == ["tech", "lead"]
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-40: Technical Support update an equipment request as arrangements are made
+# SCRUM-65 (equipment half): the Coordinator is told when a request changes
+# ---------------------------------------------------------------------------
+
+STATUSES = ["requested", "reserved", "arranged", "unavailable"]
+
+
+def make_request(db, users, event, equipment_type="Projector"):
+    request = EquipmentRequest(event_id=event.id, equipment_type=equipment_type, quantity=2, requested_by_id=users["coord"].id)
+    db.add(request)
+    db.commit()
+    return request
+
+
+def update_status(client, request, status="reserved", note="Booked from stores", username="tech"):
+    login(client, username)
+    return client.post(f"/equipment-requests/{request.id}/status", json={"status": status, "note": note})
+
+
+def equipment_notices(db):
+    db.expire_all()
+    return db.query(Notification).filter(Notification.kind == equipment_catalogue.KIND_EQUIPMENT_REQUEST_UPDATED).all()
+
+
+@pytest.mark.parametrize("status", STATUSES)
+def test_tc4001_technical_support_set_each_status_with_a_note(client, db, users, status):
+    request = make_request(db, users, make_event(db, users))
+    response = update_status(client, request, status)
+    assert response.status_code == 200
+    updated = response.json()["equipment_request"]
+    assert updated["latest_status"] == status
+    assert updated["latest_note"] == "Booked from stores"
+    assert updated["id"] == request.id
+
+
+def test_tc4002_every_update_is_kept_in_history_and_the_request_shows_the_latest(client, db, users):
+    event = make_event(db, users)
+    request = make_request(db, users, event)
+    assert update_status(client, request, "reserved", "First").status_code == 200
+    assert update_status(client, request, "arranged", "Second", "tech2").status_code == 200
+    db.expire_all()
+    history = arrangements.equipment_status_history(db, request)
+    assert [(row.status, row.note, row.actor.username) for row in history] == [
+        ("reserved", "First", "tech"),
+        ("arranged", "Second", "tech2"),
+    ]
+    assert arrangements.latest_equipment_status(db, request) == "arranged"
+    login(client, "tech")
+    line = client.get("/equipment-requests").json()["equipment_requests"][0]
+    assert (line["latest_status"], line["latest_note"]) == ("arranged", "Second")
+
+
+def test_tc4003_the_note_is_optional_and_a_later_update_without_one_clears_it(client, db, users):
+    request = make_request(db, users, make_event(db, users))
+    update_status(client, request, "reserved", "First")
+    for note in ["   ", None]:
+        response = update_status(client, request, "arranged", note)
+        assert response.status_code == 200
+        assert response.json()["equipment_request"]["latest_note"] is None
+    login(client, "tech")
+    assert client.post(f"/equipment-requests/{request.id}/status", json={"status": "arranged"}).status_code == 200
+
+
+@pytest.mark.parametrize("body", [{"status": "lost", "note": "x"}, {"status": "Reserved"}, {"status": None}, {"note": "x"}, {}])
+def test_tc4004_an_unknown_or_missing_status_is_a_422_and_adds_nothing(client, db, users, body):
+    request = make_request(db, users, make_event(db, users))
+    login(client, "tech")
+    assert client.post(f"/equipment-requests/{request.id}/status", json=body).status_code == 422
+    db.expire_all()
+    assert arrangements.equipment_status_history(db, request) == []
+    assert equipment_notices(db) == []
+
+
+@pytest.mark.parametrize("username", NOT_TECH)
+def test_tc4005_only_technical_support_can_update_a_request(client, db, users, username):
+    request = make_request(db, users, make_event(db, users))
+    assert update_status(client, request, username=username).status_code == 403
+    db.expire_all()
+    assert arrangements.equipment_status_history(db, request) == []
+    assert equipment_notices(db) == []
+
+
+def test_tc4006_an_unknown_request_is_a_404_and_signed_out_is_a_401(client, db, users):
+    login(client, "tech")
+    assert client.post("/equipment-requests/999/status", json={"status": "reserved"}).status_code == 404
+    login(client, None)
+    assert client.post("/equipment-requests/999/status", json={"status": "reserved"}).status_code == 401
+
+
+def test_tc4007_existing_responses_gain_the_latest_status_and_keep_everything_else(client, db, users):
+    event = make_event(db, users)
+    login(client, "coord")
+    created = client.post(f"/events/{event.id}/equipment-requests", json={"equipment_type": "Projector", "quantity": 2})
+    assert created.status_code == 201
+    line = created.json()["equipment_request"]
+    assert (line["latest_status"], line["latest_note"]) == ("requested", None)
+    for key in ["id", "event_id", "event_title", "event_proposed_start", "equipment_type", "quantity",
+                "technical_requirements", "requested_by", "created_at"]:
+        assert key in line
+    for path, key in [(f"/events/{event.id}/equipment-requests", "equipment_requests"), ("/equipment-requests", "equipment_requests")]:
+        assert client.get(path).json()[key] == [line]
+
+
+def test_tc4008_arranging_every_request_opens_the_gate_scrum_102_reads(client, db, users):
+    event = make_event(db, users)
+    first = make_request(db, users, event, "Projector")
+    second = make_request(db, users, event, "Screen")
+    update_status(client, first, "arranged")
+    db.expire_all()
+    assert arrangements.all_equipment_arranged(db, event) is False
+    update_status(client, second, "arranged")
+    db.expire_all()
+    assert arrangements.all_equipment_arranged(db, event) is True
+
+
+def test_tc6501_the_assigned_coordinator_is_told_on_each_update(client, db, users):
+    event = make_event(db, users)
+    request = make_request(db, users, event)
+    update_status(client, request, "reserved", "Booked from stores")
+    update_status(client, request, "arranged", None)
+    notices = equipment_notices(db)
+    assert [notice.user_id for notice in notices] == [users["coord"].id] * 2
+    assert all(notice.event_id == event.id and notice.booking_id is None for notice in notices)
+    assert "Projector" in notices[0].message and "Gala" in notices[0].message
+    assert "reserved" in notices[0].message and "Booked from stores" in notices[0].message
+    assert "arranged" in notices[1].message
+    login(client, "coord")
+    messages = [row["message"] for row in client.get("/notifications").json()]
+    assert notices[0].message in messages and notices[1].message in messages
+
+
+def test_tc6502_with_no_coordinator_assigned_the_update_is_saved_and_nobody_is_told(client, db, users):
+    request = make_request(db, users, make_event(db, users, coordinator=None))
+    assert update_status(client, request).status_code == 200
+    assert equipment_notices(db) == []
+
+
+def test_tc6503_an_assignee_who_is_no_longer_entitled_does_not_block_the_update(client, db, users):
+    request = make_request(db, users, make_event(db, users))
+    users["coord"].role = "attendee"
+    db.commit()
+    assert update_status(client, request).status_code == 200
+    assert equipment_notices(db) == []
+
+
+def test_tc6504_only_the_assigned_coordinator_is_told(client, db, users):
+    request = make_request(db, users, make_event(db, users))
+    update_status(client, request)
+    for username in ["coord_other", "lead", "org", "venue", "tech"]:
+        login(client, username)
+        assert client.get("/notifications").json() == [], username
