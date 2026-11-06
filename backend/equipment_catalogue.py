@@ -53,11 +53,11 @@ KIND_EQUIPMENT_REQUEST_UPDATED = "equipment_request_updated"
 
 
 def require_technical_support(current_user: User = Depends(get_current_user)) -> User:
-    """[SCRUM-41] Only Technical Support manage the catalogue."""
+    """[SCRUM-41] Only Technical Support manage the catalogue and make the arrangements."""
     if _role_of(current_user) not in TECHNICAL_SUPPORT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Technical Support Staff can manage the equipment catalogue",
+            detail="Only Technical Support Staff can manage equipment and its arrangements",
         )
     return current_user
 
@@ -320,7 +320,8 @@ def remove_unavailability(
 
 def reserved_units(db: Session, item: EquipmentItem, start: datetime, end: datetime) -> int:
     """[SCRUM-43] Units in active reservations whose event's window overlaps. An event
-    that has lost its window (no date, no booking) can't overlap anything."""
+    that has lost its window (no date, no booking) can't overlap anything, and a closed
+    event isn't going ahead: only cancelling releases, and an event can also be rejected."""
     reservations = (
         db.query(EquipmentReservation)
         .filter(EquipmentReservation.item_id == item.id, EquipmentReservation.released_at.is_(None))
@@ -328,6 +329,8 @@ def reserved_units(db: Session, item: EquipmentItem, start: datetime, end: datet
     )
     total = 0
     for reservation in reservations:
+        if reservation.event.status in CLOSED_EVENT_STATUSES:
+            continue
         window = event_window(reservation.event)
         if window and windows_overlap(start, end, window[0], window[1]):
             total += reservation.quantity
