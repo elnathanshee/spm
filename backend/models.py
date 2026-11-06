@@ -396,7 +396,6 @@ class EquipmentItem(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
-
 # [Sprint 5 | SCRUM-42] NEW: a number of an item's units that can't be used for a
 # period. Times are naive UTC, like bookings. A new table for the same reason.
 class EquipmentItemUnavailability(Base):
