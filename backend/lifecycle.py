@@ -4,6 +4,7 @@
   POST /events/{id}/submit-safety        Planning -> Safety Review, once the gate is met
   POST /events/{id}/complete             Confirmed -> Completed, after the event's end
   POST /events/{id}/cancel               Cancelled, with a required reason
+  GET  /events/{id}/lifecycle-actions    what the signed-in person may do, and why not
   GET  /events/{id}/review-flags         the event's active review flags
   POST /events/{id}/review-flags/clear   mark them as looked at
 
@@ -11,7 +12,7 @@ Who may make each move is in status_rules.py. This module adds what the move nee
 around it: the gate, the end time, releasing bookings, and the notices (SCRUM-66).
 """
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
@@ -23,7 +24,7 @@ from .database import get_db
 from .events import event_to_dict
 from .models import ArrangementReviewFlag, EquipmentRequest, Event, User, VenueBooking
 from .notifications import can_see_event, notify
-from .status import CANCELLED, COMPLETED, PLANNING, SAFETY_REVIEW
+from .status import APPROVED, CANCELLED, COMPLETED, CONFIRMED, PLANNING, SAFETY_REVIEW
 from .status_rules import StatusChangeError, change_status, check_transition
 
 router = APIRouter(prefix="/events", tags=["event lifecycle"])
@@ -43,6 +44,10 @@ class CancelAction(BaseModel):
         if not v or not v.strip():
             raise ValueError("A cancellation reason is required")
         return v.strip()
+
+
+def _role_of(user: User) -> str:
+    return (user.role or "").strip().lower()
 
 
 def get_event_or_404(event_id: int, db: Session) -> Event:
@@ -134,6 +139,15 @@ def submit_for_safety_check(
     return _result(event, "Sent to the safety check")
 
 
+def _why_not_ended(event: Event) -> Optional[str]:
+    """None once the event's end time has come, otherwise a sentence saying when it will."""
+    end = arrangements.event_end(event)
+    if end is not None and booking_rules.utc_now() >= end:
+        return None
+    ends = f" It ends at {booking_rules.singapore_time(end).strftime('%Y-%m-%d %H:%M')} Singapore time." if end else ""
+    return f"This event hasn't ended yet, so it can't be marked Completed.{ends}"
+
+
 @router.post("/{event_id}/complete")
 def complete_event(
     event_id: int,
@@ -144,13 +158,9 @@ def complete_event(
     event = get_event_or_404(event_id, db)
     check_move(event, COMPLETED, current_user)
 
-    end = arrangements.event_end(event)
-    if end is None or booking_rules.utc_now() < end:
-        ends = f" It ends at {booking_rules.singapore_time(end).strftime('%Y-%m-%d %H:%M')} Singapore time." if end else ""
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"This event hasn't ended yet, so it can't be marked Completed.{ends}",
-        )
+    not_ended = _why_not_ended(event)
+    if not_ended:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=not_ended)
 
     change_status(db, event, COMPLETED, current_user)
     db.commit()
@@ -200,11 +210,49 @@ def cancel_event(
     return _result(event, "Event cancelled")
 
 
+def _may_move(event: Event, new_status: str, user: User) -> bool:
+    try:
+        check_transition(event, new_status, user)
+    except StatusChangeError:
+        return False
+    return True
+
+
+def _action(action: str, label: str, why: Optional[str] = None) -> dict:
+    return {"action": action, "label": label, "available": why is None, "why": why}
+
+
+@router.get("/{event_id}/lifecycle-actions")
+def lifecycle_actions(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """What the event detail dialog offers this person. Added beyond the agreed routes
+    because the dialog can't work out equipment status or the end time itself, and it
+    must say why a button is unavailable. The rulebook decides; nothing is repeated."""
+    event = get_event_or_404(event_id, db)
+    role = _role_of(current_user)
+    own_request = role == "organiser" and event.organiser_id == current_user.id
+    if not own_request and role not in ("coordinator", "lead"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can't view this event's actions")
+
+    actions = []
+    if _may_move(event, PLANNING, current_user):
+        actions.append(_action("start-planning", "Start planning"))
+    if _may_move(event, SAFETY_REVIEW, current_user):
+        missing = _whats_missing_for_safety(db, event)
+        actions.append(_action("submit-safety", "Submit for safety check", " ".join(missing) or None))
+    if _may_move(event, COMPLETED, current_user):
+        actions.append(_action("complete", "Mark completed", _why_not_ended(event)))
+    if _may_move(event, CANCELLED, current_user):
+        actions.append(_action("cancel", "Cancel event"))
+    elif own_request and event.status in (APPROVED, PLANNING, SAFETY_REVIEW, CONFIRMED):
+        actions.append(_action("cancel", "Cancel event", "After approval, only the assigned Coordinator or a Lead can cancel this event."))
+    return actions
+
+
 # --- [SCRUM-87] Review flags --------------------------------------------------------
-
-
-def _role_of(user: User) -> str:
-    return (user.role or "").strip().lower()
 
 
 def _can_view_flags(user: User, event: Event) -> bool:
