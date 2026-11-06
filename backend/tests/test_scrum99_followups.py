@@ -127,6 +127,40 @@ def test_tc9912_a_booking_that_only_touches_singapore_midnight_is_not_on_that_da
     assert busy_on(client, room, DAY) == 1
 
 
+@pytest.mark.parametrize(
+    "first, last",
+    [
+        ("0001-01-01", "0001-01-01"),  # moving back 8 hours for Singapore falls off the calendar
+        ("9999-12-31", "9999-12-31"),  # the next day doesn't exist
+        ("1999-12-31", "2000-01-02"),
+        ("2999-12-30", "3000-01-01"),
+    ],
+)
+def test_tc9929_a_calendar_date_outside_the_supported_years_is_refused_not_a_server_error(client, room, event, first, last):
+    """TC-9929 | Negative Path | These years can be typed into the date inputs. A 422 says what to do."""
+    response = client.get(f"/venues/{room.id}/calendar", params={"from": first, "to": last})
+
+    assert response.status_code == 422
+    assert "2000-01-01" in response.json()["detail"]
+    assert "2999-12-31" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("day", ["2000-01-01", "2999-12-31"])
+def test_tc9930_the_first_and_last_supported_calendar_dates_work_with_buffers(client, db_session, event, day):
+    """TC-9930 | Boundary Path | Setup and turnaround time widen the search, and must not break at the edges."""
+    venue = Venue(
+        name="Buffered Hall", location="Block B", capacity=100, operating_hours="08:00-22:00",
+        setup_time_mins=30, turnaround_time_mins=45, is_active=True,
+    )
+    db_session.add(venue)
+    db_session.commit()
+
+    response = client.get(f"/venues/{venue.id}/calendar", params={"from": day, "to": day})
+
+    assert response.status_code == 200
+    assert response.json()["days"][0]["date"] == day
+
+
 # ---------------------------------------------------------- equipment quantity
 
 
