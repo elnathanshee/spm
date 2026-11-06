@@ -135,7 +135,7 @@
 
         <!-- [Sprint 5] SCRUM-86 Safety Officer workspace: insert directly below this line. -->
         <template x-if="currentPath === '/safety' && user.role === 'Safety Officer'"><section class="operations-page safety-workspace" x-data="safetyWorkspace()">
-          <div class="page-header"><div><p class="eyebrow">Safety Officer workspace</p><h1>Safety checks</h1><p>Events waiting for an Operational Safety Check, soonest first. An event can't be Confirmed without your approval.</p></div></div>
+          <div class="page-header"><div><p class="eyebrow">Safety Officer workspace</p><h1>Safety checks</h1><p>Events waiting for an Operational Safety Check, soonest first. An event can't be Confirmed without your approval.</p></div><button type="button" class="button button-secondary" :disabled="safety.loading" :aria-busy="safety.loading" @click="refreshSafetyEvents()">Refresh</button></div>
           <p class="form-help" role="status" x-show="safety.notice" x-text="safety.notice"></p>
           <div class="inline-state error request-load-error" role="alert" x-show="safety.error"><span x-text="safety.error"></span><button type="button" class="button button-secondary button-compact" :disabled="safety.loading" @click="safety.error = ''; loadSafetyEvents()">Try again</button></div>
           <div class="inline-state" role="status" x-show="safety.loading && !safety.loaded"><span class="spinner dark" aria-hidden="true"></span> Loading safety checks…</div>

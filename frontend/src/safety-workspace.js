@@ -34,6 +34,12 @@ export function safetyWorkspace() {
       view.error = response.data?.detail || "The events waiting for a safety check could not be loaded.";
     },
 
+    // The list changes as Coordinators submit and cancel, and this page has no poll.
+    async refreshSafetyEvents() {
+      this.safety.error = "";
+      await this.loadSafetyEvents();
+    },
+
     async openSafetyEvent(eventId) {
       const view = this.safety;
       view.detailLoading = true;

@@ -19,7 +19,7 @@ from . import arrangements, booking_rules, event_hooks
 from .auth import get_current_user
 from .database import get_db
 from .events import event_to_dict
-from .lifecycle import tell_organiser_and_coordinator
+from .lifecycle import tell_organiser_and_coordinator, whats_missing_for_safety
 from .models import EquipmentRequest, Event, SafetyCheck, User, VenueBooking
 from .notifications import can_see_event, notify
 from .status import CONFIRMED, PLANNING, SAFETY_REVIEW
@@ -188,6 +188,14 @@ def decide_safety_check(
 ):
     """Record the decision and everything it causes, in one commit."""
     event = _event_in_review(event_id, db)
+    # [SCRUM-102] Arrangements can change during the check, so the gate is read again.
+    # Rejecting or requesting changes stays possible: that's how the event goes back.
+    missing = whats_missing_for_safety(db, event) if action.decision == APPROVE else []
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This event can't be approved yet. {' '.join(missing)} Request changes to send it back to Planning.",
+        )
     new_status = CONFIRMED if action.decision == APPROVE else PLANNING
     try:
         change_status(db, event, new_status, current_user, reason=action.reason)

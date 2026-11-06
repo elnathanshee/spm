@@ -88,7 +88,11 @@ export function eventLifecycle() {
     async refreshListsAfterLifecycle() {
       const role = this.normalizeRole(this.user?.role);
       if (role === "Organiser") await this.fetchEvents();
-      else if (role === "Coordinator") await this.fetchAssignedEvents();
+      else if (role === "Coordinator") {
+        const tasks = [this.fetchAssignedEvents()];
+        if (this.currentPath === "/coordinator/all-events" || this.allCoordinatorEvents?.length) tasks.push(this.fetchAllCoordinatorEvents());
+        await Promise.all(tasks);
+      }
       else if (role === "Event Coordinator Lead") await this.fetchLeadData();
     },
   };

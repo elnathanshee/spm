@@ -87,6 +87,13 @@ def start_planning(
 ):
     """The assigned Coordinator starts arranging an Approved event."""
     event = get_event_or_404(event_id, db)
+    # [SCRUM-86] The rulebook's Safety Review -> Planning move belongs to a safety
+    # decision, which records the reason and the check. It can't happen here.
+    if event.status != APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only an Approved event can start planning. This one is {event.status}.",
+        )
     check_move(event, PLANNING, current_user)
     change_status(db, event, PLANNING, current_user)
     db.commit()
@@ -94,7 +101,7 @@ def start_planning(
     return _result(event, "Planning started")
 
 
-def _whats_missing_for_safety(db: Session, event: Event) -> List[str]:
+def whats_missing_for_safety(db: Session, event: Event) -> List[str]:
     """The gate. Each sentence is one thing the Coordinator still has to do."""
     missing = []
     if not any(booking.status == "Confirmed" for booking in event.venue_bookings):
@@ -125,7 +132,7 @@ def submit_for_safety_check(
     event = get_event_or_404(event_id, db)
     check_move(event, SAFETY_REVIEW, current_user)
 
-    missing = _whats_missing_for_safety(db, event)
+    missing = whats_missing_for_safety(db, event)
     if missing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -200,6 +207,8 @@ def cancel_event(
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
     release_bookings(event)
+    # [SCRUM-87] A cancelled event has nothing left to look at. The rows stay as history.
+    arrangements.clear_review_flags(db, event, current_user)
     event_hooks.event_cancelled(db, event, current_user, action.reason)
     tell_organiser_and_coordinator(
         db, event, KIND_EVENT_CANCELLED,
@@ -241,7 +250,7 @@ def lifecycle_actions(
     if _may_move(event, PLANNING, current_user):
         actions.append(_action("start-planning", "Start planning"))
     if _may_move(event, SAFETY_REVIEW, current_user):
-        missing = _whats_missing_for_safety(db, event)
+        missing = whats_missing_for_safety(db, event)
         actions.append(_action("submit-safety", "Submit for safety check", " ".join(missing) or None))
     if _may_move(event, COMPLETED, current_user):
         actions.append(_action("complete", "Mark completed", _why_not_ended(event)))

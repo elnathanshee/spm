@@ -1300,6 +1300,8 @@ document.addEventListener("alpine:init", () => {
 
     canBookEvent(event) {
       if (!event) return false;
+      // [SCRUM-102] The backend refuses bookings on a closed event, so don't offer one.
+      if (event.status === "Cancelled" || event.status === "Completed") return false;
       const role = this.normalizeRole(this.user?.role);
       if (role === "Event Coordinator Lead") return true;
       if (role === "Coordinator") return this.assignedEvents.some(item => item.id === event.id);
