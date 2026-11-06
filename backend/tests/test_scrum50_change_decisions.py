@@ -9,11 +9,11 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from backend import event_hooks
+from backend import event_hooks, registrations
 from backend.arrangements import SOURCE_IMPORTANT_CHANGE, active_review_flags
 from backend.booking_rules import singapore_time, utc_now
 from backend.change_requests import KIND_CHANGE_APPROVED
-from backend.models import EquipmentRequest, Event, EventChangeRequest, EventStatusHistory, Notification, Venue, VenueBooking
+from backend.models import EquipmentRequest, Event, EventChangeRequest, EventRegistration, EventStatusHistory, Notification, User, Venue, VenueBooking
 from backend.tests.test_scrum49_change_requests import (  # noqa: F401  (fixtures)
     NEW_START,
     client,
@@ -391,3 +391,36 @@ def test_tc5025_flags_from_an_approved_change_reach_the_review_flags_route(clien
     db_session.expire_all()
     assert db_session.get(VenueBooking, arrangements["booking"].id).status == "Confirmed"
     assert db_session.get(EquipmentRequest, arrangements["equipment"].id) is not None
+
+
+def attendee_notices(db_session, attendee):
+    db_session.expire_all()
+    return db_session.query(Notification).filter(Notification.user_id == attendee.id).all()
+
+
+def test_tc5026_approving_through_the_route_tells_registered_attendees(client, world, db_session):
+    """TC-5026: Group E's hook through the real route: a registered Attendee is told, a withdrawn one isn't."""
+    event = world["event"]
+    event.status = "Confirmed"
+    going = User(username="going", password_hash="x", role="attendee")
+    withdrew = User(username="withdrew", password_hash="x", role="attendee")
+    db_session.add_all([going, withdrew])
+    db_session.flush()
+    db_session.add_all([
+        EventRegistration(event_id=event.id, attendee_id=going.id, status="registered"),
+        EventRegistration(event_id=event.id, attendee_id=withdrew.id, status="withdrawn", withdrawn_at=datetime(2099, 1, 1)),
+    ])
+    db_session.commit()
+
+    # A rejected request changes nothing, so the Attendee hears nothing.
+    decide(client, event, raised(client, world, {"proposed_start": NEW_START}), "reject", "The venue is taken")
+    assert attendee_notices(db_session, going) == []
+
+    res = decide(client, event, raised(client, world, {"proposed_start": NEW_START}), "approve", "Internal note for staff")
+    assert res.status_code == 200
+    notices = attendee_notices(db_session, going)
+    assert [notice.kind for notice in notices] == [registrations.KIND_EVENT_CHANGED]
+    assert "Annual Gala" in notices[0].message
+    # The Organiser's reason and the staff decision reason aren't for Attendees.
+    assert "speaker" not in notices[0].message and "Internal note" not in notices[0].message
+    assert attendee_notices(db_session, withdrew) == []
